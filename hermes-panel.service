@@ -1,0 +1,17 @@
+[Unit]
+Description=Hermes Control Panel
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/AppData/hermes-native/hermes-data/scripts/dashboard-toggle-server.py
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+# Optional overrides:
+# Environment=PANEL_TOKEN=vita-stb-2026
+# Environment=PANEL_PORT=9120
+# Environment=HERMES_CONFIG_PATH=/root/.hermes/config.yaml
+
+[Install]
+WantedBy=multi-user.target
