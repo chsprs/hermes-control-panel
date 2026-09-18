@@ -563,11 +563,6 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   </div>
 
   <div id="rl-slot">{rate_limit_card}</div>
-  <div id="log-slot">{log_card}</div>
-  <div id="log-show-wrap" style="display:none;margin-top:.6rem">
-    <button type="button" class="btn" style="width:auto;padding:0.35rem 0.8rem;font-size:0.75rem;margin:0"
-      onclick="toggleLog('logDismissed','log-show-wrap')">Tampilkan Log Update</button>
-  </div>
 </div>
 
 <!-- CONTROL TAB -->
@@ -604,6 +599,11 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     </div>
   </div>
   <div class="card card-warn" id="update-slot">{update_block}</div>
+  <div id="log-slot">{log_card}</div>
+  <div id="log-show-wrap" style="display:none;margin-top:.6rem">
+    <button type="button" class="btn" style="width:auto;padding:0.35rem 0.8rem;font-size:0.75rem;margin:0"
+      onclick="toggleLog('logDismissed','log-show-wrap')">Tampilkan Log Update 9router</button>
+  </div>
   <div class="card card-warn" id="hermes-update-slot">{hermes_update_block}</div>
   <div id="hermes-log-show" style="display:none;margin-top:.6rem">
     <button type="button" class="btn" style="width:auto;padding:0.35rem 0.8rem;font-size:0.75rem;margin:0"
@@ -947,13 +947,19 @@ def get_9router_host() -> str:
         if _9router_host_cache and (time.time() - _9router_host_at) < 300:  # 5 min cache
             return _9router_host_cache
 
-    # 1. Check local Docker first
+    # 1. Check local Docker / Compose first: if compose file or container exists locally, it's local!
+    if os.path.exists(f"{ROUTER_COMPOSE_DIR}/docker-compose.yml"):
+        with _9router_host_lock:
+            _9router_host_cache = "127.0.0.1"
+            _9router_host_at = time.time()
+        return "127.0.0.1"
+
     try:
         r = subprocess.run(
-            ["docker", "inspect", ROUTER_CONTAINER, "--format", "{{.State.Running}}"],
+            ["docker", "inspect", ROUTER_CONTAINER, "--format", "{{.Id}}"],
             capture_output=True, text=True, timeout=INFO_TIMEOUT,
         )
-        if r.returncode == 0 and "true" in r.stdout.lower():
+        if r.returncode == 0 and r.stdout.strip():
             with _9router_host_lock:
                 _9router_host_cache = "127.0.0.1"
                 _9router_host_at = time.time()
@@ -2177,34 +2183,80 @@ def get_router_release() -> dict:
         return {"current": "?", "latest": "?", "has_update": False}
 
 
+def get_dockerhub_latest_tag() -> str:
+    """Fetch the latest semver tag from Docker Hub for decolua/9router."""
+    try:
+        url = f"https://hub.docker.com/v2/repositories/{DOCKERHUB_REPO}/tags/?page_size=10"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=INFO_TIMEOUT) as resp:
+            data = json.load(resp)
+        tags = [r["name"] for r in data.get("results", []) if r.get("name") and r["name"] != "latest"]
+        return tags[0] if tags else ""
+    except Exception:
+        return ""
+
+
+def _parse_semver(v: str) -> list[int]:
+    """Parse version string into integer list for comparison (e.g. '0.5.75' -> [0, 5, 75])."""
+    nums = re.findall(r"\d+", str(v or ""))
+    return [int(n) for n in nums] if nums else [0]
+
+
 def _refresh_update_cache() -> None:
-    """Compare Docker Hub digest for :latest AND 9router release/version API."""
+    """Compare Docker Hub digest, Docker Hub tags, and 9router release/version API."""
     global _update_refreshing
     try:
         local = get_local_image_digest()
         remote = get_remote_image_digest()
         release = get_router_release()
+        docker_tag = get_dockerhub_latest_tag()
+
         digest_known = bool(local and remote)
         digest_differs = bool(digest_known and local != remote)
-        
-        # Detect update if Docker Hub has newer image digest OR release API reports higher version
-        has_update = release.get("has_update") or digest_differs
-        
-        if has_update:
+
+        installed_ver = release.get("current")
+        if not installed_ver or installed_ver == "?":
+            installed_ver = get_cached_router_version()
+
+        # Compare installed version with latest tag on Docker Hub
+        tag_is_newer = False
+        if docker_tag and installed_ver and installed_ver != "?":
+            tag_is_newer = _parse_semver(docker_tag) > _parse_semver(installed_ver)
+
+        # Docker container can ONLY update if a new image exists on Docker Hub!
+        has_docker_update = digest_differs or tag_is_newer
+
+        # Check if npm has released a newer version before Docker Hub builds it
+        npm_latest = release.get("latest", "")
+        npm_ahead = False
+        if npm_latest and npm_latest != "?" and installed_ver and installed_ver != "?":
+            npm_ahead = _parse_semver(npm_latest) > _parse_semver(installed_ver)
+
+        if has_docker_update:
             status = "available"
+            target_ver = docker_tag or npm_latest or "baru"
         elif digest_known and local == remote:
             status = "current"
-        elif release["current"] != "?":
+            target_ver = docker_tag or installed_ver
+        elif installed_ver and installed_ver != "?":
             status = "current"
+            target_ver = installed_ver
         else:
             status = "unknown"
-            
+            target_ver = "?"
+
         data = {
-            "checked_at": time.time(), "status": status,
-            "local": local, "remote": remote,
-            "version": release["current"], "latest_version": release["latest"],
-            "release_update": release["has_update"],
+            "checked_at": time.time(),
+            "status": status,
+            "local": local,
+            "remote": remote,
+            "version": installed_ver,
+            "latest_version": target_ver,
+            "docker_tag": docker_tag,
+            "npm_latest": npm_latest,
+            "npm_ahead": npm_ahead,
             "digest_update": digest_differs,
+            "tag_update": tag_is_newer,
         }
         try:
             tmp = UPDATE_CACHE_PATH + ".tmp"
@@ -2256,10 +2308,10 @@ def _router_update_command() -> str:
         "printf '[3/5] Menghentikan container 9router...\\n'; "
         f"docker compose -f {compose}/docker-compose.yml stop 2>&1 || docker stop {container} 2>&1; "
         "printf '[4/5] Mengunduh (pull) image baru...\\n'; "
-        f"docker compose -f {compose}/docker-compose.yml pull 2>&1; pull_rc=$?; "
+        f"docker compose -f {compose}/docker-compose.yml pull 2>&1 || docker pull {image} 2>&1; pull_rc=$?; "
         "printf 'compose pull exit=%s\\n' \"$pull_rc\"; "
         "printf '[5/5] Menyalakan kembali 9router...\\n'; "
-        f"docker compose -f {compose}/docker-compose.yml up -d 2>&1; up_rc=$?; "
+        f"docker compose -f {compose}/docker-compose.yml up -d 2>&1 || docker start {container} 2>&1; up_rc=$?; "
         "printf 'compose up exit=%s\\n' \"$up_rc\"; "
         f"after=$(docker inspect -f '{{{{.Image}}}}' {container} 2>&1); printf 'after=%s\\n' \"$after\"; "
         "if [ -n \"$before\" ] && [ \"$before\" = \"$after\" ]; then echo 'changed=false'; else echo 'changed=true'; fi; "
@@ -2377,6 +2429,7 @@ def update_router() -> None:
             log.close()
             with _router_update_lock:
                 _router_updating = False
+            threading.Thread(target=_refresh_update_cache, daemon=True).start()
     threading.Thread(target=_run, daemon=True).start()
 
 
@@ -2783,6 +2836,9 @@ def build_fragments() -> dict:
         cached_info = get_cached_router_info()
         installed_version = cached_info.get("version") or get_cached_router_version()
         latest_version = cached_info.get("latest_version", "")
+        npm_ahead = cached_info.get("npm_ahead", False)
+        npm_latest = cached_info.get("npm_latest", "")
+
         version_label = f"v{installed_version} &rarr; v{latest_version}" if (latest_version and latest_version != "?" and latest_version != installed_version) else f"v{installed_version}"
         cek_btn = (f'<a class="toggle restart" href="/check-update?token={TOKEN}">'
                    f'{ICON_REFRESH}Cek Update 9router</a>')
@@ -2794,13 +2850,16 @@ def build_fragments() -> dict:
                 + cek_btn
             )
         elif upd == "current":
+            npm_note = ""
+            if npm_ahead and npm_latest and npm_latest != installed_version:
+                npm_note = f' <span style="font-size:0.75rem;color:var(--text-dim)">(v{npm_latest} rilis di npm, menunggu build image Docker Hub)</span>'
             update_block = (
-                f'<div class="update-hint">{ICON_CHECK}9router sudah versi terbaru'
-                f' (v{installed_version})</div>' + cek_btn
+                f'<div class="update-hint">{ICON_CHECK}9router sudah versi terbaru di Docker Hub'
+                f' (v{installed_version}){npm_note}</div>' + cek_btn
             )
         elif upd == "unknown":
             update_block = (
-                f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek update — '
+                f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek update Docker Hub — '
                 f'<a href="/update-router?token={TOKEN}">paksa update</a></div>' + cek_btn
             )
         else:  # checking — the auto-poll picks up the settled result
@@ -3321,59 +3380,67 @@ class Handler(BaseHTTPRequestHandler):
                 _last_action_at = now
 
         just = ""
+        target_tab = ""
         if not debounced:
             if parsed.path == "/toggle":
                 will_start = not service_active(SERVICE)
                 subprocess.run(["systemctl", "start" if will_start else "stop", SERVICE])
                 just = "start" if will_start else ""
+                target_tab = "control"
             elif parsed.path == "/on":
                 subprocess.run(["systemctl", "start", SERVICE])
                 just = "start"
+                target_tab = "control"
             elif parsed.path == "/off":
                 subprocess.run(["systemctl", "stop", SERVICE])
+                target_tab = "control"
             elif parsed.path == "/restart-bot":
                 restart_bot()
                 just = "restart"
+                target_tab = "control"
             elif parsed.path == "/bot-toggle":
                 was_active = service_active("hermes-gateway", user=True)
                 bot_action("stop" if was_active else "start")
                 just = "bot-off" if was_active else "bot-on"
+                target_tab = "control"
             elif parsed.path == "/update-router":
                 # updating flag (set in update_router) makes /status show the
                 # live pull-log card; the auto-poll then streams it. No banner.
                 update_router()
-                just = ""
+                target_tab = "control"
             elif parsed.path == "/check-update":
                 # Force a fresh check: drop the cache so /status re-checks in
-                # the background (its "checking" state auto-refreshes). just=""
-                # so the status page renders that checking/auto-reload path.
+                # the background (its "checking" state auto-refreshes).
                 try:
                     os.remove(UPDATE_CACHE_PATH)
                 except OSError:
                     pass
-                just = ""
+                target_tab = "control"
             elif parsed.path == "/clean-junk":
                 cleanup_system_junk()
                 just = "cleaned"
+                target_tab = "control"
             elif parsed.path == "/check-hermes-update":
                 # Force a fresh Hermes update check
                 with _hermes_update_lock:
                     _hermes_update_cache["at"] = 0
                 threading.Thread(target=_refresh_hermes_update, daemon=True).start()
-                just = ""
+                target_tab = "control"
             elif parsed.path == "/update-hermes":
                 # Official updater owns backup, stash policy, validation,
                 # rollback, dependencies, migration, and gateway restart.
                 run_hermes_update()
-                just = ""
+                target_tab = "control"
             elif parsed.path == "/fetch-models":
                 fetch_remote_models()
                 just = "model"
+                target_tab = "status"
             elif parsed.path == "/reload-panel-config":
                 reload_panel_config()
                 just = "model"
+                target_tab = "status"
 
-        self._redirect_to_status(just=just)
+        self._redirect_to_status(just=just, tab=target_tab)
 
 
 class TimeoutThreadingHTTPServer(ThreadingHTTPServer):
