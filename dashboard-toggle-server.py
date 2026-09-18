@@ -446,6 +446,36 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .aux-model-opt:hover{{background:rgba(255,255,255,0.08);border-color:var(--border-hover);transform:translateY(-1px)}}
 .aux-model-opt-name{{font-family:var(--font-mono);font-size:.78rem;font-weight:600;color:var(--text)}}
 .aux-model-opt-sub{{font-size:.7rem;color:var(--text-dim)}}
+
+/* Windows Task Manager Elements */
+.task-table-wrap{{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.015);margin-bottom:.5rem}}
+.task-table{{width:100%;border-collapse:collapse;font-size:.78rem;text-align:left}}
+.task-table th{{background:rgba(255,255,255,0.04);color:var(--text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;padding:.55rem .75rem;border-bottom:1px solid var(--border);white-space:nowrap;font-family:var(--font-mono)}}
+.task-table td{{padding:.65rem .75rem;border-bottom:1px solid rgba(255,255,255,0.04);vertical-align:middle}}
+.task-table tr:hover td{{background:rgba(255,255,255,0.03)}}
+.task-table tr:last-child td{{border-bottom:none}}
+.task-name-cell{{display:flex;align-items:center;gap:.45rem;font-weight:500}}
+.badge-up{{background:var(--success-dim);color:var(--success);border:1px solid rgba(16,185,129,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
+.badge-down{{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(239,68,68,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
+.btn-end-task{{padding:.25rem .55rem;font-size:.72rem;border-radius:4px;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.12);color:#fca5a5;text-decoration:none;display:inline-block;cursor:pointer;font-weight:500;transition:all .15s ease}}
+.btn-end-task:hover{{background:rgba(239,68,68,0.28);border-color:var(--danger);color:#fff}}
+.btn-restart-task{{padding:.25rem .55rem;font-size:.72rem;border-radius:4px;border:1px solid var(--border);background:rgba(255,255,255,0.06);color:var(--text);text-decoration:none;display:inline-block;cursor:pointer;margin-left:.3rem;transition:all .15s ease}}
+.btn-restart-task:hover{{background:rgba(255,255,255,0.14);color:#fff}}
+.btn-start-task{{padding:.25rem .55rem;font-size:.72rem;border-radius:4px;border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.12);color:#6ee7b7;text-decoration:none;display:inline-block;cursor:pointer;font-weight:500}}
+.btn-start-task:hover{{background:rgba(16,185,129,0.28);color:#fff}}
+
+/* Performance Sparkline Cards */
+.perf-tile{{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.15rem;margin-bottom:1rem;box-shadow:0 6px 24px rgba(0,0,0,0.3)}}
+.perf-header{{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.5rem}}
+.perf-title{{font-size:.84rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.45rem}}
+.perf-sub{{font-size:.74rem;color:var(--text-muted);margin-top:.2rem}}
+.perf-big-val{{font-size:1.6rem;font-weight:700;font-family:var(--font-mono);color:var(--accent-light);letter-spacing:-.02em}}
+.sparkline-box{{width:100%;height:65px;background:rgba(0,0,0,0.28);border-radius:6px;border:1px solid rgba(255,255,255,0.05);overflow:hidden;position:relative;margin-top:.6rem}}
+.sparkline-svg{{width:100%;height:100%;display:block}}
+.spark-poly{{fill:none;stroke:var(--accent-light);stroke-width:2;vector-effect:non-scaling-stroke}}
+.spark-fill{{fill:rgba(96,165,250,0.12);stroke:none}}
+.spark-poly.ram{{stroke:#c084fc}}
+.spark-fill.ram{{fill:rgba(192,132,252,0.12)}}
 </style></head><body>
 <div id="pbar"></div>
 <div id="navloader"><div class="ring"></div><span id="nav-label">Memproses…</span></div>
@@ -480,17 +510,29 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 </div>
 
 <div class="tabs">
-  <div class="tab active" onclick="switchTab('status', this)">Status</div>
-  <div class="tab" onclick="switchTab('control', this)">Control</div>
-  <div class="tab" onclick="switchTab('auxiliary', this)">Auxiliary</div>
+  <div class="tab active" onclick="switchTab('status', this)">{icon_activity} Proses</div>
+  <div class="tab" onclick="switchTab('performance', this)">{icon_cpu} Performa</div>
+  <div class="tab" onclick="switchTab('control', this)">{icon_layers} Layanan</div>
+  <div class="tab" onclick="switchTab('auxiliary', this)">{icon_bot} Tugas AI</div>
 </div>
 
 <div class="content-wrapper">
 <!-- STATUS TAB -->
 <div class="tab-panel active" id="tab-status">
+  <!-- Windows Task Manager Process Table -->
+  <div class="card card-status" style="padding:1.1rem;margin-bottom:1.25rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem">
+      <div class="card-title" style="margin-bottom:0">{icon_activity} Daftar Proses & Layanan Sistem</div>
+      <span style="font-size:0.72rem;color:var(--text-dim);font-family:var(--font-mono)">Windows Task Manager</span>
+    </div>
+    <div id="process-table-slot">
+      {processes_table}
+    </div>
+  </div>
+
   <!-- Apple CC Highlights (Bento 4-Tile Grid) -->
   <div class="card card-status" style="padding:1.1rem;margin-bottom:1.25rem">
-    <div class="card-title" style="margin-bottom:.8rem">{icon_monitor} Status Layanan & Model</div>
+    <div class="card-title" style="margin-bottom:.8rem">{icon_monitor} Ringkasan Bot & Model AI</div>
     <div class="cc-grid">
       <div class="cc-tile">
         <div class="cc-tile-header">
@@ -563,6 +605,69 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   </div>
 
   <div id="rl-slot">{rate_limit_card}</div>
+</div>
+
+<!-- PERFORMANCE TAB -->
+<div class="tab-panel" id="tab-performance">
+  <div class="perf-tile">
+    <div class="perf-header">
+      <div>
+        <div class="perf-title">{icon_cpu} CPU · Amlogic S905X3</div>
+        <div class="perf-sub">4 Cores @ 1.9GHz · Suhu: <span id="perf-temp">{cell_temp}</span> · Load: <span id="perf-load">{cell_load}</span></div>
+      </div>
+      <div class="perf-big-val" id="perf-cpu-val">{cpu_pct}%</div>
+    </div>
+    <div class="sparkline-box">
+      <svg class="sparkline-svg" id="cpu-sparkline" viewBox="0 0 300 60" preserveAspectRatio="none">
+        <line x1="0" y1="15" x2="300" y2="15" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
+        <line x1="0" y1="30" x2="300" y2="30" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
+        <line x1="0" y1="45" x2="300" y2="45" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
+        <polygon class="spark-fill" points="0,60 300,60"/>
+        <polyline class="spark-poly" points="0,55 300,55"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="perf-tile">
+    <div class="perf-header">
+      <div>
+        <div class="perf-title">{icon_ram} Memori · DDR4 + ZRAM</div>
+        <div class="perf-sub">Penggunaan: <span id="perf-ram-sub">{cell_ram}</span> · Swap ZRAM: <span id="cell-zram-perf">{cell_zram}</span></div>
+      </div>
+      <div class="perf-big-val" id="perf-ram-val" style="color:#c084fc">{ram_pct}%</div>
+    </div>
+    <div class="sparkline-box">
+      <svg class="sparkline-svg" id="ram-sparkline" viewBox="0 0 300 60" preserveAspectRatio="none">
+        <line x1="0" y1="15" x2="300" y2="15" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
+        <line x1="0" y1="30" x2="300" y2="30" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
+        <line x1="0" y1="45" x2="300" y2="45" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
+        <polygon class="spark-fill ram" points="0,60 300,60"/>
+        <polyline class="spark-poly ram" points="0,55 300,55"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="card card-info" style="margin-bottom:1rem">
+    <div class="card-title">{icon_disk} Penyimpanan & Kesehatan Storage</div>
+    <div class="grid">
+      <div class="row"><span class="label">{icon_disk} eMMC Internal</span>
+        <span id="cell-emmc-perf">{cell_emmc}</span></div>
+      <div class="row"><span class="label">{icon_disk} HDD Eksternal 1TB</span>
+        <span id="cell-disk-perf">{cell_disk}</span></div>
+    </div>
+  </div>
+
+  <div class="card card-info">
+    <div class="card-title">{icon_network} Jaringan & Konektivitas</div>
+    <div class="grid">
+      <div class="row"><span class="label">{icon_network} IP LAN</span>
+        <span id="cell-lan-perf">{cell_lan}</span></div>
+      <div class="row"><span class="label">{icon_network} Tailscale Mesh</span>
+        <span id="cell-ts-perf">{cell_ts}</span></div>
+      <div class="row"><span class="label">{icon_clock} Uptime Server</span>
+        <span id="cell-uptime-perf">{cell_uptime}</span></div>
+    </div>
+  </div>
 </div>
 
 <!-- CONTROL TAB -->
@@ -1064,6 +1169,28 @@ SSE_SCRIPT = """<script>
   var TOKEN="__TOKEN__";
   var pbar=document.getElementById('pbar'), spin=document.getElementById('spin');
   var es=null, retryTimer=null;
+  var cpuHistory = [10, 15, 12, 18, 22, 19, 14, 16, 20, 25, 22, 18, 15, 12, 10, 14, 18, 22, 19, 15, 20, 25, 18, 14, 12, 16, 18, 20, 15, 16];
+  var ramHistory = [30, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 30, 31, 31, 31, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 30];
+  function updateSparkline(svgId, val, historyArr){
+    if(typeof val !== 'number' || isNaN(val)) return;
+    historyArr.push(val);
+    if(historyArr.length > 30) historyArr.shift();
+    var svg = document.getElementById(svgId);
+    if(!svg) return;
+    var poly = svg.querySelector('.spark-poly');
+    var fill = svg.querySelector('.spark-fill');
+    if(!poly || !fill) return;
+    var pts = [];
+    var w = 300, h = 60;
+    var step = w / (historyArr.length - 1);
+    for(var i = 0; i < historyArr.length; i++){
+      var x = (i * step).toFixed(1);
+      var y = (h - (Math.max(0, Math.min(100, historyArr[i])) / 100 * (h - 10)) - 5).toFixed(1);
+      pts.push(x + ',' + y);
+    }
+    poly.setAttribute('points', pts.join(' '));
+    fill.setAttribute('points', '0,' + h + ' ' + pts.join(' ') + ' ' + w + ',' + h);
+  }
   function set(id,v){ var el=document.getElementById(id); if(el&&v!=null) el.innerHTML=v; }
   function pulse(){
     if(!pbar) return;
@@ -1107,6 +1234,26 @@ SSE_SCRIPT = """<script>
     if(d.dash_bot_btns_block) set('dash-bot-btns-slot',d.dash_bot_btns_block);
     if(d.aux_tasks_block) set('aux-tasks-slot',d.aux_tasks_block);
     if(d.backup_models_block) set('backup-models-slot',d.backup_models_block);
+    if(d.processes_table) set('process-table-slot',d.processes_table);
+    if(d.cpu_pct !== undefined) {{
+      updateSparkline('cpu-sparkline', d.cpu_pct, cpuHistory);
+      var cval = document.getElementById('perf-cpu-val');
+      if(cval) cval.textContent = d.cpu_pct.toFixed(1) + '%';
+    }}
+    if(d.ram_pct !== undefined) {{
+      updateSparkline('ram-sparkline', d.ram_pct, ramHistory);
+      var rval = document.getElementById('perf-ram-val');
+      if(rval) rval.textContent = d.ram_pct.toFixed(0) + '%';
+    }}
+    if(d.cell_load) set('perf-load', d.cell_load);
+    if(d.cells && d.cells.temp) set('perf-temp', d.cells.temp);
+    if(d.cells && d.cells.ram) set('perf-ram-sub', d.cells.ram);
+    if(d.cells && d.cells.zram) set('cell-zram-perf', d.cells.zram);
+    if(d.cells && d.cells.emmc) set('cell-emmc-perf', d.cells.emmc);
+    if(d.cells && d.cells.disk) set('cell-disk-perf', d.cells.disk);
+    if(d.cells && d.cells.lan) set('cell-lan-perf', d.cells.lan);
+    if(d.cells && d.cells.ts) set('cell-ts-perf', d.cells.ts);
+    if(d.cells && d.cells.uptime) set('cell-uptime-perf', d.cells.uptime);
     if(!safeStore('getItem','logDismissed')) stickySet('log-slot',d.log_card);
     else { var rc=document.getElementById('router-log-card'); if(rc) rc.remove(); }
     if(!safeStore('getItem','hermesLogDismissed')) stickySet('hermes-update-slot',d.hermes_update_block);
@@ -1165,10 +1312,13 @@ var CONFIRM_ROUTES = [
   {match:'/bot-toggle', title:'Ubah Status Bot', msg:'Ubah status hidup/mati Bot Telegram hermes-gateway?'},
   {match:'/clean-junk', title:'Bersihkan Cache & Sampah', msg:'Bersihkan log update, cache package uv/pip, dan builder docker dangling untuk melegakan penyimpanan STB?'},
   {match:'/reset-aux', title:'Reset Auxiliary Models', msg:'Reset semua model tugas auxiliary ke "auto"? Pengaturan model per tugas akan dikembalikan menggunakan model obrolan utama.'},
-  {match:'/remove-fallback-model', title:'Hapus Model Cadangan', msg:'Hapus model ini dari daftar cadangan (fallback)?'}
+  {match:'/remove-fallback-model', title:'Hapus Model Cadangan', msg:'Hapus model ini dari daftar cadangan (fallback)?'},
+  {match:'/process-action?service=9router&action=stop', title:'Hentikan 9router (End Task)', msg:'Hentikan container 9router? AI routing akan offline sampai dinyalakan lagi.'},
+  {match:'/process-action?service=hermes-panel&action=restart', title:'Restart Hermes Control Panel', msg:'Restart service hermes-panel? Panel akan terhubung kembali dalam beberapa detik.'},
+  {match:'/process-action?action=restart', title:'Restart Tugas', msg:'Restart layanan yang dipilih sekarang?'}
 ];
 document.addEventListener('click', function(e){
-  var a = e.target.closest('a.toggle, a.open, a.model-chip');
+  var a = e.target.closest('a.toggle, a.open, a.model-chip, a.btn-end-task, a.btn-restart-task, a.btn-start-task');
   if(!a || !a.getAttribute('href') || a.target === '_blank'
      || a.classList.contains('is-loading')) return;
   var href = a.getAttribute('href');
@@ -2473,6 +2623,277 @@ def get_ram_info() -> tuple[float, str]:
         return 0.0, "?"
 
 
+_last_cpu_time: tuple[float, float] = (0.0, 0.0)
+_cpu_percent_cache: float = 0.0
+_cpu_lock = threading.Lock()
+
+
+def get_cpu_percent() -> float:
+    """Calculate CPU usage percentage across intervals using /proc/stat."""
+    global _last_cpu_time, _cpu_percent_cache
+    try:
+        with open("/proc/stat", "r") as f:
+            line = f.readline()
+        fields = [float(x) for x in line.strip().split()[1:]]
+        idle = fields[3] + (fields[4] if len(fields) > 4 else 0.0)
+        total = sum(fields)
+        with _cpu_lock:
+            prev_total, prev_idle = _last_cpu_time
+            if prev_total > 0:
+                diff_total = total - prev_total
+                diff_idle = idle - prev_idle
+                if diff_total > 0:
+                    _cpu_percent_cache = max(0.0, min(100.0, ((diff_total - diff_idle) / diff_total) * 100.0))
+            _last_cpu_time = (total, idle)
+            return round(_cpu_percent_cache, 1)
+    except Exception:
+        return 0.0
+
+
+def get_docker_metric(cname: str) -> tuple[str, str, float]:
+    """Return (status, pid, mem_mb) for a Docker container."""
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", cname, "--format", "{{.State.Status}}\t{{.State.Pid}}\t{{.Id}}"],
+            capture_output=True, text=True, timeout=INFO_TIMEOUT
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            parts = r.stdout.strip().split("\t")
+            if len(parts) >= 3:
+                dst, dpid, cid = parts[0], parts[1], parts[2]
+                mem = 0.0
+                p_cg = f"/sys/fs/cgroup/system.slice/docker-{cid}.scope/memory.current"
+                if os.path.exists(p_cg):
+                    try:
+                        with open(p_cg) as f:
+                            mem = round(int(f.read().strip()) / (1024 * 1024), 1)
+                    except Exception:
+                        pass
+                if mem == 0.0 and dpid and dpid != "0":
+                    try:
+                        with open(f"/proc/{dpid}/status") as f:
+                            for l in f:
+                                if l.startswith("VmRSS:"):
+                                    mem = round(int(l.split()[1]) / 1024, 1)
+                                    break
+                    except Exception:
+                        pass
+                return dst, dpid, mem
+    except Exception:
+        pass
+    return "stopped", "0", 0.0
+
+
+def get_process_list() -> list[dict]:
+    """Inspect managed services and Docker containers for Windows Task Manager view."""
+    procs = []
+
+    # 1. Hermes Gateway (Bot Telegram)
+    try:
+        r = subprocess.run(
+            ["systemctl", "--user", "show", "hermes-gateway", "--property=ActiveState,MainPID"],
+            capture_output=True, text=True, timeout=INFO_TIMEOUT,
+            env={**os.environ, "XDG_RUNTIME_DIR": "/run/user/0"}
+        )
+        props = dict(line.split("=", 1) for line in r.stdout.strip().split("\n") if "=" in line)
+        st = props.get("ActiveState", "inactive")
+        pid = props.get("MainPID", "0")
+        mem = 0.0
+        if pid and pid != "0":
+            try:
+                with open(f"/proc/{pid}/status") as f:
+                    for l in f:
+                        if l.startswith("VmRSS:"):
+                            mem = round(int(l.split()[1]) / 1024, 1)
+                            break
+            except Exception:
+                pass
+        procs.append({
+            "id": "hermes-gateway",
+            "name": "Hermes Gateway (Bot Telegram)",
+            "kind": "Systemd Service",
+            "status": "Running" if st == "active" else "Stopped",
+            "is_active": (st == "active"),
+            "pid": pid if pid != "0" else "-",
+            "mem_mb": mem,
+            "stop_url": f"/bot-toggle?token={TOKEN}",
+            "restart_url": f"/restart-bot?token={TOKEN}",
+        })
+    except Exception:
+        pass
+
+    # 2. 9router AI Engine
+    try:
+        dst, dpid, dmem = get_docker_metric("9router")
+        is_run = (dst.lower() == "running")
+        procs.append({
+            "id": "9router",
+            "name": "9router AI Routing Engine",
+            "kind": "Docker Container",
+            "status": "Running" if is_run else "Stopped",
+            "is_active": is_run,
+            "pid": dpid if is_run else "-",
+            "mem_mb": dmem,
+            "stop_url": f"/process-action?service=9router&action=stop&token={TOKEN}",
+            "start_url": f"/process-action?service=9router&action=start&token={TOKEN}",
+            "restart_url": f"/process-action?service=9router&action=restart&token={TOKEN}",
+        })
+    except Exception:
+        pass
+
+    # 3. Hermes Control Panel (:9120)
+    try:
+        cur_pid = os.getpid()
+        panel_mem = 0.0
+        try:
+            with open(f"/proc/{cur_pid}/status") as f:
+                for l in f:
+                    if l.startswith("VmRSS:"):
+                        panel_mem = round(int(l.split()[1]) / 1024, 1)
+                        break
+        except Exception:
+            pass
+        procs.append({
+            "id": "hermes-panel",
+            "name": "Hermes Control Panel (:9120)",
+            "kind": "Systemd Service",
+            "status": "Running",
+            "is_active": True,
+            "pid": str(cur_pid),
+            "mem_mb": panel_mem,
+            "restart_url": f"/process-action?service=hermes-panel&action=restart&token={TOKEN}",
+        })
+    except Exception:
+        pass
+
+    # 4. Hermes Dashboard (:9119)
+    try:
+        dash_active = service_active("hermes-dashboard")
+        dash_mem = 0.0
+        dash_pid = "-"
+        if dash_active:
+            r = subprocess.run(
+                ["systemctl", "show", "hermes-dashboard", "--property=MainPID"],
+                capture_output=True, text=True, timeout=INFO_TIMEOUT
+            )
+            for line in r.stdout.strip().split("\n"):
+                if line.startswith("MainPID="):
+                    p = line.split("=")[1]
+                    if p and p != "0":
+                        dash_pid = p
+                        try:
+                            with open(f"/proc/{p}/status") as f:
+                                for l in f:
+                                    if l.startswith("VmRSS:"):
+                                        dash_mem = round(int(l.split()[1]) / 1024, 1)
+                                        break
+                        except Exception:
+                            pass
+        procs.append({
+            "id": "hermes-dashboard",
+            "name": "Hermes Web Dashboard (:9119)",
+            "kind": "Systemd Service",
+            "status": "Running" if dash_active else "Stopped",
+            "is_active": dash_active,
+            "pid": dash_pid,
+            "mem_mb": dash_mem,
+            "stop_url": f"/toggle?token={TOKEN}",
+            "start_url": f"/on?token={TOKEN}",
+        })
+    except Exception:
+        pass
+
+    # 5. Cloudflared Tunnel
+    try:
+        dst, dpid, dmem = get_docker_metric("cloudflared")
+        is_run = (dst.lower() == "running")
+        procs.append({
+            "id": "cloudflared",
+            "name": "Cloudflared (Secure Tunnel)",
+            "kind": "Docker Container",
+            "status": "Running" if is_run else "Stopped",
+            "is_active": is_run,
+            "pid": dpid if is_run else "-",
+            "mem_mb": dmem,
+            "restart_url": f"/process-action?service=cloudflared&action=restart&token={TOKEN}",
+        })
+    except Exception:
+        pass
+
+    # 6. Pi-hole DNS
+    try:
+        dst, dpid, dmem = get_docker_metric("pihole-pihole-1")
+        is_run = (dst.lower() == "running")
+        procs.append({
+            "id": "pihole-pihole-1",
+            "name": "Pi-hole (DNS Ad-blocker)",
+            "kind": "Docker Container",
+            "status": "Running" if is_run else "Stopped",
+            "is_active": is_run,
+            "pid": dpid if is_run else "-",
+            "mem_mb": dmem,
+            "restart_url": f"/process-action?service=pihole-pihole-1&action=restart&token={TOKEN}",
+        })
+    except Exception:
+        pass
+
+    return procs
+
+
+def render_processes_table() -> str:
+    """Render Windows Task Manager styled table for running services & containers."""
+    procs = get_process_list()
+    rows = []
+    for p in procs:
+        badge_cls = "badge-up" if p["is_active"] else "badge-down"
+        status_text = html.escape(p["status"])
+        name = html.escape(p["name"])
+        kind = html.escape(p.get("kind", ""))
+        pid = html.escape(str(p.get("pid", "-")))
+        mem = f"{p['mem_mb']:.0f} MB" if isinstance(p["mem_mb"], (int, float)) and p["mem_mb"] > 0 else "-"
+
+        actions = []
+        if p["is_active"] and p.get("stop_url"):
+            actions.append(f'<a href="{p["stop_url"]}" class="btn-end-task">Hentikan (End Task)</a>')
+        elif not p["is_active"] and p.get("start_url"):
+            actions.append(f'<a href="{p["start_url"]}" class="btn-start-task">Nyalakan</a>')
+        if p.get("restart_url"):
+            actions.append(f'<a href="{p["restart_url"]}" class="btn-restart-task">Restart</a>')
+
+        act_html = " ".join(actions) if actions else "-"
+        rows.append(
+            f'<tr>'
+            f'  <td class="task-name-cell">'
+            f'    <div><div style="font-weight:600;color:var(--text)">{name}</div>'
+            f'    <div style="font-size:0.72rem;color:var(--text-dim)">{kind}</div></div>'
+            f'  </td>'
+            f'  <td><span class="badge {badge_cls}">{status_text}</span></td>'
+            f'  <td style="font-family:var(--font-mono);font-size:0.75rem">{pid}</td>'
+            f'  <td style="font-family:var(--font-mono);font-size:0.75rem;font-weight:600">{mem}</td>'
+            f'  <td style="text-align:right;white-space:nowrap">{act_html}</td>'
+            f'</tr>'
+        )
+
+    return (
+        f'<div class="task-table-wrap" id="process-table">'
+        f'<table class="task-table">'
+        f'<thead>'
+        f'  <tr>'
+        f'    <th>Tugas / Layanan</th>'
+        f'    <th>Status</th>'
+        f'    <th>PID</th>'
+        f'    <th>Memori</th>'
+        f'    <th style="text-align:right">Aksi</th>'
+        f'  </tr>'
+        f'</thead>'
+        f'<tbody>'
+        f'  {"".join(rows)}'
+        f'</tbody>'
+        f'</table>'
+        f'</div>'
+    )
+
+
 def get_emmc_health() -> tuple[str, str]:
     """Check eMMC wear level and pre-EOL status directly from sysfs."""
     try:
@@ -2929,6 +3350,13 @@ def build_fragments() -> dict:
         f'<a class="toggle restart" href="/clean-junk?token={TOKEN}">{ICON_TRASH}Bersihkan Sampah & Cache</a>'
     )
 
+    cpu_pct = get_cpu_percent()
+    try:
+        load1, load5, _ = os.getloadavg()
+        cell_load = f"{load1:.2f}, {load5:.2f}"
+    except Exception:
+        cell_load = "?"
+
     return {
         "cells": cells,
         "model_chips": model_chips,
@@ -2940,6 +3368,10 @@ def build_fragments() -> dict:
         "dash_bot_btns_block": dash_bot_btns_block,
         "aux_tasks_block": render_aux_tasks_block(),
         "backup_models_block": render_backup_models_block(),
+        "processes_table": render_processes_table(),
+        "cpu_pct": cpu_pct,
+        "ram_pct": round(ram_pct, 1),
+        "cell_load": cell_load,
         "updating": updating,
         "dash_active": dash_active,
         "gw_active": gw_active,
@@ -3032,6 +3464,10 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         hermes_update_block=frag["hermes_update_block"],
         aux_tasks_block=frag["aux_tasks_block"],
         backup_models_block=frag["backup_models_block"],
+        processes_table=frag["processes_table"],
+        cpu_pct=frag["cpu_pct"],
+        ram_pct=frag["ram_pct"],
+        cell_load=frag["cell_load"],
         available_models_json=available_models_json,
         active_tab=active_tab,
         countdown_block=countdown_block,
@@ -3125,6 +3561,8 @@ def _sse_push_loop():
             "dash_bot_btns_block": frag.get("dash_bot_btns_block", ""),
             "aux_tasks_block": frag.get("aux_tasks_block", "")[:100],
             "backup_models_block": frag.get("backup_models_block", "")[:100],
+            "cpu_pct": frag.get("cpu_pct", 0.0),
+            "processes_table": frag.get("processes_table", "")[:80],
             "updating": frag.get("updating", False),
         }
 
@@ -3358,6 +3796,34 @@ class Handler(BaseHTTPRequestHandler):
             self._redirect_to_status(tab="control")
             return
 
+        if parsed.path == "/process-action":
+            service = (qs.get("service") or [""])[0]
+            action = (qs.get("action") or [""])[0]
+            now = time.monotonic()
+            with _last_action_lock:
+                debounced = (now - _last_action_at) < DEBOUNCE_SECONDS
+                if not debounced:
+                    _last_action_at = now
+            if not debounced and service and action:
+                if service == "9router":
+                    if action == "stop":
+                        subprocess.run(["docker", "compose", "-f", f"{ROUTER_COMPOSE_DIR}/docker-compose.yml", "stop"])
+                    elif action == "start":
+                        subprocess.run(["docker", "compose", "-f", f"{ROUTER_COMPOSE_DIR}/docker-compose.yml", "up", "-d"])
+                    elif action == "restart":
+                        subprocess.run(["docker", "restart", "9router"])
+                elif service == "cloudflared" and action == "restart":
+                    subprocess.run(["docker", "restart", "cloudflared"])
+                elif service in ("pihole", "pihole-pihole-1") and action == "restart":
+                    subprocess.run(["docker", "restart", "pihole-pihole-1"])
+                elif service == "hermes-panel" and action == "restart":
+                    def _delayed_restart():
+                        time.sleep(0.5)
+                        subprocess.run(["systemctl", "restart", "hermes-panel.service"])
+                    threading.Thread(target=_delayed_restart, daemon=True).start()
+            self._redirect_to_status(tab="status")
+            return
+
         if parsed.path not in (
             "/toggle", "/on", "/off", "/restart-bot", "/bot-toggle",
             "/update-router", "/check-update",
@@ -3366,6 +3832,7 @@ class Handler(BaseHTTPRequestHandler):
             "/fetch-models", "/reload-panel-config",
             "/set-aux-model", "/reset-aux",
             "/set-fallback-model", "/remove-fallback-model",
+            "/process-action",
         ):
             self._send_html("<h1>404</h1>", 404)
             return
