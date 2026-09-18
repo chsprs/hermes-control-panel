@@ -476,6 +476,13 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .spark-fill{{fill:rgba(96,165,250,0.12);stroke:none}}
 .spark-poly.ram{{stroke:#c084fc}}
 .spark-fill.ram{{fill:rgba(192,132,252,0.12)}}
+
+/* Patch Notes */
+.patch-notes-box{{margin-top:.75rem;padding:.75rem .85rem;background:rgba(0,0,0,0.22);border:1px solid rgba(255,255,255,0.07);border-radius:var(--radius-sm);font-size:.78rem;line-height:1.45;text-align:left}}
+.patch-notes-title{{font-weight:600;color:var(--text);margin-bottom:.4rem;display:flex;align-items:center;gap:.35rem;font-size:.76rem;letter-spacing:.02em}}
+.patch-notes-list{{margin:0;padding-left:1.15rem;color:var(--text-muted)}}
+.patch-notes-list li{{margin-bottom:.3rem;word-break:break-word}}
+.patch-notes-list li:last-child{{margin-bottom:0}}
 </style></head><body>
 <div id="pbar"></div>
 <div id="navloader"><div class="ring"></div><span id="nav-label">Memproses…</span></div>
@@ -1464,17 +1471,217 @@ def _refresh_hermes_update() -> None:
         if behind == 0:
             status = "current"
 
+        patch_notes = []
+        if cmp_data and cmp_data.get("commits"):
+            raw_msgs = [c.get("commit", {}).get("message", "").strip().split("\n")[0] for c in cmp_data.get("commits", []) if c.get("commit")]
+            if raw_msgs:
+                patch_notes = list(reversed(raw_msgs[-5:]))
+        if not patch_notes:
+            try:
+                gl = subprocess.run(["git", "-C", HERMES_LIB_DIR, "log", "-n", "4", "--pretty=format:%s"],
+                                    capture_output=True, text=True, timeout=5)
+                if gl.returncode == 0 and gl.stdout.strip():
+                    patch_notes = [line.strip() for line in gl.stdout.strip().split("\n") if line.strip()]
+            except Exception:
+                pass
+        if not patch_notes:
+            patch_notes = ["Pembaruan stabilitas dan refaktor berkala"]
+
         with _hermes_update_lock:
             _hermes_update_cache = {
                 "status": status,
                 "local": local_tag,
                 "remote": remote_tag,
                 "behind": behind,
+                "patch_notes": patch_notes,
                 "at": time.time(),
             }
     except Exception:
         with _hermes_update_lock:
-            _hermes_update_cache = {"status": "unknown", "local": "?", "remote": "?", "behind": 0, "at": time.time()}
+            _hermes_update_cache = {"status": "unknown", "local": "?", "remote": "?", "behind": 0, "patch_notes": [], "at": time.time()}
+
+
+PATCH_NOTE_DICTIONARY = [
+    # Conventional commit prefixes
+    (r"^feat(?:\([^)]*\))?:\s*", "Fitur baru: "),
+    (r"^fix(?:\([^)]*\))?:\s*", "Perbaikan: "),
+    (r"^refactor(?:\([^)]*\))?:\s*", "Refaktor: "),
+    (r"^perf(?:\([^)]*\))?:\s*", "Peningkatan performa: "),
+    (r"^docs(?:\([^)]*\))?:\s*", "Dokumentasi: "),
+    (r"^chore(?:\([^)]*\))?:\s*", "Pemeliharaan: "),
+    (r"^test(?:\([^)]*\))?:\s*", "Pengujian: "),
+    (r"^style(?:\([^)]*\))?:\s*", "Perapian format: "),
+    (r"^build(?:\([^)]*\))?:\s*", "Sistem build: "),
+    (r"^ci(?:\([^)]*\))?:\s*", "Sistem CI: "),
+
+    # Headers
+    (r"(?i)^#+\s*features\b", "## Fitur Baru"),
+    (r"(?i)^#+\s*fixes\b", "## Perbaikan Bug"),
+    (r"(?i)^#+\s*bug fixes\b", "## Perbaikan Bug"),
+    (r"(?i)\bfeatures:\b", "Fitur Baru:"),
+    (r"(?i)\bfixes:\b", "Perbaikan Bug:"),
+
+    # Multi-word phrases
+    (r"(?i)\binstead of\b", "alih-alih"),
+    (r"(?i)\bdue to\b", "karena"),
+    (r"(?i)\bas well as\b", "serta"),
+    (r"(?i)\bmore than\b", "lebih dari"),
+    (r"(?i)\bless than\b", "kurang dari"),
+    (r"(?i)\bup to date\b", "sudah terbaru"),
+    (r"(?i)\bout of date\b", "sudah usang"),
+    (r"(?i)\bby default\b", "secara bawaan"),
+    (r"(?i)\brate limits?\b", "limit kuota (rate limit)"),
+    (r"(?i)\btimeouts?\b", "waktu habis (timeout)"),
+    (r"(?i)\bmemory leaks?\b", "kebocoran memori"),
+    (r"(?i)\bclean up\b", "bersihkan"),
+    (r"(?i)\bauto[- ]compact\b", "kompresi otomatis"),
+    (r"(?i)\bfree[- ]tier\b", "paket gratis"),
+    (r"(?i)\bdangling images?\b", "image usang tak terpakai"),
+
+    # Common verbs
+    (r"(?i)\badds?\b", "tambah"),
+    (r"(?i)\badded\b", "menambahkan"),
+    (r"(?i)\badding\b", "menambahkan"),
+    (r"(?i)\bresolves?\b", "memperbaiki"),
+    (r"(?i)\bresolved\b", "memperbaiki"),
+    (r"(?i)\bfixes?\b", "memperbaiki"),
+    (r"(?i)\bfixed\b", "memperbaiki"),
+    (r"(?i)\bupdates?\b", "memperbarui"),
+    (r"(?i)\bupdated\b", "memperbarui"),
+    (r"(?i)\bupdating\b", "memperbarui"),
+    (r"(?i)\bremoves?\b", "menghapus"),
+    (r"(?i)\bremoved\b", "menghapus"),
+    (r"(?i)\bremoving\b", "menghapus"),
+    (r"(?i)\bsupports?\b", "mendukung"),
+    (r"(?i)\bsupported\b", "didukung"),
+    (r"(?i)\benables?\b", "mengaktifkan"),
+    (r"(?i)\benabled\b", "diaktifkan"),
+    (r"(?i)\bdisables?\b", "menonaktifkan"),
+    (r"(?i)\bdisabled\b", "dinonaktifkan"),
+    (r"(?i)\bprevents?\b", "mencegah"),
+    (r"(?i)\bprevented\b", "mencegah"),
+    (r"(?i)\bimproves?\b", "meningkatkan"),
+    (r"(?i)\bimproved\b", "meningkatkan"),
+    (r"(?i)\bimproving\b", "meningkatkan"),
+    (r"(?i)\ballows?\b", "mengizinkan"),
+    (r"(?i)\ballowed\b", "diizinkan"),
+    (r"(?i)\bhandles?\b", "menangani"),
+    (r"(?i)\bhandled\b", "ditangani"),
+    (r"(?i)\bpreserves?\b", "mempertahankan"),
+    (r"(?i)\bpreserved\b", "dipertahankan"),
+    (r"(?i)\brestores?\b", "memulihkan"),
+    (r"(?i)\brestored\b", "dipulihkan"),
+    (r"(?i)\bretries?\b", "mencoba ulang"),
+    (r"(?i)\bretried\b", "dicoba ulang"),
+    (r"(?i)\breports?\b", "melaporkan"),
+    (r"(?i)\breported\b", "dilaporkan"),
+    (r"(?i)\bmerges?\b", "menggabungkan"),
+    (r"(?i)\bmerged\b", "digabungkan"),
+    (r"(?i)\bcleans?\b", "membersihkan"),
+    (r"(?i)\bcleaned\b", "dibersihkan"),
+    (r"(?i)\bcleanup\b", "pembersihan"),
+    (r"(?i)\bavoids?\b", "menghindari"),
+    (r"(?i)\bavoided\b", "dihindari"),
+    (r"(?i)\bhides?\b", "menyembunyikan"),
+    (r"(?i)\bhidden\b", "tersembunyi"),
+    (r"(?i)\bshows?\b", "menampilkan"),
+    (r"(?i)\bshown\b", "ditampilkan"),
+    (r"(?i)\bdisplays?\b", "menampilkan"),
+    (r"(?i)\bdisplayed\b", "ditampilkan"),
+    (r"(?i)\bfinishes?\b", "menyelesaikan"),
+    (r"(?i)\bfinished\b", "diselesaikan"),
+    (r"(?i)\bdrives?\b", "mengendalikan"),
+    (r"(?i)\bdriven\b", "dikendalikan"),
+    (r"(?i)\btracks?\b", "melacak"),
+    (r"(?i)\btracked\b", "dilacak"),
+    (r"(?i)\btracking\b", "pelacakan"),
+    (r"(?i)\bdeclares?\b", "mendeklarasikan"),
+    (r"(?i)\bdeclared\b", "dideklarasikan"),
+    (r"(?i)\broutes?\b", "merutekan"),
+    (r"(?i)\brouted\b", "dirutekan"),
+    (r"(?i)\bscopes?\b", "membatasi lingkup"),
+    (r"(?i)\bscoped\b", "dibatasi lingkup"),
+    (r"(?i)\bsanitizes?\b", "membersihkan"),
+    (r"(?i)\bsanitized\b", "dibersihkan"),
+
+    # Prepositions & Conjunctions
+    (r"(?i)\bwhen\b", "saat"),
+    (r"(?i)\bbefore\b", "sebelum"),
+    (r"(?i)\bafter\b", "setelah"),
+    (r"(?i)\bwith\b", "dengan"),
+    (r"(?i)\bwithout\b", "tanpa"),
+    (r"(?i)\band\b", "dan"),
+    (r"(?i)\bor\b", "atau"),
+    (r"(?i)\bfor\b", "untuk"),
+    (r"(?i)\bfrom\b", "dari"),
+    (r"(?i)\bto\b", "ke"),
+    (r"(?i)\bacross\b", "di seluruh"),
+    (r"(?i)\bdirectly\b", "secara langsung"),
+    (r"(?i)\bsilently\b", "tanpa notifikasi"),
+    (r"(?i)\bproperly\b", "dengan benar"),
+    (r"(?i)\bcorrectly\b", "dengan tepat"),
+    (r"(?i)\btemporarily\b", "sementara"),
+    (r"(?i)\btemporary\b", "sementara"),
+    (r"(?i)\btransient\b", "sementara"),
+
+    # Nouns
+    (r"(?i)\berrors?\b", "galat (error)"),
+    (r"(?i)\bfailures?\b", "kegagalan"),
+    (r"(?i)\bsettings?\b", "pengaturan"),
+    (r"(?i)\bproviders?\b", "penyedia (provider)"),
+    (r"(?i)\bcommands?\b", "perintah"),
+    (r"(?i)\brequests?\b", "permintaan (request)"),
+    (r"(?i)\bresponses?\b", "respons"),
+    (r"(?i)\bconnections?\b", "koneksi"),
+    (r"(?i)\bwindows?\b", "jendela"),
+    (r"(?i)\bnew\b", "baru"),
+    (r"(?i)\blatest\b", "terbaru"),
+    (r"(?i)\bold\b", "lama"),
+    (r"(?i)\bdefaults?\b", "bawaan (default)"),
+    (r"(?i)\bfeatures?\b", "fitur"),
+    (r"(?i)\bimprovements?\b", "peningkatan"),
+    (r"(?i)\bdetails?\b", "detail"),
+    (r"(?i)\bimages?\b", "gambar"),
+]
+
+def translate_to_id(text: str) -> str:
+    """Deterministically translate changelog English to Indonesian without AI."""
+    res = text
+    for pattern, repl in PATCH_NOTE_DICTIONARY:
+        res = re.sub(pattern, repl, res)
+    return res
+
+
+def render_patch_notes_block(title: str, notes: list[str]) -> str:
+    """Render translated patch notes directly below update buttons."""
+    if not notes:
+        return ""
+    items = []
+    for n in notes[:5]:
+        tr = translate_to_id(n.strip())
+        items.append(f'<li>{html.escape(tr)}</li>')
+    return (
+        f'<div class="patch-notes-box">'
+        f'<div class="patch-notes-title">📝 Catatan Pembaruan ({html.escape(title)}):</div>'
+        f'<ul class="patch-notes-list">{"".join(items)}</ul>'
+        f'</div>'
+    )
+
+
+def get_hermes_patch_notes() -> list[str]:
+    """Return latest commits / patch notes for Hermes Agent."""
+    with _hermes_update_lock:
+        notes = _hermes_update_cache.get("patch_notes")
+        if notes:
+            return list(notes)
+    try:
+        gl = subprocess.run(["git", "-C", HERMES_LIB_DIR, "log", "-n", "4", "--pretty=format:%s"],
+                            capture_output=True, text=True, timeout=5)
+        if gl.returncode == 0 and gl.stdout.strip():
+            return [line.strip() for line in gl.stdout.strip().split("\n") if line.strip()]
+    except Exception:
+        pass
+    return ["Pembaruan stabilitas dan refaktor berkala"]
 
 
 def get_hermes_update() -> dict:
@@ -2333,6 +2540,50 @@ def get_router_release() -> dict:
         return {"current": "?", "latest": "?", "has_update": False}
 
 
+def get_9router_patch_notes() -> list[str]:
+    """Return latest commits / release notes for 9router."""
+    cached = get_cached_router_info().get("patch_notes")
+    if cached:
+        return list(cached)
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/repos/decolua/9router/commits?per_page=8",
+            headers={"User-Agent": "Hermes-Panel"}
+        )
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            commits = json.load(resp)
+        notes = []
+        for c in commits:
+            msg = c.get("commit", {}).get("message", "").strip()
+            lines = msg.split("\n")
+            for l in lines:
+                l_s = l.strip()
+                if (l_s.startswith("- ") or l_s.startswith("* ")) and len(l_s) > 4:
+                    cleaned = re.sub(r"^\s*[-*]\s*", "", l_s)
+                    cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)
+                    cleaned = re.sub(r"\(#[0-9]+\)", "", cleaned).strip()
+                    if cleaned and not cleaned.startswith("Merge"):
+                        notes.append(cleaned)
+                        if len(notes) >= 5:
+                            break
+            if len(notes) >= 5:
+                break
+            first = lines[0].strip()
+            if any(first.startswith(p) for p in ("feat", "fix", "refactor", "perf", "docs", "chore")):
+                notes.append(first)
+                if len(notes) >= 5:
+                    break
+        if notes:
+            return notes
+    except Exception:
+        pass
+    return [
+        "Dukungan model DeepSeek-V4.1-Flash dan Xiaomi MiMo",
+        "Perbaikan 403 FreeTierError dan 429 rate limit pada OpenCode",
+        "Opsi toggle 1M-context pada antarmuka Claude Code"
+    ]
+
+
 def get_dockerhub_latest_tag() -> str:
     """Fetch the latest semver tag from Docker Hub for decolua/9router."""
     try:
@@ -2407,6 +2658,7 @@ def _refresh_update_cache() -> None:
             "npm_ahead": npm_ahead,
             "digest_update": digest_differs,
             "tag_update": tag_is_newer,
+            "patch_notes": get_9router_patch_notes(),
         }
         try:
             tmp = UPDATE_CACHE_PATH + ".tmp"
@@ -3263,12 +3515,15 @@ def build_fragments() -> dict:
         version_label = f"v{installed_version} &rarr; v{latest_version}" if (latest_version and latest_version != "?" and latest_version != installed_version) else f"v{installed_version}"
         cek_btn = (f'<a class="toggle restart" href="/check-update?token={TOKEN}">'
                    f'{ICON_REFRESH}Cek Update 9router</a>')
+        router_notes = get_9router_patch_notes()
+        router_patch_notes_html = render_patch_notes_block("9router", router_notes)
         if upd == "available":
             update_block = (
                 f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);'
                 f'color:#141922" href="/update-router?token={TOKEN}">'
                 f'{ICON_ARROW_UP_CIRCLE}Update 9router tersedia ({version_label})</a>'
                 + cek_btn
+                + router_patch_notes_html
             )
         elif upd == "current":
             npm_note = ""
@@ -3276,15 +3531,15 @@ def build_fragments() -> dict:
                 npm_note = f' <span style="font-size:0.75rem;color:var(--text-dim)">(v{npm_latest} rilis di npm, menunggu build image Docker Hub)</span>'
             update_block = (
                 f'<div class="update-hint">{ICON_CHECK}9router sudah versi terbaru di Docker Hub'
-                f' (v{installed_version}){npm_note}</div>' + cek_btn
+                f' (v{installed_version}){npm_note}</div>' + cek_btn + router_patch_notes_html
             )
         elif upd == "unknown":
             update_block = (
                 f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek update Docker Hub — '
-                f'<a href="/update-router?token={TOKEN}">paksa update</a></div>' + cek_btn
+                f'<a href="/update-router?token={TOKEN}">paksa update</a></div>' + cek_btn + router_patch_notes_html
             )
         else:  # checking — the auto-poll picks up the settled result
-            update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek update 9router…</div>'
+            update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek update 9router…</div>' + router_patch_notes_html
 
     # Hermes update status
     hermes_upd = get_hermes_update()
@@ -3293,11 +3548,14 @@ def build_fragments() -> dict:
     hermes_status = hermes_upd.get("status", "unknown")
     hermes_result = get_hermes_update_result()
     hermes_log = html.escape(tail_hermes_update_log())
+    hermes_notes = get_hermes_patch_notes()
+    hermes_patch_notes_html = render_patch_notes_block("Hermes Agent", hermes_notes)
 
     if hermes_result.get("running"):
         cells["hermes"] = f'<span class="value warn">Update berjalan…</span>'
         hermes_update_block = (
             f'<div class="update-hint">{ICON_CLOCK}Updater Hermes sedang berjalan live…</div>'
+            + hermes_patch_notes_html
         )
     elif hermes_status == "available":
         cells["hermes"] = f'<span class="value warn">{html.escape(hermes_local)} ({hermes_behind} update tersedia)</span>'
@@ -3305,16 +3563,18 @@ def build_fragments() -> dict:
             f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);color:#141922" href="/update-hermes?token={TOKEN}">'
             f'{ICON_ARROW_UP_CIRCLE}Update Hermes ({hermes_behind} commit)</a>'
             f'<a class="toggle restart" href="/check-hermes-update?token={TOKEN}">{ICON_REFRESH}Cek Update Hermes</a>'
+            + hermes_patch_notes_html
         )
     elif hermes_status == "current":
         cells["hermes"] = f'<span class="value up">{html.escape(hermes_local)} (terbaru)</span>'
         hermes_update_block = (
             f'<div class="update-hint">{ICON_CHECK}Hermes sudah versi terbaru ({html.escape(hermes_local)})</div>'
             f'<a class="toggle restart" href="/check-hermes-update?token={TOKEN}">{ICON_REFRESH}Cek Update Hermes</a>'
+            + hermes_patch_notes_html
         )
     else:
         cells["hermes"] = f'<span class="value">{html.escape(hermes_local)}</span>'
-        hermes_update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek update Hermes…</div>'
+        hermes_update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek update Hermes…</div>' + hermes_patch_notes_html
 
     # Permanently render Hermes log card whenever log file exists or update result exists
     if hermes_log or hermes_result.get("status") != "idle" or os.path.exists("/root/.hermes/logs/update.log"):
