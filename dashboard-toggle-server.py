@@ -1027,6 +1027,7 @@ function switchTab(name, tab){{
   if(tab) tab.classList.add('active');
   safeStore('setItem', 'activeTab', name);
   scrollAllLogsToBottom();
+  restorePatchPages();
 }}
 
 // Tab restore from URL or safeStore
@@ -1041,6 +1042,7 @@ if(activeTabFromUrl){{
     if(btn) switchTab(saved, btn);
   }}
 }}
+restorePatchPages();
 
 function scrollAllLogsToBottom(){{
   document.querySelectorAll('.logbox').forEach(function(b){{
@@ -1062,6 +1064,17 @@ function patchPage(boxId, page){{
   if(prev) prev.disabled = page <= 1;
   if(next) next.disabled = page >= total;
   box.setAttribute('data-patch-current', String(page));
+  safeStore('setItem', 'patch_page_' + boxId, String(page));
+}}
+function restorePatchPages(){{
+  var boxes = document.querySelectorAll('.patch-notes-box');
+  for(var i=0; i<boxes.length; i++){{
+    var box = boxes[i];
+    var saved = safeStore('getItem', 'patch_page_' + box.id);
+    if(saved){{
+      patchPage(box.id, parseInt(saved, 10));
+    }}
+  }}
 }}
 function filterModels(q){{
   q = q.toLowerCase();
@@ -1363,9 +1376,19 @@ SSE_SCRIPT = """<script>
     if(d.cells && d.cells.uptime) set('cell-uptime-perf', d.cells.uptime);
     if(!safeStore('getItem','logDismissed')) stickySet('log-slot',d.log_card);
     else { var rc=document.getElementById('router-log-card'); if(rc) rc.remove(); }
-    if(!safeStore('getItem','hermesLogDismissed')) stickySet('hermes-update-slot',d.hermes_update_block);
-    else { var hc=document.getElementById('hermes-log-card'); if(hc) hc.remove(); }
+    if(!safeStore('getItem','hermesLogDismissed')) {{
+      var hlc = document.getElementById('hermes-log-card');
+      if(hlc && d.hermes_log_card) stickySet('hermes-log-card', d.hermes_log_card);
+      else if(d.hermes_log_card) {{
+        var hls = document.getElementById('hermes-log-slot');
+        if(hls) stickySet('hermes-log-slot', d.hermes_log_card);
+      }}
+    }} else {{
+      var hc = document.getElementById('hermes-log-card');
+      if(hc) hc.remove();
+    }}
     syncLogUI();
+    restorePatchPages();
   }
   function connect(){
     if(retryTimer){ clearTimeout(retryTimer); retryTimer=null; }
@@ -1578,7 +1601,7 @@ def _refresh_hermes_update() -> None:
                 patch_notes = list(reversed(raw_msgs[-25:]))
         if not patch_notes:
             try:
-                gl = subprocess.run(["git", "-C", HERMES_LIB_DIR, "log", "-n", "4", "--pretty=format:%s"],
+                gl = subprocess.run(["git", "-C", HERMES_LIB_DIR, "log", "-n", "25", "--pretty=format:%s"],
                                     capture_output=True, text=True, timeout=5)
                 if gl.returncode == 0 and gl.stdout.strip():
                     patch_notes = [line.strip() for line in gl.stdout.strip().split("\n") if line.strip()]
@@ -1639,10 +1662,10 @@ def get_hermes_patch_notes() -> list[str]:
     """Return latest commits / patch notes for Hermes Agent."""
     with _hermes_update_lock:
         notes = _hermes_update_cache.get("patch_notes")
-        if notes:
+        if notes and len(notes) >= 5:
             return list(notes)
     try:
-        gl = subprocess.run(["git", "-C", HERMES_LIB_DIR, "log", "-n", "4", "--pretty=format:%s"],
+        gl = subprocess.run(["git", "-C", HERMES_LIB_DIR, "log", "-n", "25", "--pretty=format:%s"],
                             capture_output=True, text=True, timeout=5)
         if gl.returncode == 0 and gl.stdout.strip():
             return [line.strip() for line in gl.stdout.strip().split("\n") if line.strip()]
@@ -2543,10 +2566,20 @@ def get_router_release() -> dict:
         return {"current": "?", "latest": "?", "has_update": False}
 
 
+_router_patch_notes_cache = {"at": 0.0, "notes": []}
+_router_patch_notes_lock = threading.Lock()
+
+
 def get_9router_patch_notes() -> list[str]:
     """Return latest commits / release notes for 9router."""
+    global _router_patch_notes_cache
+    with _router_patch_notes_lock:
+        if _router_patch_notes_cache["notes"] and (time.time() - _router_patch_notes_cache["at"] < 600):
+            return list(_router_patch_notes_cache["notes"])
     cached = get_cached_router_info().get("patch_notes")
-    if cached:
+    if cached and len(cached) >= 15:
+        with _router_patch_notes_lock:
+            _router_patch_notes_cache = {"at": time.time(), "notes": list(cached)}
         return list(cached)
     try:
         req = urllib.request.Request(
@@ -2577,9 +2610,13 @@ def get_9router_patch_notes() -> list[str]:
                 if len(notes) >= 25:
                     break
         if notes:
+            with _router_patch_notes_lock:
+                _router_patch_notes_cache = {"at": time.time(), "notes": list(notes)}
             return notes
     except Exception:
         pass
+    if cached:
+        return list(cached)
     return [
         "Support DeepSeek-V4.1-Flash and Xiaomi MiMo models",
         "Resolve 403 FreeTierError and 429 rate limits on OpenCode",
