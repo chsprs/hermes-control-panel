@@ -256,35 +256,6 @@ border:1px solid var(--border-hover);box-shadow:0 4px 14px rgba(0,0,0,0.35)}}
 .tab-panel{{display:none;width:100%;max-width:540px}}
 .tab-panel.active{{display:block}}
 
-@media (min-width: 1024px) {{
-  body {{ padding: 2.4rem 2.5rem 3rem; }}
-  .header {{ width: min(100%, 1180px); align-items:flex-start; text-align:left; margin-bottom:1.25rem; }}
-  .header-brand {{ width:100%; }}
-  .live-badge {{ margin-left:auto; }}
-  .tabs {{ display:flex; max-width:1180px; margin:0 auto 1.25rem; }}
-  .content-wrapper {{
-    display:block;
-    width:100%;
-    max-width:1180px;
-    margin:0 auto;
-  }}
-  .tab-panel {{
-    display:none !important;
-    max-width:100%;
-  }}
-  .tab-panel.active {{ display:block !important; }}
-  .card, .perf-tile {{ padding:1.25rem; }}
-  .card+.card {{ margin-top:1rem; }}
-  .btn-row {{ flex-direction:row; flex-wrap:wrap; }}
-  .btn-row > * {{ flex:1 1 220px; }}
-  .models-grid {{ grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); }}
-}}
-
-@media (min-width: 1440px) {{
-  body {{ padding-left:4rem; padding-right:4rem; }}
-  .header, .tabs, .content-wrapper {{ max-width:1280px; }}
-}}
-
 /* Apple Control Center Bento Grid & Tiles */
 .card{{background:var(--surface);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
 border:1px solid var(--border);border-radius:var(--radius-xl);padding:1.4rem;width:100%;
@@ -407,6 +378,9 @@ white-space:pre-wrap;word-break:break-word;max-height:190px;overflow-y:auto;line
 .update-hint{{font-size:.8rem;color:var(--text-muted);text-align:center;
 background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-md);
 padding:.65rem .85rem;display:flex;align-items:center;justify-content:center;gap:.4rem}}
+.hint-pill{{font-size:.78rem;color:var(--text-dim);padding:.42rem .8rem;border-radius:var(--radius-md);
+background:rgba(255,255,255,0.025);border:1px dashed var(--border-subtle);display:inline-flex;
+align-items:center;width:fit-content}}
 #pbar{{position:fixed;top:0;left:0;height:2px;width:0;background:var(--accent-light);z-index:100}}
 #spin{{display:inline-block;width:12px;height:12px;border:2px solid var(--border);
 border-top-color:var(--accent-light);border-radius:50%;vertical-align:-1px;
@@ -495,6 +469,68 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .patch-notes-list{{margin:0;padding-left:1.15rem;color:var(--text-muted)}}
 .patch-notes-list li{{margin-bottom:.3rem;word-break:break-word}}
 .patch-notes-list li:last-child{{margin-bottom:0}}
+
+/* Responsive Desktop Overrides */
+@media (min-width: 768px) {{
+  .btn-row {{
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    gap: .65rem !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+  }}
+  .btn-row > a.toggle,
+  .btn-row > a.open,
+  .btn-row > .btn {{
+    flex: 0 1 auto !important;
+    width: auto !important;
+    min-width: 160px !important;
+    max-width: 250px !important;
+    min-height: 38px !important;
+    padding: .48rem 1.05rem !important;
+    font-size: .82rem !important;
+  }}
+  #tab-control a.toggle,
+  #tab-control a.open,
+  #tab-control .card-warn a.toggle {{
+    width: auto !important;
+    min-width: 160px !important;
+    max-width: 260px !important;
+    min-height: 38px !important;
+    padding: .48rem 1.05rem !important;
+    font-size: .82rem !important;
+    display: inline-flex !important;
+  }}
+}}
+
+@media (min-width: 1024px) {{
+  body {{ padding: 2.4rem 2.5rem 3rem; }}
+  .header {{ width: min(100%, 1180px); align-items:flex-start; text-align:left; margin-bottom:1.25rem; }}
+  .header-brand {{ width:100%; }}
+  .live-badge {{ margin-left:auto; }}
+  .tabs {{ display:flex; max-width:1180px; margin:0 auto 1.25rem; }}
+  .content-wrapper {{
+    display:block;
+    width:100%;
+    max-width:1180px;
+    margin:0 auto;
+  }}
+  .tab-panel {{
+    display:none !important;
+    max-width:100%;
+  }}
+  .tab-panel.active {{ display:block !important; }}
+  #tab-control {{ max-width:860px; margin:0 auto; }}
+  .card, .perf-tile {{ padding:1.25rem; }}
+  .card+.card {{ margin-top:1rem; }}
+  .models-grid {{ grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); }}
+}}
+
+@media (min-width: 1440px) {{
+  body {{ padding-left:4rem; padding-right:4rem; }}
+  .header, .tabs, .content-wrapper {{ max-width:1280px; }}
+}}
 </style></head><body>
 <div id="pbar"></div>
 <div id="navloader"><div class="ring"></div><span id="nav-label">Memproses…</span></div>
