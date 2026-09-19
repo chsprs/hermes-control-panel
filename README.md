@@ -10,17 +10,22 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
 
 ## 🚀 Fitur Utama
 
-- ⚡ **Ultra-Ringan & Efisien**: Berjalan menggunakan Python standard library (`http.server`, `threading`, `json`, `urllib`). Tanpa dependensi framework berat (Node.js/React/Vue), konsumsi memori hanya ~18–20MB RAM.
-- 🔄 **Real-time SSE Push**: Metrik sistem (RAM, ZRAM, suhu CPU, kesehatan eMMC/HDD, status bot Telegram, IP LAN/Tailscale) diperbarui secara live via *Server-Sent Events* tanpa membebani browser.
-- 🎛️ **Manajemen Model 9router**: Ganti default model Hermes langsung dari browser. Daftar model dikelompokkan rapi (9router Combos, OpenCode Zen Free, Nous Portal Free, Provider Lain).
-- 🛡️ **Model Cadangan (Fallback)**: Atur urutan prioritas model backup jika model utama mengalami limit / error (HTTP 429 / 500) langsung ke `config.yaml`.
-- 🧩 **Auxiliary Task Models**: Konfigurasi model AI spesifik untuk tugas khusus (Vision, Context Compression, Skills Hub, MCP, Delegation, Approval, Title Generation, Triage, Curator) mirip dashboard resmi.
-- ⚡ **Interaksi Asinkron (AJAX)**: Pemilihan chip model dan tugas auxiliary menggunakan modal pencarian live real-time dengan update DOM instan tanpa reload halaman penuh.
-- 🧹 **Pembersih Sampah & Cache**: Truncate log update, bersihkan cache paket `uv`/`pip`, dan bersihkan cache layer docker dangling untuk melegakan penyimpanan eMMC.
-- 📦 **Updater Terintegrasi**:
-  - Update 9router Docker container dengan proteksi OOM (otomatis menghentikan container sebelum melakukan `pull` image).
+- ⚡ **Zero-Dependency & Hemat Resource**: Berjalan di atas Python standard library murni (`http.server`, `threading`, `json`, `urllib`). Tanpa runtime Node.js/frontend bundler, memori stabil di kisaran ~18–22MB RAM.
+- 📊 **Tampilan Windows Task Manager**:
+  - **Tab Proses**: Monitoring daftar proses sistem & container (`hermes-gateway`, `9router`, `cloudflared`, `hermes-dashboard`, dll.) dengan status, PID, memori, dan aksi End Task / Restart / Start langsung dari web.
+  - **Tab Performa**: Grafik riwayat pemakaian CPU dan Memori (DDR4 + ZRAM) real-time menggunakan SVG sparkline tanpa dependensi chart JS eksternal.
+  - **Tab Layanan**: Kontrol bot Telegram, toggle web dashboard resmi, pembersih sampah, quick links, dan pengaturan model backup.
+  - **Tab Tugas AI**: Konfigurasi model khusus auxiliary tasks secara visual.
+- 🔄 **Real-time SSE Push**: Metrik sistem (RAM, ZRAM, suhu SoC, health eMMC/HDD, status bot Telegram, IP LAN/Tailscale) terupdate live via *Server-Sent Events* dengan konsumsi CPU rendah.
+- 🎛️ **Manajemen Model 9router**: Ganti default model Hermes instan dari browser. Model terkelompok rapi (9router Combos, OpenCode Zen Free, Nous Portal Free, Provider Lain) dilengkapi kolom pencarian interaktif.
+- 🛡️ **Model Cadangan (Fallback)**: Susun prioritas model backup bertingkat yang otomatis dipanggil saat model utama terkena limit atau error (HTTP 429/500), tersimpan langsung ke `config.yaml`.
+- 🧩 **Auxiliary Task Models**: Konfigurasi model AI terpisah untuk tugas-tugas spesifik (Vision, Context Compression, Skills Hub, MCP, Delegation, Approval, Title Generation, Triage, Curator).
+- 📜 **Patch Notes Updater**: Menampilkan log pembaruan changelog terkini dari upstream GitHub secara otomatis di bawah tombol update.
+- 📦 **Updater Terintegrasi & Aman**:
+  - Update container 9router dengan proteksi OOM (otomatis menghentikan container sebelum `docker pull`).
   - Update native Hermes Agent resmi (`hermes update --yes`).
-- 📱 **Mobile UI/UX Modern**: Desain Apple Control Center dark-mode elegan, responsif di HP/tablet/laptop.
+- 🧹 **Pembersih Sampah & Cache**: Truncate log update lama, bersihkan cache `uv`/`pip`, dan bersihkan cache layer docker dangling untuk melegakan penyimpanan eMMC.
+- 💻 **Desain Responsif Desktop & Mobile**: Estetika modern Apple Control Center & Windows Task Manager, optimal pada perangkat mobile, tablet, hingga layar desktop lebar (1080p/1440p).
 
 ---
 
@@ -34,10 +39,10 @@ curl -fsSL https://raw.githubusercontent.com/chsprs/hermes-control-panel/main/in
 
 Installer otomatis:
 1. Memasang dependensi sistem (`python3`, `python3-yaml`, `curl`, `git`, `lsof`).
-2. Memasang **Hermes Agent** resmi jika belum terpasang.
-3. Mengonfigurasi `loginctl enable-linger` agar gateway menyala saat boot tanpa perlu login SSH.
-4. Memasang script dashboard dan unit service `hermes-panel.service`.
-5. Menjalankan service di port `9120`.
+2. Memasang **Hermes Agent** resmi jika belum terpasang di sistem.
+3. Mengonfigurasi `loginctl enable-linger` agar service gateway aktif saat boot tanpa sesi SSH terbuka.
+4. Menyalin skrip control panel dan mendaftarkan unit service `hermes-panel.service`.
+5. Menjalankan service otomatis di port `9120`.
 
 ---
 
@@ -61,23 +66,24 @@ sudo ./install.sh
 
 ## ⚙️ Konfigurasi Environment
 
-Service dikelola melalui systemd pada berkas `/etc/systemd/system/hermes-panel.service`. Anda dapat menyesuaikan konfigurasi dengan menambahkan `Environment`:
+Service dikelola melalui systemd pada berkas `/etc/systemd/system/hermes-panel.service`. Anda dapat menyesuaikan konfigurasi dengan menambahkan baris `Environment`:
 
 | Variabel | Default | Keterangan |
 |---|---|---|
-| `PANEL_TOKEN` | `vita-stb-2026` | Token autentikasi URL panel |
+| `PANEL_TOKEN` | `vita-stb-2026` | Token autentikasi URL akses panel (`?token=...`) |
 | `PANEL_PORT` | `9120` | Port listening HTTP web panel |
 | `HERMES_CONFIG_PATH` | `/root/.hermes/config.yaml` | Lokasi berkas konfigurasi Hermes |
 | `ROUTER_COMPOSE_DIR` | `/opt/AppData/9router` | Direktori docker-compose 9router |
 | `ROUTER_DB_PATH` | `/DATA/AppData/9router/db/data.sqlite` | Lokasi database SQLite 9router |
 
-Contoh kustomisasi token & port:
+Contoh kustomisasi:
 ```ini
 [Service]
 Environment=PANEL_TOKEN=rahasia123
 Environment=PANEL_PORT=8080
 ```
-Setelah mengubah berkas service, terapkan perubahan:
+
+Setelah mengubah konfigurasi unit systemd:
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl restart hermes-panel.service
@@ -94,7 +100,7 @@ sudo systemctl status hermes-panel.service
 # Restart panel
 sudo systemctl restart hermes-panel.service
 
-# Melihat log langsung
+# Melihat log streaming
 sudo journalctl -u hermes-panel.service -f
 
 # Uninstall panel
