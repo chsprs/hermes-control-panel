@@ -1788,15 +1788,37 @@ def get_current_model() -> str:
 
 
 def get_router_api_key() -> str:
+    """Read 9router credentials from the active parsed config.
+
+    The current Hermes schema stores custom-provider credentials under
+    ``fallback_providers`` or top-level ``custom_providers``; the old regex
+    expected a legacy ``name: 9router`` block and silently returned empty.
+    """
     try:
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            text = f.read()
-        m = re.search(
-            r"name:\s*9router\s*\n(?:.*\n)*?\s*api_key:\s*(\S+)", text
-        )
-        return m.group(1) if m else ""
+        data = get_parsed_config()
+        candidates = []
+        candidates.extend(data.get("fallback_providers") or [])
+        custom = data.get("custom_providers") or {}
+        if isinstance(custom, dict):
+            provider = custom.get("9router")
+            if isinstance(provider, dict):
+                candidates.append(provider)
+        model_custom = (data.get("model") or {}).get("custom_providers") or {}
+        if isinstance(model_custom, dict):
+            provider = model_custom.get("9router")
+            if isinstance(provider, dict):
+                candidates.append(provider)
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            provider = str(item.get("provider", ""))
+            if provider in ("", "9router", "custom:9router"):
+                key = item.get("api_key") or item.get("apiKey")
+                if key:
+                    return str(key)
     except Exception:
-        return ""
+        pass
+    return ""
 
 
 def fetch_remote_models() -> dict:
