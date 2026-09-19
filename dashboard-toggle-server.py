@@ -803,6 +803,32 @@ var AVAILABLE_MODELS = {available_models_json};
 var currentAuxTask = '';
 var currentFallbackIndex = null;
 
+function ensureAvailableModels(callback){{
+  var hasAny = false;
+  if(typeof AVAILABLE_MODELS === 'object' && AVAILABLE_MODELS !== null){{
+    for(var k in AVAILABLE_MODELS){{
+      if(AVAILABLE_MODELS[k] && AVAILABLE_MODELS[k].length > 0){{ hasAny = true; break; }}
+    }}
+  }}
+  if(hasAny){{
+    if(callback) callback();
+    return;
+  }}
+  var container = document.getElementById('aux-picker-list');
+  if(container) container.innerHTML = '<div style="padding:1.5rem;color:var(--text-dim);font-size:0.82rem;text-align:center">Memuat daftar model 9router…</div>';
+  fetch('/api/models?token=' + encodeURIComponent(TOKEN), {{headers: {{'Accept': 'application/json'}}}})
+    .then(function(r){{ return r.json(); }})
+    .then(function(data){{
+      if(typeof data === 'object' && data !== null){{
+        AVAILABLE_MODELS = data;
+      }}
+      if(callback) callback();
+    }})
+    .catch(function(){{
+      if(callback) callback();
+    }});
+}}
+
 function openAuxPicker(taskKey, taskLabel){{
   currentAuxTask = taskKey;
   currentFallbackIndex = null;
@@ -810,9 +836,11 @@ function openAuxPicker(taskKey, taskLabel){{
   if(title) title.textContent = 'Pilih Model: ' + taskLabel;
   var input = document.getElementById('aux-model-search');
   if(input) input.value = '';
-  renderAuxPickerItems('');
   var modal = document.getElementById('aux-picker-modal');
   if(modal) modal.classList.add('show');
+  ensureAvailableModels(function(){{
+    renderAuxPickerItems('');
+  }});
 }}
 
 function openFallbackPicker(index, label){{
@@ -822,9 +850,11 @@ function openFallbackPicker(index, label){{
   if(title) title.textContent = (index === -1 ? 'Tambah Model Cadangan (Backup)' : 'Ganti Model Cadangan: ' + label);
   var input = document.getElementById('aux-model-search');
   if(input) input.value = '';
-  renderFallbackPickerItems('');
   var modal = document.getElementById('aux-picker-modal');
   if(modal) modal.classList.add('show');
+  ensureAvailableModels(function(){{
+    renderFallbackPickerItems('');
+  }});
 }}
 
 function closeAuxPicker(){{
@@ -1883,20 +1913,15 @@ def get_all_configured_providers() -> list[dict]:
 
 
 def get_available_models() -> dict:
-    """Fetch live models from 9router /v1/models and group ONLY FREE models by provider (9router, OpenCode Zen, Nous Portal, OpenRouter/Lainnya)."""
-    result = {
-        "9router": [],
-        "OpenCode Zen": [],
-        "Nous Portal": [],
-        "Provider Lain": []
-    }
+    """Fetch live models from 9router /v1/models and group ALL models by provider/category."""
+    result = {}
     key = get_router_api_key()
     if not key:
-        return result
+        return {"9router (Combos)": []}
     try:
         host = get_9router_host()
         req = urllib.request.Request(
-            ROUTER_MODELS_URL.format(host=host), headers={"Authorization": f"Bearer {key}"}
+            ROUTER_MODELS_URL.format(host=host), headers={"Authorization": f"Bearer {key}", "Accept": "application/json"}
         )
         with urllib.request.urlopen(req, timeout=MODELS_TIMEOUT) as resp:
             data = json.load(resp)
@@ -1905,28 +1930,47 @@ def get_available_models() -> dict:
             if not isinstance(item, dict):
                 continue
             mid = item.get("id", "")
-            ob = item.get("owned_by", "")
+            if not mid:
+                continue
+            ob = str(item.get("owned_by", "")).lower()
 
-            # Grouping by Provider according to 9router structure
             if ob == "combo":
-                # For 9router combos, keep all combos (or combo with default-free)
-                result["9router"].append(mid)
-            elif ob == "oc-zen" or mid.startswith("oc-zen/"):
-                if "free" in mid.lower():
-                    result["OpenCode Zen"].append(mid)
-            elif ob == "nous" or mid.startswith("nous/"):
-                if "free" in mid.lower():
-                    result["Nous Portal"].append(mid)
+                group = "9router (Combos)"
+            elif ob == "ag" or mid.startswith("ag/"):
+                group = "Antigravity (ag)"
+            elif ob == "cx" or mid.startswith("cx/"):
+                group = "Codex (cx)"
+            elif ob == "gemini" or mid.startswith("gemini/"):
+                group = "Google Gemini"
+            elif ob == "kr" or mid.startswith("kr/"):
+                group = "Kiro (kr)"
+            elif ob == "ollama" or mid.startswith("ollama/"):
+                group = "Ollama"
+            elif ob == "groq" or mid.startswith("groq/"):
+                group = "Groq"
+            elif ob == "openrouter" or mid.startswith("openrouter/"):
+                group = "OpenRouter"
+            elif ob == "cmc" or mid.startswith("cmc/"):
+                group = "CommandCode (cmc)"
+            elif ob == "nara" or mid.startswith("nara/"):
+                group = "Nara / KiloCode"
+            elif ob:
+                group = f"{ob.upper()}"
             else:
-                if "free" in mid.lower():
-                    result["Provider Lain"].append(mid)
+                group = "Lainnya"
 
-        for k in result:
-            result[k] = sorted(result[k])
+            result.setdefault(group, []).append(mid)
+
+        ordered_result = {}
+        if "9router (Combos)" in result:
+            ordered_result["9router (Combos)"] = sorted(result.pop("9router (Combos)"))
+        for g in sorted(result.keys()):
+            ordered_result[g] = sorted(result[g])
+        return ordered_result
     except Exception:
         pass
 
-    return result
+    return {"9router (Combos)": []}
 
 
 def get_available_models_cached() -> dict:
@@ -3327,12 +3371,7 @@ def build_fragments() -> dict:
     gw_info = get_gateway_info()
     updating = _router_updating
     all_models = get_available_models_cached() if router_up else {}
-    router_models = all_models.get("9router", [])
-    oczen_models = all_models.get("OpenCode Zen", [])
-    nous_models = all_models.get("Nous Portal", [])
-    other_free_models = all_models.get("Provider Lain", [])
-    
-    all_flat_models = router_models + oczen_models + nous_models + other_free_models
+    all_flat_models = [m for m_list in all_models.values() for m in m_list]
     model_not_listed = bool(all_flat_models) and model not in all_flat_models
 
     def cell(cls: str, text: str) -> str:
@@ -3430,11 +3469,8 @@ def build_fragments() -> dict:
         )
 
     if router_up or all_flat_models:
-        group_9router = render_chips_group("9router (Combos)", router_models)
-        group_oczen = render_chips_group("OpenCode Zen (Free Models)", oczen_models)
-        group_nous = render_chips_group("Nous Portal (Free Models)", nous_models)
-        group_other = render_chips_group("OpenRouter / Lainnya (Free)", other_free_models)
-        model_chips = action_hdr + group_9router + group_oczen + group_nous + group_other
+        groups_html = "".join(render_chips_group(gname, mlist) for gname, mlist in all_models.items() if mlist)
+        model_chips = action_hdr + groups_html
     else:
         model_chips = action_hdr + '<span class="model-chip">Model tidak terhubung</span>'
 
@@ -3869,6 +3905,16 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/status":
             body = json.dumps(build_fragments()).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path in ("/api/models", "/api/available-models"):
+            body = json.dumps(get_available_models_cached()).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
