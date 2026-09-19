@@ -1309,17 +1309,8 @@ SSE_SCRIPT = """<script>
       set('cell-ram',d.cells.ram); set('cell-zram',d.cells.zram); set('cell-temp',d.cells.temp); set('cell-emmc',d.cells.emmc);
       set('cell-disk',d.cells.disk); set('cell-uptime',d.cells.uptime);
       set('cell-lan',d.cells.lan); set('cell-ts',d.cells.ts); }
-    set('model-chips',d.model_chips);
-    var searchEl = document.getElementById('model-search');
-    if(searchEl && searchEl.value.trim() !== '') {
-      filterModels(searchEl.value);
-    }
-    set('rl-slot',d.rate_limit_card);
-    set('update-content-slot',d.update_block);
-    if(d.quick_links_block) set('quick-links-slot',d.quick_links_block);
-    if(d.dash_bot_btns_block) set('dash-bot-btns-slot',d.dash_bot_btns_block);
-    if(d.aux_tasks_block) set('aux-tasks-slot',d.aux_tasks_block);
-    if(d.backup_models_block) set('backup-models-slot',d.backup_models_block);
+    // Static controls stay untouched: replacing them resets scroll/focus.
+    // SSE updates only live metrics, process data, and active update logs.
     if(d.processes_table) set('process-table-slot',d.processes_table);
     if(d.cpu_pct !== undefined) {{
       updateSparkline('cpu-sparkline', d.cpu_pct, cpuHistory);
