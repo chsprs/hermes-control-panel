@@ -469,6 +469,9 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .patch-notes-list{{margin:0;padding-left:1.15rem;color:var(--text-muted)}}
 .patch-notes-list li{{margin-bottom:.3rem;word-break:break-word}}
 .patch-notes-list li:last-child{{margin-bottom:0}}
+.patch-notes-pages{{display:flex;align-items:center;justify-content:flex-end;gap:.45rem;margin-top:.65rem}}
+.patch-notes-pages button{{width:auto;min-height:30px;padding:.25rem .6rem;font-size:.7rem}}
+.patch-notes-page-label{{min-width:5.5rem;text-align:center;font:600 .68rem var(--font-mono);color:var(--text-dim)}}
 
 /* Responsive Desktop Overrides */
 @media (min-width: 768px) {{
@@ -1014,6 +1017,22 @@ function scrollAllLogsToBottom(){{
     b.scrollTop = b.scrollHeight;
   }});
 }}
+function patchPage(boxId, page){{
+  var box = document.getElementById(boxId);
+  if(!box) return;
+  var items = box.querySelectorAll('[data-patch-page]');
+  var total = 1;
+  for(var i=0;i<items.length;i++) total = Math.max(total, parseInt(items[i].getAttribute('data-patch-page') || '1', 10));
+  page = Math.max(1, Math.min(total, page));
+  for(var j=0;j<items.length;j++) items[j].style.display = items[j].getAttribute('data-patch-page') === String(page) ? '' : 'none';
+  var label = box.querySelector('.patch-notes-page-label');
+  if(label) label.textContent = page + ' / ' + total;
+  var prev = box.querySelector('.patchPrev');
+  var next = box.querySelector('.patchNext');
+  if(prev) prev.disabled = page <= 1;
+  if(next) next.disabled = page >= total;
+  box.setAttribute('data-patch-current', String(page));
+}}
 function filterModels(q){{
   q = q.toLowerCase();
   var chips = document.querySelectorAll('#model-chips .model-chip');
@@ -1535,7 +1554,7 @@ def _refresh_hermes_update() -> None:
         if cmp_data and cmp_data.get("commits"):
             raw_msgs = [c.get("commit", {}).get("message", "").strip().split("\n")[0] for c in cmp_data.get("commits", []) if c.get("commit")]
             if raw_msgs:
-                patch_notes = list(reversed(raw_msgs[-5:]))
+                patch_notes = list(reversed(raw_msgs[-25:]))
         if not patch_notes:
             try:
                 gl = subprocess.run(["git", "-C", HERMES_LIB_DIR, "log", "-n", "4", "--pretty=format:%s"],
@@ -1567,17 +1586,31 @@ def translate_to_id(text: str) -> str:
 
 
 def render_patch_notes_block(title: str, notes: list[str]) -> str:
-    """Render default changelog / patch notes directly below update buttons."""
+    """Render raw patch notes with five entries per client-side page."""
     if not notes:
         return ""
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "updates"
+    box_id = f"patch-notes-{slug}"
+    page_size = 5
     items = []
-    for n in notes[:5]:
-        items.append(f'<li>{html.escape(n.strip())}</li>')
+    for index, note in enumerate(notes):
+        page = index // page_size + 1
+        display = "" if page == 1 else ' style="display:none"'
+        items.append(
+            f'<li data-patch-page="{page}"{display}>{html.escape(note.strip())}</li>'
+        )
+    total_pages = (len(notes) + page_size - 1) // page_size
     return (
-        f'<div class="patch-notes-box">'
+        f'<div class="patch-notes-box" id="{box_id}" data-patch-current="1">'
         f'<div class="patch-notes-title">📝 Patch Notes ({html.escape(title)}):</div>'
         f'<ul class="patch-notes-list">{"".join(items)}</ul>'
-        f'</div>'
+        f'<div class="patch-notes-pages">'
+        f'<button type="button" class="btn patchPrev" disabled '
+        f'onclick="patchPage(\'{box_id}\',parseInt(document.getElementById(\'{box_id}\').getAttribute(\'data-patch-current\')||\'1\',10)-1)">‹ Sebelumnya</button>'
+        f'<span class="patch-notes-page-label">1 / {total_pages}</span>'
+        f'<button type="button" class="btn patchNext"{("" if total_pages > 1 else " disabled")}'
+        f' onclick="patchPage(\'{box_id}\',parseInt(document.getElementById(\'{box_id}\').getAttribute(\'data-patch-current\')||\'1\',10)+1)">Berikutnya ›</button>'
+        f'</div></div>'
     )
 
 
@@ -2460,7 +2493,7 @@ def get_9router_patch_notes() -> list[str]:
         return list(cached)
     try:
         req = urllib.request.Request(
-            "https://api.github.com/repos/decolua/9router/commits?per_page=8",
+            "https://api.github.com/repos/decolua/9router/commits?per_page=25",
             headers={"User-Agent": "Hermes-Panel"}
         )
         with urllib.request.urlopen(req, timeout=4) as resp:
@@ -2477,14 +2510,14 @@ def get_9router_patch_notes() -> list[str]:
                     cleaned = re.sub(r"\(#[0-9]+\)", "", cleaned).strip()
                     if cleaned and not cleaned.startswith("Merge"):
                         notes.append(cleaned)
-                        if len(notes) >= 5:
+                        if len(notes) >= 25:
                             break
-            if len(notes) >= 5:
+            if len(notes) >= 25:
                 break
             first = lines[0].strip()
             if any(first.startswith(p) for p in ("feat", "fix", "refactor", "perf", "docs", "chore")):
                 notes.append(first)
-                if len(notes) >= 5:
+                if len(notes) >= 25:
                     break
         if notes:
             return notes
