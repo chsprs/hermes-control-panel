@@ -257,20 +257,32 @@ border:1px solid var(--border-hover);box-shadow:0 4px 14px rgba(0,0,0,0.35)}}
 .tab-panel.active{{display:block}}
 
 @media (min-width: 1024px) {{
-  body {{ padding: 2.8rem 2.5rem; }}
-  .tabs {{ display: none; }}
+  body {{ padding: 2.4rem 2.5rem 3rem; }}
+  .header {{ width: min(100%, 1180px); align-items:flex-start; text-align:left; margin-bottom:1.25rem; }}
+  .header-brand {{ width:100%; }}
+  .live-badge {{ margin-left:auto; }}
+  .tabs {{ display:flex; max-width:1180px; margin:0 auto 1.25rem; }}
   .content-wrapper {{
-    display: grid;
-    grid-template-columns: 1.12fr 1fr;
-    gap: 1.6rem;
-    width: 100%;
-    max-width: 1100px;
-    align-items: start;
+    display:block;
+    width:100%;
+    max-width:1180px;
+    margin:0 auto;
   }}
   .tab-panel {{
-    display: block !important;
-    max-width: 100%;
+    display:none !important;
+    max-width:100%;
   }}
+  .tab-panel.active {{ display:block !important; }}
+  .card, .perf-tile {{ padding:1.25rem; }}
+  .card+.card {{ margin-top:1rem; }}
+  .btn-row {{ flex-direction:row; flex-wrap:wrap; }}
+  .btn-row > * {{ flex:1 1 220px; }}
+  .models-grid {{ grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); }}
+}}
+
+@media (min-width: 1440px) {{
+  body {{ padding-left:4rem; padding-right:4rem; }}
+  .header, .tabs, .content-wrapper {{ max-width:1280px; }}
 }}
 
 /* Apple Control Center Bento Grid & Tiles */
