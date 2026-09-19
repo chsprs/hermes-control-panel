@@ -1501,168 +1501,21 @@ def _refresh_hermes_update() -> None:
             _hermes_update_cache = {"status": "unknown", "local": "?", "remote": "?", "behind": 0, "patch_notes": [], "at": time.time()}
 
 
-PATCH_NOTE_DICTIONARY = [
-    # Conventional commit prefixes
-    (r"^feat(?:\([^)]*\))?:\s*", "Fitur baru: "),
-    (r"^fix(?:\([^)]*\))?:\s*", "Perbaikan: "),
-    (r"^refactor(?:\([^)]*\))?:\s*", "Refaktor: "),
-    (r"^perf(?:\([^)]*\))?:\s*", "Peningkatan performa: "),
-    (r"^docs(?:\([^)]*\))?:\s*", "Dokumentasi: "),
-    (r"^chore(?:\([^)]*\))?:\s*", "Pemeliharaan: "),
-    (r"^test(?:\([^)]*\))?:\s*", "Pengujian: "),
-    (r"^style(?:\([^)]*\))?:\s*", "Perapian format: "),
-    (r"^build(?:\([^)]*\))?:\s*", "Sistem build: "),
-    (r"^ci(?:\([^)]*\))?:\s*", "Sistem CI: "),
-
-    # Headers
-    (r"(?i)^#+\s*features\b", "## Fitur Baru"),
-    (r"(?i)^#+\s*fixes\b", "## Perbaikan Bug"),
-    (r"(?i)^#+\s*bug fixes\b", "## Perbaikan Bug"),
-    (r"(?i)\bfeatures:\b", "Fitur Baru:"),
-    (r"(?i)\bfixes:\b", "Perbaikan Bug:"),
-
-    # Multi-word phrases
-    (r"(?i)\binstead of\b", "alih-alih"),
-    (r"(?i)\bdue to\b", "karena"),
-    (r"(?i)\bas well as\b", "serta"),
-    (r"(?i)\bmore than\b", "lebih dari"),
-    (r"(?i)\bless than\b", "kurang dari"),
-    (r"(?i)\bup to date\b", "sudah terbaru"),
-    (r"(?i)\bout of date\b", "sudah usang"),
-    (r"(?i)\bby default\b", "secara bawaan"),
-    (r"(?i)\brate limits?\b", "limit kuota (rate limit)"),
-    (r"(?i)\btimeouts?\b", "waktu habis (timeout)"),
-    (r"(?i)\bmemory leaks?\b", "kebocoran memori"),
-    (r"(?i)\bclean up\b", "bersihkan"),
-    (r"(?i)\bauto[- ]compact\b", "kompresi otomatis"),
-    (r"(?i)\bfree[- ]tier\b", "paket gratis"),
-    (r"(?i)\bdangling images?\b", "image usang tak terpakai"),
-
-    # Common verbs
-    (r"(?i)\badds?\b", "tambah"),
-    (r"(?i)\badded\b", "menambahkan"),
-    (r"(?i)\badding\b", "menambahkan"),
-    (r"(?i)\bresolves?\b", "memperbaiki"),
-    (r"(?i)\bresolved\b", "memperbaiki"),
-    (r"(?i)\bfixes?\b", "memperbaiki"),
-    (r"(?i)\bfixed\b", "memperbaiki"),
-    (r"(?i)\bupdates?\b", "memperbarui"),
-    (r"(?i)\bupdated\b", "memperbarui"),
-    (r"(?i)\bupdating\b", "memperbarui"),
-    (r"(?i)\bremoves?\b", "menghapus"),
-    (r"(?i)\bremoved\b", "menghapus"),
-    (r"(?i)\bremoving\b", "menghapus"),
-    (r"(?i)\bsupports?\b", "mendukung"),
-    (r"(?i)\bsupported\b", "didukung"),
-    (r"(?i)\benables?\b", "mengaktifkan"),
-    (r"(?i)\benabled\b", "diaktifkan"),
-    (r"(?i)\bdisables?\b", "menonaktifkan"),
-    (r"(?i)\bdisabled\b", "dinonaktifkan"),
-    (r"(?i)\bprevents?\b", "mencegah"),
-    (r"(?i)\bprevented\b", "mencegah"),
-    (r"(?i)\bimproves?\b", "meningkatkan"),
-    (r"(?i)\bimproved\b", "meningkatkan"),
-    (r"(?i)\bimproving\b", "meningkatkan"),
-    (r"(?i)\ballows?\b", "mengizinkan"),
-    (r"(?i)\ballowed\b", "diizinkan"),
-    (r"(?i)\bhandles?\b", "menangani"),
-    (r"(?i)\bhandled\b", "ditangani"),
-    (r"(?i)\bpreserves?\b", "mempertahankan"),
-    (r"(?i)\bpreserved\b", "dipertahankan"),
-    (r"(?i)\brestores?\b", "memulihkan"),
-    (r"(?i)\brestored\b", "dipulihkan"),
-    (r"(?i)\bretries?\b", "mencoba ulang"),
-    (r"(?i)\bretried\b", "dicoba ulang"),
-    (r"(?i)\breports?\b", "melaporkan"),
-    (r"(?i)\breported\b", "dilaporkan"),
-    (r"(?i)\bmerges?\b", "menggabungkan"),
-    (r"(?i)\bmerged\b", "digabungkan"),
-    (r"(?i)\bcleans?\b", "membersihkan"),
-    (r"(?i)\bcleaned\b", "dibersihkan"),
-    (r"(?i)\bcleanup\b", "pembersihan"),
-    (r"(?i)\bavoids?\b", "menghindari"),
-    (r"(?i)\bavoided\b", "dihindari"),
-    (r"(?i)\bhides?\b", "menyembunyikan"),
-    (r"(?i)\bhidden\b", "tersembunyi"),
-    (r"(?i)\bshows?\b", "menampilkan"),
-    (r"(?i)\bshown\b", "ditampilkan"),
-    (r"(?i)\bdisplays?\b", "menampilkan"),
-    (r"(?i)\bdisplayed\b", "ditampilkan"),
-    (r"(?i)\bfinishes?\b", "menyelesaikan"),
-    (r"(?i)\bfinished\b", "diselesaikan"),
-    (r"(?i)\bdrives?\b", "mengendalikan"),
-    (r"(?i)\bdriven\b", "dikendalikan"),
-    (r"(?i)\btracks?\b", "melacak"),
-    (r"(?i)\btracked\b", "dilacak"),
-    (r"(?i)\btracking\b", "pelacakan"),
-    (r"(?i)\bdeclares?\b", "mendeklarasikan"),
-    (r"(?i)\bdeclared\b", "dideklarasikan"),
-    (r"(?i)\broutes?\b", "merutekan"),
-    (r"(?i)\brouted\b", "dirutekan"),
-    (r"(?i)\bscopes?\b", "membatasi lingkup"),
-    (r"(?i)\bscoped\b", "dibatasi lingkup"),
-    (r"(?i)\bsanitizes?\b", "membersihkan"),
-    (r"(?i)\bsanitized\b", "dibersihkan"),
-
-    # Prepositions & Conjunctions
-    (r"(?i)\bwhen\b", "saat"),
-    (r"(?i)\bbefore\b", "sebelum"),
-    (r"(?i)\bafter\b", "setelah"),
-    (r"(?i)\bwith\b", "dengan"),
-    (r"(?i)\bwithout\b", "tanpa"),
-    (r"(?i)\band\b", "dan"),
-    (r"(?i)\bor\b", "atau"),
-    (r"(?i)\bfor\b", "untuk"),
-    (r"(?i)\bfrom\b", "dari"),
-    (r"(?i)\bto\b", "ke"),
-    (r"(?i)\bacross\b", "di seluruh"),
-    (r"(?i)\bdirectly\b", "secara langsung"),
-    (r"(?i)\bsilently\b", "tanpa notifikasi"),
-    (r"(?i)\bproperly\b", "dengan benar"),
-    (r"(?i)\bcorrectly\b", "dengan tepat"),
-    (r"(?i)\btemporarily\b", "sementara"),
-    (r"(?i)\btemporary\b", "sementara"),
-    (r"(?i)\btransient\b", "sementara"),
-
-    # Nouns
-    (r"(?i)\berrors?\b", "galat (error)"),
-    (r"(?i)\bfailures?\b", "kegagalan"),
-    (r"(?i)\bsettings?\b", "pengaturan"),
-    (r"(?i)\bproviders?\b", "penyedia (provider)"),
-    (r"(?i)\bcommands?\b", "perintah"),
-    (r"(?i)\brequests?\b", "permintaan (request)"),
-    (r"(?i)\bresponses?\b", "respons"),
-    (r"(?i)\bconnections?\b", "koneksi"),
-    (r"(?i)\bwindows?\b", "jendela"),
-    (r"(?i)\bnew\b", "baru"),
-    (r"(?i)\blatest\b", "terbaru"),
-    (r"(?i)\bold\b", "lama"),
-    (r"(?i)\bdefaults?\b", "bawaan (default)"),
-    (r"(?i)\bfeatures?\b", "fitur"),
-    (r"(?i)\bimprovements?\b", "peningkatan"),
-    (r"(?i)\bdetails?\b", "detail"),
-    (r"(?i)\bimages?\b", "gambar"),
-]
-
 def translate_to_id(text: str) -> str:
-    """Deterministically translate changelog English to Indonesian without AI."""
-    res = text
-    for pattern, repl in PATCH_NOTE_DICTIONARY:
-        res = re.sub(pattern, repl, res)
-    return res
+    """Pass-through default raw text without translation."""
+    return text
 
 
 def render_patch_notes_block(title: str, notes: list[str]) -> str:
-    """Render translated patch notes directly below update buttons."""
+    """Render default changelog / patch notes directly below update buttons."""
     if not notes:
         return ""
     items = []
     for n in notes[:5]:
-        tr = translate_to_id(n.strip())
-        items.append(f'<li>{html.escape(tr)}</li>')
+        items.append(f'<li>{html.escape(n.strip())}</li>')
     return (
         f'<div class="patch-notes-box">'
-        f'<div class="patch-notes-title">📝 Catatan Pembaruan ({html.escape(title)}):</div>'
+        f'<div class="patch-notes-title">📝 Patch Notes ({html.escape(title)}):</div>'
         f'<ul class="patch-notes-list">{"".join(items)}</ul>'
         f'</div>'
     )
@@ -2578,9 +2431,9 @@ def get_9router_patch_notes() -> list[str]:
     except Exception:
         pass
     return [
-        "Dukungan model DeepSeek-V4.1-Flash dan Xiaomi MiMo",
-        "Perbaikan 403 FreeTierError dan 429 rate limit pada OpenCode",
-        "Opsi toggle 1M-context pada antarmuka Claude Code"
+        "Support DeepSeek-V4.1-Flash and Xiaomi MiMo models",
+        "Resolve 403 FreeTierError and 429 rate limits on OpenCode",
+        "Add 1M-context toggle option on Claude Code interface"
     ]
 
 
