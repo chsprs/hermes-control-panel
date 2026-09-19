@@ -758,11 +758,13 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       {backup_models_block}
     </div>
   </div>
-  <div class="card card-warn" id="update-slot">{update_block}</div>
-  <div id="log-slot">{log_card}</div>
-  <div id="log-show-wrap" style="display:none;margin-top:.6rem">
-    <button type="button" class="btn" style="width:auto;padding:0.35rem 0.8rem;font-size:0.75rem;margin:0"
-      onclick="toggleLog('logDismissed','log-show-wrap')">Tampilkan Log Update 9router</button>
+  <div class="card card-warn" id="update-slot">
+    <div id="update-content-slot">{update_block}</div>
+    <div id="log-slot">{log_card}</div>
+    <div id="log-show-wrap" style="display:none;margin-top:.6rem">
+      <button type="button" class="btn" style="width:auto;padding:0.35rem 0.8rem;font-size:0.75rem;margin:0"
+        onclick="toggleLog('logDismissed','log-show-wrap')">Tampilkan Log Update 9router</button>
+    </div>
   </div>
   <div class="card card-warn" id="hermes-update-slot">{hermes_update_block}</div>
   <div id="hermes-log-show" style="display:none;margin-top:.6rem">
@@ -1031,10 +1033,20 @@ function toggleLog(flag, wrapId){{
   window._forceBottom = true;
 }}
 function syncLogUI(){{
+  var routerDismissed = safeStore('getItem','logDismissed');
   var rw = document.getElementById('log-show-wrap');
-  if(rw) rw.style.display = safeStore('getItem','logDismissed') ? '' : 'none';
+  if(rw) rw.style.display = routerDismissed ? '' : 'none';
+  if(routerDismissed){{
+    var rc = document.getElementById('router-log-card');
+    if(rc) rc.remove();
+  }}
+  var hermesDismissed = safeStore('getItem','hermesLogDismissed');
   var hw = document.getElementById('hermes-log-show');
-  if(hw) hw.style.display = safeStore('getItem','hermesLogDismissed') ? '' : 'none';
+  if(hw) hw.style.display = hermesDismissed ? '' : 'none';
+  if(hermesDismissed){{
+    var hc = document.getElementById('hermes-log-card');
+    if(hc) hc.remove();
+  }}
 }}
 syncLogUI();
 // Initial load: scroll all existing log boxes to the bottom once
@@ -1284,7 +1296,7 @@ SSE_SCRIPT = """<script>
       filterModels(searchEl.value);
     }
     set('rl-slot',d.rate_limit_card);
-    set('update-slot',d.update_block);
+    set('update-content-slot',d.update_block);
     if(d.quick_links_block) set('quick-links-slot',d.quick_links_block);
     if(d.dash_bot_btns_block) set('dash-bot-btns-slot',d.dash_bot_btns_block);
     if(d.aux_tasks_block) set('aux-tasks-slot',d.aux_tasks_block);
