@@ -8,6 +8,18 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
 
 ---
 
+## 📸 Tampilan Antarmuka
+
+| Windows Task Manager — Proses Sistem | Real-time Performance Sparkline |
+|:---:|:---:|
+| ![Daftar Proses](assets/screenshots/panel-desktop-status.png) | ![Performa Realtime](assets/screenshots/panel-desktop-performance.png) |
+
+| Layanan, Fallback & Updater | Tampilan Mobile Responsif |
+|:---:|:---:|
+| ![Layanan & Fallback](assets/screenshots/panel-desktop-control.png) | ![Mobile View](assets/screenshots/panel-mobile.png) |
+
+---
+
 ## 🚀 Fitur Utama
 
 - ⚡ **Zero-Dependency & Hemat Resource**: Berjalan di atas Python standard library murni (`http.server`, `threading`, `json`, `urllib`). Tanpa runtime Node.js/frontend bundler, memori stabil di kisaran ~18–22MB RAM.
