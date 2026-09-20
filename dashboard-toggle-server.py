@@ -4479,6 +4479,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class TimeoutThreadingHTTPServer(ThreadingHTTPServer):
+    allow_reuse_address = True
     daemon_threads = True
     timeout = 15
 
