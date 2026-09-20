@@ -217,22 +217,31 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   --font-sans:'Geist',-apple-system,BlinkMacSystemFont,sans-serif;
   --font-mono:'Geist Mono',monospace;
 }}
+html,body{{overflow-x:hidden;max-width:100vw;box-sizing:border-box}}
 *{{box-sizing:border-box;margin:0;padding:0}}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar{{width:7px;height:7px}}
+::-webkit-scrollbar-track{{background:#07090e}}
+::-webkit-scrollbar-thumb{{background:rgba(255,255,255,0.14);border-radius:4px}}
+::-webkit-scrollbar-thumb:hover{{background:rgba(255,255,255,0.25)}}
+*{{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.14) #07090e}}
+
 body{{font-family:var(--font-sans);background:var(--bg);color:var(--text);
 min-height:100vh;display:flex;flex-direction:column;align-items:center;
-padding:2rem 1.2rem;font-size:14px;line-height:1.5;
+padding:1.4rem .9rem;font-size:14px;line-height:1.5;
 -webkit-font-smoothing:antialiased;
 background-image:radial-gradient(circle at 50% 0%, rgba(59,130,246,0.08) 0%, transparent 55%),
 radial-gradient(circle at 85% 30%, rgba(16,185,129,0.04) 0%, transparent 40%)}}
 .icon{{display:inline-block;vertical-align:-3px;flex-shrink:0}}
 
 /* Header & Brand */
-.header{{display:flex;flex-direction:column;align-items:center;gap:.6rem;margin-bottom:1.8rem;text-align:center}}
-.header-brand{{display:flex;align-items:center;gap:.85rem}}
-.header-logo{{width:38px;height:38px;object-fit:contain;filter:drop-shadow(0 6px 18px rgba(59,130,246,0.35))}}
-h1{{font-size:1.3rem;font-weight:600;letter-spacing:-.03em;color:var(--text)}}
-.live-badge{{display:inline-flex;align-items:center;gap:.45rem;padding:.25rem .75rem;
-border-radius:999px;font-size:.7rem;font-weight:500;font-family:var(--font-mono);
+.header{{display:flex;width:100%;max-width:1040px;align-items:center;justify-content:space-between;gap:.8rem;margin-bottom:1.3rem}}
+.header-brand{{display:flex;align-items:center;gap:.75rem}}
+.header-logo{{width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 4px 14px rgba(59,130,246,0.35))}}
+h1{{font-size:1.22rem;font-weight:600;letter-spacing:-.025em;color:var(--text)}}
+.live-badge{{display:inline-flex;align-items:center;gap:.45rem;padding:.24rem .7rem;
+border-radius:999px;font-size:.68rem;font-weight:600;font-family:var(--font-mono);
 background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);color:var(--success);
 letter-spacing:.04em;text-transform:uppercase;backdrop-filter:blur(10px)}}
 .live-badge .dot{{width:6px;height:6px;border-radius:50%;background:var(--success);
@@ -241,41 +250,46 @@ box-shadow:0 0 8px var(--success)}}
 .live-badge.connected .dot{{background:var(--success)}}
 
 /* Apple CC Segmented Nav */
-.tabs{{display:flex;gap:.3rem;margin-bottom:1.5rem;width:100%;max-width:480px;
+.tabs{{display:flex;gap:.3rem;margin:0 auto 1.35rem;width:100%;max-width:520px;
 background:rgba(20,25,35,0.75);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
 padding:.3rem;border-radius:var(--radius-xl);border:1px solid var(--border)}}
-.tab{{flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;
-border-radius:14px;text-align:center;
-font-weight:500;font-size:.84rem;cursor:pointer;border:none;
+.tab{{flex:1 1 0;min-height:42px;display:flex;align-items:center;justify-content:center;
+border-radius:12px;text-align:center;gap:.35rem;
+font-weight:500;font-size:.82rem;cursor:pointer;border:none;white-space:nowrap;
 background:transparent;color:var(--text-muted);transition:all .18s var(--ease)}}
 .tab:hover{{color:var(--text);background:rgba(255,255,255,0.04)}}
 .tab.active{{background:var(--surface-solid);color:var(--text);
-border:1px solid var(--border-hover);box-shadow:0 4px 14px rgba(0,0,0,0.35)}}
+border:1px solid var(--border-hover);box-shadow:0 3px 12px rgba(0,0,0,0.35)}}
 
 /* Panels & Layout */
-.tab-panel{{display:none;width:100%;max-width:540px}}
+.content-wrapper{{display:block;width:100%;max-width:1040px;margin:0 auto}}
+.tab-panel{{display:none;width:100%;margin:0 auto}}
 .tab-panel.active{{display:block}}
+#tab-status{{max-width:1040px}}
+#tab-performance{{max-width:920px}}
+#tab-control{{max-width:880px}}
+#tab-auxiliary{{max-width:880px}}
 
-/* Apple Control Center Bento Grid & Tiles */
+/* Cards */
 .card{{background:var(--surface);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-border:1px solid var(--border);border-radius:var(--radius-xl);padding:1.4rem;width:100%;
+border:1px solid var(--border);border-radius:var(--radius-xl);padding:1.35rem;width:100%;
 box-shadow:0 8px 32px rgba(0,0,0,0.37);transition:border-color .2s var(--ease),box-shadow .2s var(--ease)}}
 .card:hover{{border-color:var(--border-hover);box-shadow:0 12px 36px rgba(0,0,0,0.45)}}
-.card+.card{{margin-top:1.25rem}}
+.card+.card{{margin-top:1.15rem}}
 .card-title{{font-size:.72rem;font-family:var(--font-mono);color:var(--text-muted);
-text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:1.1rem;
+text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:1rem;
 display:flex;align-items:center;gap:.5rem}}
 
-/* Bento Tile Grid (Apple Control Center style) */
-.cc-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:.8rem}}
-@media (max-width: 400px){{.cc-grid{{grid-template-columns:1fr}}}}
+/* Bento Tile Grid */
+.cc-grid{{display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:.75rem}}
+@media (max-width: 440px){{.cc-grid{{grid-template-columns:1fr}}}}
 
 .cc-tile{{background:rgba(255,255,255,0.025);border:1px solid var(--border-subtle);
 border-radius:var(--radius-lg);padding:1rem;display:flex;flex-direction:column;
 justify-content:space-between;min-height:92px;transition:all .18s var(--ease)}}
 .cc-tile:hover{{background:rgba(255,255,255,0.045);border-color:var(--border)}}
 .cc-tile-header{{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem}}
-.cc-icon-box{{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;
+.cc-icon-box{{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;
 justify-content:center;color:#fff;background:rgba(255,255,255,0.06);border:1px solid var(--border)}}
 .cc-icon-blue{{background:linear-gradient(135deg,#2563eb,#3b82f6);box-shadow:0 2px 10px rgba(37,99,235,0.35)}}
 .cc-icon-green{{background:linear-gradient(135deg,#059669,#10b981);box-shadow:0 2px 10px rgba(16,185,129,0.35)}}
@@ -284,9 +298,9 @@ justify-content:center;color:#fff;background:rgba(255,255,255,0.06);border:1px s
 .cc-icon-gray{{background:rgba(255,255,255,0.08)}}
 
 .cc-tile-label{{font-size:.74rem;color:var(--text-muted);font-weight:500;text-transform:uppercase;letter-spacing:.05em}}
-.cc-tile-val{{font-size:1.05rem;font-weight:600;font-family:var(--font-mono);color:var(--text);
+.cc-tile-val{{font-size:1.02rem;font-weight:600;font-family:var(--font-mono);color:var(--text);
 font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:.35rem}}
-.cc-tile-sub{{font-size:.72rem;color:var(--text-dim);margin-top:.15rem}}
+.cc-tile-sub{{font-size:.72rem;color:var(--text-dim);margin-top:.2rem}}
 
 /* Row Metrics */
 .row{{display:flex;justify-content:space-between;align-items:center;
@@ -305,11 +319,11 @@ font-variant-numeric:tabular-nums}}
 .grid .row{{padding:.6rem 0}}
 .grid .row:nth-child(odd){{padding-right:.9rem}}
 .grid .row:nth-child(even){{padding-left:.9rem;border-left:1px solid var(--border-subtle)}}
-@media(max-width:380px){{.grid{{grid-template-columns:1fr}}.grid .row:nth-child(even){{border-left:none;padding-left:0}}}}
+@media(max-width:540px){{.grid{{grid-template-columns:1fr}}.grid .row:nth-child(even){{border-left:none;padding-left:0}}}}
 
-/* Buttons & iOS/Linear Switches */
-a.toggle,.btn,a.open{{display:flex;align-items:center;justify-content:center;gap:.55rem;
-text-align:center;padding:.75rem 1.1rem;min-height:46px;border-radius:var(--radius-lg);
+/* Buttons */
+a.toggle,.btn,a.open{{display:inline-flex;align-items:center;justify-content:center;gap:.55rem;
+text-align:center;padding:.65rem 1.05rem;min-height:44px;border-radius:var(--radius-md);
 text-decoration:none;font-weight:500;font-size:.84rem;color:var(--text);
 width:100%;background:rgba(255,255,255,0.035);border:1px solid var(--border);
 transition:all .18s var(--ease);cursor:pointer;backdrop-filter:blur(8px)}}
@@ -324,7 +338,22 @@ border-color:rgba(239,68,68,0.3) !important;box-shadow:0 2px 10px rgba(239,68,68
 a.open{{background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#fff;border-color:rgba(255,255,255,0.1);
 box-shadow:0 4px 14px rgba(37,99,235,0.3)}}
 a.open:hover{{background:linear-gradient(135deg,#2563eb,#3b82f6);box-shadow:0 6px 18px rgba(37,99,235,0.45);color:#fff}}
-.btn-row{{display:flex;flex-direction:column;gap:.65rem}}
+
+.btn-row{{display:grid;grid-template-columns:1fr;gap:.65rem;width:100%}}
+@media (min-width: 600px){{
+  .btn-row{{grid-template-columns:repeat(auto-fit, minmax(200px, 1fr))}}
+}}
+
+/* Unified Compact Action Buttons */
+.btn-action-sm{{
+  width:auto;min-height:32px;padding:.32rem .75rem;font-size:.75rem;font-weight:500;
+  border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.05);
+  color:var(--text);cursor:pointer;white-space:nowrap;transition:all .15s ease;
+  text-decoration:none;display:inline-flex;align-items:center;gap:.35rem;margin:0;
+}}
+.btn-action-sm:hover{{background:rgba(255,255,255,0.12);border-color:var(--border-hover);color:#fff}}
+.btn-action-danger{{background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.3)}}
+.btn-action-danger:hover{{background:rgba(239,68,68,0.25);border-color:var(--danger);color:#fff}}
 
 /* Model Selector Chips & Groups */
 .models-container{{display:flex;flex-direction:column;gap:1.1rem;width:100%}}
@@ -333,7 +362,7 @@ font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.0
 .models-grid{{display:grid;grid-template-columns:repeat(auto-fill, minmax(210px, 1fr));gap:.55rem;width:100%}}
 
 .model-chip{{
-  padding:.55rem .75rem;min-height:44px;border-radius:var(--radius-md);font-size:.78rem;
+  padding:.55rem .75rem;min-height:42px;border-radius:var(--radius-md);font-size:.78rem;
   font-family:var(--font-mono);background:rgba(255,255,255,0.03);color:var(--text-muted);
   text-decoration:none;display:flex;align-items:center;justify-content:space-between;gap:.45rem;
   border:1px solid var(--border-subtle);transition:all .18s var(--ease);
@@ -378,9 +407,9 @@ white-space:pre-wrap;word-break:break-word;max-height:190px;overflow-y:auto;line
 .update-hint{{font-size:.8rem;color:var(--text-muted);text-align:center;
 background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-md);
 padding:.65rem .85rem;display:flex;align-items:center;justify-content:center;gap:.4rem}}
-.hint-pill{{font-size:.78rem;color:var(--text-dim);padding:.42rem .8rem;border-radius:var(--radius-md);
-background:rgba(255,255,255,0.025);border:1px dashed var(--border-subtle);display:inline-flex;
-align-items:center;width:fit-content}}
+.hint-pill{{font-size:.78rem;color:var(--text-muted);padding:.5rem .85rem;border-radius:var(--radius-md);
+background:rgba(255,255,255,0.035);border:1px solid var(--border);display:inline-flex;
+align-items:center;justify-content:center;width:100%;text-align:center}}
 #pbar{{position:fixed;top:0;left:0;height:2px;width:0;background:var(--accent-light);z-index:100}}
 #spin{{display:inline-block;width:12px;height:12px;border:2px solid var(--border);
 border-top-color:var(--accent-light);border-radius:50%;vertical-align:-1px;
@@ -422,10 +451,10 @@ transition:background .15s ease,border-color .15s ease}}
 .mono-sub{{font-family:var(--font-mono);font-size:.74rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .mono-sub.auto{{color:var(--text-dim)}}
 .mono-sub.custom{{color:var(--success)}}
-.btn-aux-change{{width:auto;padding:.35rem .75rem;font-size:.75rem;text-transform:uppercase;letter-spacing:.03em;
-font-weight:600;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.05);
+.btn-aux-change{{width:auto;min-height:32px;padding:.32rem .75rem;font-size:.75rem;font-weight:500;
+border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.05);
 color:var(--text);cursor:pointer;white-space:nowrap;transition:all .15s ease;margin:0}}
-.btn-aux-change:hover{{background:rgba(255,255,255,0.12);border-color:var(--border-hover)}}
+.btn-aux-change:hover{{background:rgba(255,255,255,0.12);border-color:var(--border-hover);color:#fff}}
 .aux-model-opt{{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.6rem .8rem;
 background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm);
 cursor:pointer;text-decoration:none;transition:all .15s ease}}
@@ -436,32 +465,39 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 /* Windows Task Manager Elements */
 .task-table-wrap{{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.015);margin-bottom:.5rem}}
 .task-table{{width:100%;border-collapse:collapse;font-size:.78rem;text-align:left}}
-.task-table th{{background:rgba(255,255,255,0.04);color:var(--text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;padding:.55rem .75rem;border-bottom:1px solid var(--border);white-space:nowrap;font-family:var(--font-mono)}}
-.task-table td{{padding:.65rem .75rem;border-bottom:1px solid rgba(255,255,255,0.04);vertical-align:middle}}
+.task-table th{{background:rgba(255,255,255,0.04);color:var(--text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;padding:.65rem .85rem;border-bottom:1px solid var(--border);white-space:nowrap;font-family:var(--font-mono)}}
+.task-table td{{padding:.75rem .85rem;border-bottom:1px solid rgba(255,255,255,0.04);vertical-align:middle}}
 .task-table tr:hover td{{background:rgba(255,255,255,0.03)}}
 .task-table tr:last-child td{{border-bottom:none}}
 .task-name-cell{{display:flex;align-items:center;gap:.45rem;font-weight:500}}
 .badge-up{{background:var(--success-dim);color:var(--success);border:1px solid rgba(16,185,129,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
 .badge-down{{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(239,68,68,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
-.btn-end-task{{padding:.25rem .55rem;font-size:.72rem;border-radius:4px;border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.12);color:#fca5a5;text-decoration:none;display:inline-block;cursor:pointer;font-weight:500;transition:all .15s ease}}
+.btn-end-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.12);color:#fca5a5;text-decoration:none;display:inline-block;cursor:pointer;font-weight:500;transition:all .15s ease}}
 .btn-end-task:hover{{background:rgba(239,68,68,0.28);border-color:var(--danger);color:#fff}}
-.btn-restart-task{{padding:.25rem .55rem;font-size:.72rem;border-radius:4px;border:1px solid var(--border);background:rgba(255,255,255,0.06);color:var(--text);text-decoration:none;display:inline-block;cursor:pointer;margin-left:.3rem;transition:all .15s ease}}
+.btn-restart-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.06);color:var(--text);text-decoration:none;display:inline-block;cursor:pointer;margin-left:.3rem;transition:all .15s ease}}
 .btn-restart-task:hover{{background:rgba(255,255,255,0.14);color:#fff}}
-.btn-start-task{{padding:.25rem .55rem;font-size:.72rem;border-radius:4px;border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.12);color:#6ee7b7;text-decoration:none;display:inline-block;cursor:pointer;font-weight:500}}
+.btn-start-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.12);color:#6ee7b7;text-decoration:none;display:inline-block;cursor:pointer;font-weight:500}}
 .btn-start-task:hover{{background:rgba(16,185,129,0.28);color:#fff}}
 
 /* Performance Sparkline Cards */
-.perf-tile{{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.15rem;margin-bottom:1rem;box-shadow:0 6px 24px rgba(0,0,0,0.3)}}
+.perf-tile{{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:1.35rem;margin-bottom:1.15rem;box-shadow:0 6px 24px rgba(0,0,0,0.3)}}
 .perf-header{{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.5rem}}
 .perf-title{{font-size:.84rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.45rem}}
 .perf-sub{{font-size:.74rem;color:var(--text-muted);margin-top:.2rem}}
 .perf-big-val{{font-size:1.6rem;font-weight:700;font-family:var(--font-mono);color:var(--accent-light);letter-spacing:-.02em}}
-.sparkline-box{{width:100%;height:65px;background:rgba(0,0,0,0.28);border-radius:6px;border:1px solid rgba(255,255,255,0.05);overflow:hidden;position:relative;margin-top:.6rem}}
+.sparkline-box{{width:100%;height:85px;background:rgba(0,0,0,0.32);border-radius:var(--radius-md);border:1px solid rgba(255,255,255,0.06);overflow:hidden;position:relative;margin-top:.75rem}}
 .sparkline-svg{{width:100%;height:100%;display:block}}
 .spark-poly{{fill:none;stroke:var(--accent-light);stroke-width:2;vector-effect:non-scaling-stroke}}
 .spark-fill{{fill:rgba(96,165,250,0.12);stroke:none}}
 .spark-poly.ram{{stroke:#c084fc}}
 .spark-fill.ram{{fill:rgba(192,132,252,0.12)}}
+
+/* 2-column layout for Performance Storage & Network on Desktop */
+.perf-grid-2col{{display:grid;grid-template-columns:1fr;gap:1.15rem}}
+@media (min-width: 768px){{
+  .perf-grid-2col{{grid-template-columns:1fr 1fr}}
+  .perf-grid-2col .card{{margin-top:0 !important;margin-bottom:0 !important}}
+}}
 
 /* Patch Notes */
 .patch-notes-box{{margin-top:.75rem;padding:.75rem .85rem;background:rgba(0,0,0,0.22);border:1px solid rgba(255,255,255,0.07);border-radius:var(--radius-sm);font-size:.78rem;line-height:1.45;text-align:left}}
@@ -475,64 +511,27 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 
 /* Responsive Desktop Overrides */
 @media (min-width: 768px) {{
-  .btn-row {{
-    display: flex !important;
-    flex-direction: row !important;
-    flex-wrap: wrap !important;
-    gap: .65rem !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-  }}
-  .btn-row > a.toggle,
-  .btn-row > a.open,
-  .btn-row > .btn {{
-    flex: 0 1 auto !important;
-    width: auto !important;
-    min-width: 160px !important;
-    max-width: 250px !important;
-    min-height: 38px !important;
-    padding: .48rem 1.05rem !important;
-    font-size: .82rem !important;
-  }}
+  body {{ padding: 2.2rem 2.2rem 3rem; }}
   #tab-control a.toggle,
   #tab-control a.open,
   #tab-control .card-warn a.toggle {{
-    width: auto !important;
-    min-width: 160px !important;
-    max-width: 260px !important;
-    min-height: 38px !important;
-    padding: .48rem 1.05rem !important;
+    min-height: 42px !important;
+    padding: .5rem 1rem !important;
     font-size: .82rem !important;
-    display: inline-flex !important;
   }}
 }}
 
 @media (min-width: 1024px) {{
-  body {{ padding: 2.4rem 2.5rem 3rem; }}
-  .header {{ width: min(100%, 1180px); align-items:flex-start; text-align:left; margin-bottom:1.25rem; }}
-  .header-brand {{ width:100%; }}
-  .live-badge {{ margin-left:auto; }}
-  .tabs {{ display:flex; max-width:1180px; margin:0 auto 1.25rem; }}
-  .content-wrapper {{
-    display:block;
-    width:100%;
-    max-width:1180px;
-    margin:0 auto;
-  }}
-  .tab-panel {{
-    display:none !important;
-    max-width:100%;
-  }}
-  .tab-panel.active {{ display:block !important; }}
-  #tab-control {{ max-width:860px; margin:0 auto; }}
-  .card, .perf-tile {{ padding:1.25rem; }}
-  .card+.card {{ margin-top:1rem; }}
+  body {{ padding: 2.4rem 2.5rem 3.5rem; }}
+  .header {{ max-width:1040px; margin:0 auto 1.5rem; }}
+  .tabs {{ max-width:520px; margin:0 auto 1.5rem; }}
+  .card, .perf-tile {{ padding:1.4rem; }}
   .models-grid {{ grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); }}
 }}
 
 @media (min-width: 1440px) {{
   body {{ padding-left:4rem; padding-right:4rem; }}
-  .header, .tabs, .content-wrapper {{ max-width:1280px; }}
+  .header, .content-wrapper, #tab-status {{ max-width:1120px; }}
 }}
 </style></head><body>
 <div id="pbar"></div>
@@ -608,7 +607,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         <div class="cc-tile-val" id="cell-router">{cell_router}</div>
         <div class="cc-tile-sub" id="cell-dash">{cell_dash}</div>
       </div>
-      <div class="cc-tile" style="grid-column: span 2">
+      <div class="cc-tile">
         <div class="cc-tile-header">
           <span class="cc-tile-label">Active Model AI</span>
           <div class="cc-icon-box cc-icon-green">{icon_hermes}</div>
@@ -676,12 +675,12 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <div class="perf-big-val" id="perf-cpu-val">{cpu_pct}%</div>
     </div>
     <div class="sparkline-box">
-      <svg class="sparkline-svg" id="cpu-sparkline" viewBox="0 0 300 60" preserveAspectRatio="none">
-        <line x1="0" y1="15" x2="300" y2="15" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
-        <line x1="0" y1="30" x2="300" y2="30" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
-        <line x1="0" y1="45" x2="300" y2="45" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
-        <polygon class="spark-fill" points="0,60 300,60"/>
-        <polyline class="spark-poly" points="0,55 300,55"/>
+      <svg class="sparkline-svg" id="cpu-sparkline" viewBox="0 0 300 80" preserveAspectRatio="none">
+        <line x1="0" y1="20" x2="300" y2="20" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
+        <line x1="0" y1="40" x2="300" y2="40" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
+        <line x1="0" y1="60" x2="300" y2="60" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
+        <polygon class="spark-fill" points="0,80 300,80"/>
+        <polyline class="spark-poly" points="0,40 300,40"/>
       </svg>
     </div>
   </div>
@@ -695,35 +694,37 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <div class="perf-big-val" id="perf-ram-val" style="color:#c084fc">{ram_pct}%</div>
     </div>
     <div class="sparkline-box">
-      <svg class="sparkline-svg" id="ram-sparkline" viewBox="0 0 300 60" preserveAspectRatio="none">
-        <line x1="0" y1="15" x2="300" y2="15" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
-        <line x1="0" y1="30" x2="300" y2="30" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
-        <line x1="0" y1="45" x2="300" y2="45" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
-        <polygon class="spark-fill ram" points="0,60 300,60"/>
-        <polyline class="spark-poly ram" points="0,55 300,55"/>
+      <svg class="sparkline-svg" id="ram-sparkline" viewBox="0 0 300 80" preserveAspectRatio="none">
+        <line x1="0" y1="20" x2="300" y2="20" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
+        <line x1="0" y1="40" x2="300" y2="40" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
+        <line x1="0" y1="60" x2="300" y2="60" stroke="rgba(255,255,255,0.06)" stroke-dasharray="2,2"/>
+        <polygon class="spark-fill ram" points="0,80 300,80"/>
+        <polyline class="spark-poly ram" points="0,40 300,40"/>
       </svg>
     </div>
   </div>
 
-  <div class="card card-info" style="margin-bottom:1rem">
-    <div class="card-title">{icon_disk} Penyimpanan & Kesehatan Storage</div>
-    <div class="grid">
-      <div class="row"><span class="label">{icon_disk} eMMC Internal</span>
-        <span id="cell-emmc-perf">{cell_emmc}</span></div>
-      <div class="row"><span class="label">{icon_disk} HDD Eksternal 1TB</span>
-        <span id="cell-disk-perf">{cell_disk}</span></div>
+  <div class="perf-grid-2col">
+    <div class="card card-info">
+      <div class="card-title">{icon_disk} Penyimpanan & Keausan</div>
+      <div class="grid">
+        <div class="row"><span class="label">{icon_disk} Ruang Disk</span>
+          <span id="cell-disk-perf">{cell_disk}</span></div>
+        <div class="row"><span class="label">{icon_shield} Status eMMC</span>
+          <span id="cell-emmc-perf">{cell_emmc}</span></div>
+      </div>
     </div>
-  </div>
 
-  <div class="card card-info">
-    <div class="card-title">{icon_network} Jaringan & Konektivitas</div>
-    <div class="grid">
-      <div class="row"><span class="label">{icon_network} IP LAN</span>
-        <span id="cell-lan-perf">{cell_lan}</span></div>
-      <div class="row"><span class="label">{icon_network} Tailscale Mesh</span>
-        <span id="cell-ts-perf">{cell_ts}</span></div>
-      <div class="row"><span class="label">{icon_clock} Uptime Server</span>
-        <span id="cell-uptime-perf">{cell_uptime}</span></div>
+    <div class="card card-info">
+      <div class="card-title">{icon_network} Jaringan & Uptime</div>
+      <div class="grid">
+        <div class="row"><span class="label">{icon_network} IP LAN</span>
+          <span id="cell-lan-perf">{cell_lan}</span></div>
+        <div class="row"><span class="label">{icon_network} Tailscale</span>
+          <span id="cell-ts-perf">{cell_ts}</span></div>
+        <div class="row" style="grid-column: span 2"><span class="label">{icon_clock} Uptime Server</span>
+          <span id="cell-uptime-perf">{cell_uptime}</span></div>
+      </div>
     </div>
   </div>
 </div>
@@ -750,7 +751,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   <div class="card card-info" style="margin-bottom:1.25rem">
     <div class="aux-header">
       <div class="card-title" style="margin-bottom:0">{icon_shield} Model Cadangan (Fallback)</div>
-      <button type="button" class="btn btn-aux-change" onclick="openFallbackPicker(-1, 'Tambah Backup Baru')">
+      <button type="button" class="btn btn-action-sm" onclick="openFallbackPicker(-1, 'Tambah Backup Baru')">
         + Tambah Backup
       </button>
     </div>
@@ -1310,11 +1311,11 @@ SSE_SCRIPT = """<script>
     var fill = svg.querySelector('.spark-fill');
     if(!poly || !fill) return;
     var pts = [];
-    var w = 300, h = 60;
+    var w = 300, h = 80;
     var step = w / (historyArr.length - 1);
     for(var i = 0; i < historyArr.length; i++){
       var x = (i * step).toFixed(1);
-      var y = (h - (Math.max(0, Math.min(100, historyArr[i])) / 100 * (h - 10)) - 5).toFixed(1);
+      var y = (h - (Math.max(0, Math.min(100, historyArr[i])) / 100 * (h - 16)) - 8).toFixed(1);
       pts.push(x + ',' + y);
     }
     poly.setAttribute('points', pts.join(' '));
@@ -2194,8 +2195,8 @@ def render_aux_tasks_block() -> str:
             f'    </div>'
             f'    <div class="{val_cls}">{display_val}</div>'
             f'  </div>'
-            f'  <button type="button" class="btn btn-aux-change" onclick="openAuxPicker(\'{key}\', \'{label}\')">'
-            f'    Change'
+            f'  <button type="button" class="btn-action-sm" onclick="openAuxPicker(\'{key}\', \'{label}\')">'
+            f'    Ganti'
             f'  </button>'
             f'</div>'
         )
@@ -2320,10 +2321,10 @@ def render_backup_models_block() -> str:
             f'    <div style="font-size:.68rem;color:var(--text-dim);margin-top:.1rem">{provider}</div>'
             f'  </div>'
             f'  <div style="display:flex;gap:6px;align-items:center">'
-            f'    <button type="button" class="btn btn-aux-change" onclick="openFallbackPicker({idx}, \'{safe_model}\')">'
+            f'    <button type="button" class="btn-action-sm" onclick="openFallbackPicker({idx}, \'{safe_model}\')">'
             f'      Ganti'
             f'    </button>'
-            f'    <a class="btn btn-danger" style="width:auto;padding:.35rem .6rem;font-size:.72rem;margin:0;text-decoration:none;display:inline-flex;align-items:center" href="/remove-fallback-model?token={TOKEN}&index={idx}">'
+            f'    <a class="btn-action-sm btn-action-danger" href="/remove-fallback-model?token={TOKEN}&index={idx}">'
             f'      Hapus'
             f'    </a>'
             f'  </div>'
@@ -3160,8 +3161,8 @@ def render_processes_table() -> str:
             f'    <div style="font-size:0.72rem;color:var(--text-dim)">{kind}</div></div>'
             f'  </td>'
             f'  <td><span class="badge {badge_cls}">{status_text}</span></td>'
-            f'  <td style="font-family:var(--font-mono);font-size:0.75rem">{pid}</td>'
-            f'  <td style="font-family:var(--font-mono);font-size:0.75rem;font-weight:600">{mem}</td>'
+            f'  <td style="text-align:right;font-family:var(--font-mono);font-size:0.75rem;font-variant-numeric:tabular-nums">{pid}</td>'
+            f'  <td style="text-align:right;font-family:var(--font-mono);font-size:0.75rem;font-weight:600;font-variant-numeric:tabular-nums">{mem}</td>'
             f'  <td style="text-align:right;white-space:nowrap">{act_html}</td>'
             f'</tr>'
         )
@@ -3173,8 +3174,8 @@ def render_processes_table() -> str:
         f'  <tr>'
         f'    <th>Tugas / Layanan</th>'
         f'    <th>Status</th>'
-        f'    <th>PID</th>'
-        f'    <th>Memori</th>'
+        f'    <th style="text-align:right">PID</th>'
+        f'    <th style="text-align:right">Memori</th>'
         f'    <th style="text-align:right">Aksi</th>'
         f'  </tr>'
         f'</thead>'
@@ -3425,7 +3426,7 @@ def build_fragments() -> dict:
     prov_html = " ".join(prov_badges) or '<span class="value">9router</span>'
 
     cells = {
-        "dash": cell("up" if dash_active else "down", "NYALA" if dash_active else "MATI"),
+        "dash": f'<span class="value" style="font-size:.72rem;color:var(--text-dim)">{router_host} · {router_ms*1000:.0f}ms</span>' if router_up else '<span class="value down" style="font-size:.72rem">Offline</span>',
         "bot": cell("up" if gw_active else "down", "Aktif" if gw_active else "Mati"),
         "gw": f'<span class="value up">{gw_info}</span>' if gw_active else f'<span class="value down">{gw_info}</span>',
         "model": f'<span class="value {"warn" if model_not_listed else ""}" title="{"Model aktif tidak muncul di daftar model" if model_not_listed else ""}">{html.escape(model)}{" ⚠ tidak terdaftar" if model_not_listed else ""}</span>',
