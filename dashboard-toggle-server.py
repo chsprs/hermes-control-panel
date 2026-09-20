@@ -745,7 +745,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle?token={token}">{icon_power}{toggle_label}</a>
       <a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle?token={token}">{icon_power}{bot_toggle_label}</a>
       <a class="toggle restart" href="/restart-bot?token={token}">{icon_refresh}Restart Bot</a>
-      <a class="toggle restart" href="/clean-junk?token={token}">{icon_trash}Bersihkan Sampah & Cache</a>
+      <a class="toggle restart" href="/clean-junk?token={token}">{icon_trash}Bersihkan Cache</a>
     </div>
   </div>
   <div class="card card-info" style="margin-bottom:1.25rem">
@@ -3640,7 +3640,7 @@ def build_fragments() -> dict:
         f'<a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle?token={TOKEN}">{ICON_POWER}{dash_label}</a>'
         f'<a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle?token={TOKEN}">{ICON_POWER}{bot_label}</a>'
         f'<a class="toggle restart" href="/restart-bot?token={TOKEN}">{ICON_REFRESH}Restart Bot</a>'
-        f'<a class="toggle restart" href="/clean-junk?token={TOKEN}">{ICON_TRASH}Bersihkan Sampah & Cache</a>'
+        f'<a class="toggle restart" href="/clean-junk?token={TOKEN}">{ICON_TRASH}Bersihkan Cache</a>'
     )
 
     cpu_pct = get_cpu_percent()
