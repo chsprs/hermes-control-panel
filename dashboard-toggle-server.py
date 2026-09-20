@@ -2846,10 +2846,14 @@ def render_clean_junk_card() -> str:
     return (
         f'<div id="clean-log-card" style="margin-top:0.85rem">'
         f'<div class="clean-log-header">'
-        f'<div class="update-hint up" style="margin:0;flex:1;text-align:left;justify-content:flex-start">'
-        f'{ICON_CHECK}<strong>Pembersihan Selesai</strong> · Terhapus: '
-        f'<span style="font-family:var(--font-mono);font-weight:700;color:var(--success)">{freed_human}</span> '
-        f'<span style="font-size:0.75rem;color:var(--text-dim)">({files_count} item)</span>'
+        f'<div class="update-hint up" style="margin:0;flex:1;text-align:left;justify-content:space-between;flex-wrap:wrap;gap:6px">'
+        f'  <span style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap">'
+        f'    {ICON_CHECK}<strong>Pembersihan Selesai</strong>'
+        f'  </span>'
+        f'  <span style="white-space:nowrap">'
+        f'    Terhapus: <strong style="font-family:var(--font-mono);color:var(--success)">{freed_human}</strong> '
+        f'    <span style="font-size:0.75rem;color:var(--text-dim)">({files_count} item)</span>'
+        f'  </span>'
         f'</div>'
         f'<button type="button" class="btn btn-action-sm" '
         f"onclick=\"safeStore('setItem','cleanLogDismissed','1');document.getElementById('clean-log-card').remove();if(window.syncLogUI)syncLogUI()\">"
