@@ -33,6 +33,7 @@ a loading spinner. All rendering stays server-side — /api/status returns the
 same HTML fragments the initial page uses, so the client never re-implements it.
 """
 
+import glob
 import html
 import json
 import os
@@ -116,6 +117,11 @@ _router_image_date_cache = {"at": 0, "val": "?"}
 _router_image_date_lock = threading.Lock()
 _router_uptime_cache = {"at": 0, "val": ""}
 _router_uptime_lock = threading.Lock()
+
+CLEAN_JUNK_JSON = "/root/.hermes/logs/clean-junk.json"
+CLEAN_JUNK_LOG = "/root/.hermes/logs/clean-junk.log"
+_clean_junk_result = {"status": "idle", "freed_bytes": 0, "freed_human": "0 B", "freed_mb": 0.0, "files_count": 0, "log": "", "at": 0.0}
+_clean_junk_lock = threading.Lock()
 
 # --- icons ---
 # Inline SVG (stroke-based, Lucide-style), never emoji: emoji glyphs render
@@ -407,6 +413,14 @@ white-space:pre-wrap;word-break:break-word;max-height:190px;overflow-y:auto;line
 .update-hint{{font-size:.8rem;color:var(--text-muted);text-align:center;
 background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-md);
 padding:.65rem .85rem;display:flex;align-items:center;justify-content:center;gap:.4rem}}
+.update-hint.up{{border-color:rgba(16,185,129,0.35);background:rgba(16,185,129,0.06);color:var(--text)}}
+.update-hint.down{{border-color:rgba(239,68,68,0.35);background:rgba(239,68,68,0.06);color:var(--danger)}}
+.update-hint.warn{{border-color:rgba(245,158,11,0.35);background:rgba(245,158,11,0.06);color:var(--warn)}}
+.clean-log-header{{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:0.45rem}}
+@media (max-width: 640px){{
+  .clean-log-header{{flex-direction:column;align-items:stretch}}
+  .clean-log-header .btn-action-sm{{align-self:flex-end;width:auto}}
+}}
 .hint-pill{{font-size:.78rem;color:var(--text-muted);padding:.5rem .85rem;border-radius:var(--radius-md);
 background:rgba(255,255,255,0.035);border:1px solid var(--border);display:inline-flex;
 align-items:center;justify-content:center;width:100%;text-align:center}}
@@ -745,7 +759,11 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle?token={token}">{icon_power}{toggle_label}</a>
       <a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle?token={token}">{icon_power}{bot_toggle_label}</a>
       <a class="toggle restart" href="/restart-bot?token={token}">{icon_refresh}Restart Bot</a>
-      <a class="toggle restart" href="/clean-junk?token={token}">{icon_trash}Bersihkan Cache</a>
+      <a class="toggle restart" href="/clean-junk?token={token}">{icon_trash}Bersihkan Sampah</a>
+    </div>
+    <div id="clean-log-slot">{clean_junk_card}</div>
+    <div id="clean-log-show" style="display:none;margin-top:.6rem">
+      <button type="button" class="btn btn-action-sm" onclick="toggleLog('cleanLogDismissed','clean-log-show')">Tampilkan Log Pembersihan</button>
     </div>
   </div>
   <div class="card card-info" style="margin-bottom:1.25rem">
@@ -1094,6 +1112,10 @@ function toggleLog(flag, wrapId){{
   var w = document.getElementById(wrapId);
   if(w) w.style.display = 'none';
   window._forceBottom = true;
+  if(flag === 'cleanLogDismissed' && window._lastCleanJunkCard){{
+    var cls = document.getElementById('clean-log-slot');
+    if(cls) cls.innerHTML = window._lastCleanJunkCard;
+  }}
 }}
 function syncLogUI(){{
   var routerDismissed = safeStore('getItem','logDismissed');
@@ -1110,8 +1132,22 @@ function syncLogUI(){{
     var hc = document.getElementById('hermes-log-card');
     if(hc) hc.remove();
   }}
+  var cleanDismissed = safeStore('getItem','cleanLogDismissed');
+  var cw = document.getElementById('clean-log-show');
+  var cc = document.getElementById('clean-log-card');
+  var hasClean = !!(cc || window._hasCleanLog);
+  if(cw) cw.style.display = (cleanDismissed && hasClean) ? '' : 'none';
+  if(cleanDismissed && cc){{
+    window._hasCleanLog = true;
+    cc.remove();
+  }}
 }}
 syncLogUI();
+if(document.getElementById('clean-log-card')){{
+  window._hasCleanLog = true;
+  var clsInit = document.getElementById('clean-log-slot');
+  if(clsInit) window._lastCleanJunkCard = clsInit.innerHTML;
+}}
 // Initial load: scroll all existing log boxes to the bottom once
 document.addEventListener('DOMContentLoaded', scrollAllLogsToBottom);
 setTimeout(scrollAllLogsToBottom, 100);
@@ -1388,6 +1424,21 @@ SSE_SCRIPT = """<script>
       var hc = document.getElementById('hermes-log-card');
       if(hc) hc.remove();
     }}
+    if(!safeStore('getItem','cleanLogDismissed')) {{
+      var clc = document.getElementById('clean-log-card');
+      if(clc && d.clean_junk_card) stickySet('clean-log-card', d.clean_junk_card);
+      else if(d.clean_junk_card) {{
+        var cls = document.getElementById('clean-log-slot');
+        if(cls) stickySet('clean-log-slot', d.clean_junk_card);
+      }}
+    }} else {{
+      var cc = document.getElementById('clean-log-card');
+      if(cc) {{ window._hasCleanLog = true; cc.remove(); }}
+    }}
+    if(d.clean_junk_card) {{
+      window._lastCleanJunkCard = d.clean_junk_card;
+      window._hasCleanLog = true;
+    }}
     syncLogUI();
     restorePatchPages();
   }
@@ -1479,6 +1530,7 @@ function confirmAction(route, href){
     try{
       safeStore('removeItem','logDismissed');
       safeStore('removeItem','hermesLogDismissed');
+      safeStore('removeItem','cleanLogDismissed');
     }catch(x){}
   };
 }
@@ -2764,45 +2816,249 @@ def _router_update_command() -> str:
     )
 
 
+def get_clean_junk_result() -> dict:
+    """Return the last clean junk result (from memory cache or file)."""
+    global _clean_junk_result
+    with _clean_junk_lock:
+        if _clean_junk_result.get("at", 0) > 0:
+            return dict(_clean_junk_result)
+    if os.path.exists(CLEAN_JUNK_JSON):
+        try:
+            with open(CLEAN_JUNK_JSON, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                with _clean_junk_lock:
+                    _clean_junk_result = data
+                return data
+        except Exception:
+            pass
+    return {"status": "idle", "freed_bytes": 0, "freed_human": "0 B", "freed_mb": 0.0, "files_count": 0, "log": "", "at": 0.0}
+
+
+def render_clean_junk_card() -> str:
+    """Render the clean junk log card with total freed summary and dismiss button."""
+    res = get_clean_junk_result()
+    if not res.get("log") and res.get("at", 0) == 0:
+        return ""
+    freed_human = html.escape(str(res.get("freed_human", "0 B")))
+    files_count = res.get("files_count", 0)
+    log_text = html.escape(str(res.get("log", "")))
+
+    return (
+        f'<div id="clean-log-card" style="margin-top:0.85rem">'
+        f'<div class="clean-log-header">'
+        f'<div class="update-hint up" style="margin:0;flex:1;text-align:left;justify-content:flex-start">'
+        f'{ICON_CHECK}<strong>Pembersihan Selesai</strong> · Terhapus: '
+        f'<span style="font-family:var(--font-mono);font-weight:700;color:var(--success)">{freed_human}</span> '
+        f'<span style="font-size:0.75rem;color:var(--text-dim)">({files_count} item)</span>'
+        f'</div>'
+        f'<button type="button" class="btn btn-action-sm" '
+        f"onclick=\"safeStore('setItem','cleanLogDismissed','1');document.getElementById('clean-log-card').remove();if(window.syncLogUI)syncLogUI()\">"
+        f'Sembunyikan Log</button>'
+        f'</div>'
+        f'<div class="logbox">{log_text or "(belum ada log)"}</div>'
+        f'</div>'
+    )
+
+
 def cleanup_system_junk() -> dict:
-    """Clear update logs, build cache, and old pip/uv caches safely."""
-    freed = 0
-    # 1. Truncate update logs (keep file descriptors valid)
-    for logf in ["/opt/AppData/9router/update.log", "/root/.hermes/logs/update.log"]:
+    """Thoroughly clean update logs, package caches, temporary files, old rotated logs, and docker build/image caches."""
+    log_lines = []
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S WIB")
+    log_lines.append(f"=== [START] Pembersihan Sampah & Cache: {now_str} ===")
+
+    total_freed = 0
+    total_items = 0
+
+    def _fmt(b: int) -> str:
+        if b < 1024:
+            return f"{b} B"
+        elif b < 1024 * 1024:
+            return f"{b / 1024:.1f} KB"
+        elif b < 1024 * 1024 * 1024:
+            return f"{b / (1024 * 1024):.1f} MB"
+        else:
+            return f"{b / (1024 * 1024 * 1024):.2f} GB"
+
+    # 1. Truncate update logs & mcp stderr log (keep file descriptors valid)
+    for logf in ["/opt/AppData/9router/update.log", "/root/.hermes/logs/update.log", "/root/.hermes/logs/mcp-stderr.log"]:
         try:
             if os.path.exists(logf):
                 sz = os.path.getsize(logf)
-                with open(logf, "w", encoding="utf-8") as f:
-                    f.write("")
-                freed += sz
-        except Exception:
-            pass
+                if sz > 0:
+                    with open(logf, "w", encoding="utf-8") as f:
+                        f.write("")
+                    log_lines.append(f"[LOG] Mengosongkan {os.path.basename(logf)}: {_fmt(sz)} dibersihkan")
+                    total_freed += sz
+                    total_items += 1
+                else:
+                    log_lines.append(f"[LOG] {os.path.basename(logf)}: bersih (0 B)")
+        except Exception as e:
+            log_lines.append(f"[LOG] {os.path.basename(logf)} gagal: {e}")
 
-    # 2. Clear uv / pip download caches
-    for cdir in ["/root/.cache/uv", "/root/.cache/pip", "/DATA/AppData/hermes-native/hermes-data/cache/delegation"]:
-        try:
-            if os.path.exists(cdir):
+    # 2. Remove old rotated hermes logs and shutdown/exit diags
+    rotated_count = 0
+    rotated_freed = 0
+    for pattern in ["/root/.hermes/logs/*.log.[0-9]*", "/root/.hermes/logs/*-diag.log"]:
+        for fpath in glob.glob(pattern):
+            try:
+                sz = os.path.getsize(fpath)
+                os.remove(fpath)
+                rotated_freed += sz
+                rotated_count += 1
+            except OSError:
+                pass
+    if rotated_count > 0:
+        log_lines.append(f"[LOG] Menghapus {rotated_count} log arsip lama: {_fmt(rotated_freed)} dibersihkan")
+        total_freed += rotated_freed
+        total_items += rotated_count
+    else:
+        log_lines.append("[LOG] Log arsip lama: bersih (0 B)")
+
+    # 3. Clean package caches (uv, pip, go-build, typescript, opencode)
+    pkg_dirs = [
+        ("Cache UV", "/root/.cache/uv"),
+        ("Cache PIP", "/root/.cache/pip"),
+        ("Cache Go", "/root/.cache/go-build"),
+        ("Cache TypeScript", "/root/.cache/typescript"),
+        ("Cache OpenCode", "/root/.cache/opencode"),
+    ]
+    for label, cdir in pkg_dirs:
+        if os.path.exists(cdir):
+            dir_freed = 0
+            dir_items = 0
+            try:
                 for dp, _, fns in os.walk(cdir):
                     for fn in fns:
                         fp = os.path.join(dp, fn)
                         try:
-                            freed += os.path.getsize(fp)
+                            sz = os.path.getsize(fp)
                             os.remove(fp)
+                            dir_freed += sz
+                            dir_items += 1
                         except OSError:
                             pass
-        except Exception:
-            pass
+            except Exception:
+                pass
+            if dir_items > 0:
+                log_lines.append(f"[CACHE] {label}: {_fmt(dir_freed)} ({dir_items} file) dibersihkan")
+                total_freed += dir_freed
+                total_items += dir_items
+            else:
+                log_lines.append(f"[CACHE] {label}: bersih (0 B)")
 
-    # 3. Docker build cache & dangling images (run in background thread to avoid HTTP timeout)
-    def _docker_prune():
+    # 4. Clean Hermes runtime caches (terminal-output, spillover, scratch, delegation, web)
+    hermes_cache_dirs = [
+        ("Terminal Output", "/DATA/AppData/hermes-native/hermes-data/cache/terminal-output"),
+        ("Spillover Data", "/DATA/AppData/hermes-native/hermes-data/cache/spillover"),
+        ("Scratch Files", "/DATA/AppData/hermes-native/hermes-data/cache/scratch"),
+        ("Delegation Subagent", "/DATA/AppData/hermes-native/hermes-data/cache/delegation"),
+        ("Web Scrape Cache", "/DATA/AppData/hermes-native/hermes-data/cache/web"),
+    ]
+    for label, hdir in hermes_cache_dirs:
+        if os.path.exists(hdir):
+            h_freed = 0
+            h_items = 0
+            try:
+                for dp, _, fns in os.walk(hdir):
+                    for fn in fns:
+                        fp = os.path.join(dp, fn)
+                        try:
+                            sz = os.path.getsize(fp)
+                            os.remove(fp)
+                            h_freed += sz
+                            h_items += 1
+                        except OSError:
+                            pass
+            except Exception:
+                pass
+            if h_items > 0:
+                log_lines.append(f"[HERMES] Cache {label}: {_fmt(h_freed)} ({h_items} file) dibersihkan")
+                total_freed += h_freed
+                total_items += h_items
+            else:
+                log_lines.append(f"[HERMES] Cache {label}: bersih (0 B)")
+
+    # 5. Clean /tmp screenshots and node cache
+    tmp_freed = 0
+    tmp_items = 0
+    for p in glob.glob("/tmp/*.png"):
         try:
-            subprocess.run(["docker", "builder", "prune", "-f"], capture_output=True, timeout=30)
-            subprocess.run(["docker", "image", "prune", "-f"], capture_output=True, timeout=30)
-        except Exception:
+            sz = os.path.getsize(p)
+            os.remove(p)
+            tmp_freed += sz
+            tmp_items += 1
+        except OSError:
             pass
+    if os.path.exists("/tmp/panel-screens"):
+        for dp, _, fns in os.walk("/tmp/panel-screens"):
+            for fn in fns:
+                fp = os.path.join(dp, fn)
+                try:
+                    sz = os.path.getsize(fp)
+                    os.remove(fp)
+                    tmp_freed += sz
+                    tmp_items += 1
+                except OSError:
+                    pass
+    if tmp_items > 0:
+        log_lines.append(f"[TEMP] Tangkapan layar /tmp: {_fmt(tmp_freed)} ({tmp_items} file) dibersihkan")
+        total_freed += tmp_freed
+        total_items += tmp_items
+    else:
+        log_lines.append("[TEMP] Tangkapan layar /tmp: bersih (0 B)")
 
-    threading.Thread(target=_docker_prune, daemon=True).start()
-    return {"status": "success", "freed_mb": round(freed / (1024 * 1024), 2)}
+    # 6. Docker builder & image prune
+    try:
+        r_b = subprocess.run(["docker", "builder", "prune", "-f"], capture_output=True, text=True, timeout=15)
+        out_b = r_b.stdout.strip()
+        log_lines.append(f"[DOCKER] Builder prune: {out_b or 'Selesai'}")
+    except Exception as e:
+        log_lines.append(f"[DOCKER] Builder prune gagal: {e}")
+
+    try:
+        r_i = subprocess.run(["docker", "image", "prune", "-f"], capture_output=True, text=True, timeout=15)
+        out_i = r_i.stdout.strip()
+        log_lines.append(f"[DOCKER] Image prune: {out_i or 'Selesai'}")
+    except Exception as e:
+        log_lines.append(f"[DOCKER] Image prune gagal: {e}")
+
+    # 7. Systemd journal vacuum
+    try:
+        r_j = subprocess.run(["journalctl", "--vacuum-time=2d"], capture_output=True, text=True, timeout=15)
+        lines_j = [l.strip() for l in r_j.stdout.strip().split("\n") if l.strip()]
+        log_lines.append(f"[SYSTEM] Journal vacuum: {lines_j[0] if lines_j else 'Selesai'}")
+    except Exception as e:
+        log_lines.append(f"[SYSTEM] Journal vacuum gagal: {e}")
+
+    # Summary
+    freed_human = _fmt(total_freed)
+    log_lines.append(f"=== [SELESAI] Total Sampah Terhapus: {freed_human} ({total_items} file/item) ===")
+
+    full_log = "\n".join(log_lines)
+    result_data = {
+        "status": "success",
+        "freed_bytes": total_freed,
+        "freed_human": freed_human,
+        "freed_mb": round(total_freed / (1024 * 1024), 2),
+        "files_count": total_items,
+        "log": full_log,
+        "at": time.time(),
+    }
+
+    try:
+        os.makedirs(os.path.dirname(CLEAN_JUNK_JSON), exist_ok=True)
+        with open(CLEAN_JUNK_JSON, "w", encoding="utf-8") as f:
+            json.dump(result_data, f)
+        with open(CLEAN_JUNK_LOG, "w", encoding="utf-8") as f:
+            f.write(full_log)
+    except Exception:
+        pass
+
+    global _clean_junk_result
+    with _clean_junk_lock:
+        _clean_junk_result = result_data
+
+    return result_data
 
 
 def update_router() -> None:
@@ -3640,7 +3896,7 @@ def build_fragments() -> dict:
         f'<a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle?token={TOKEN}">{ICON_POWER}{dash_label}</a>'
         f'<a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle?token={TOKEN}">{ICON_POWER}{bot_label}</a>'
         f'<a class="toggle restart" href="/restart-bot?token={TOKEN}">{ICON_REFRESH}Restart Bot</a>'
-        f'<a class="toggle restart" href="/clean-junk?token={TOKEN}">{ICON_TRASH}Bersihkan Cache</a>'
+        f'<a class="toggle restart" href="/clean-junk?token={TOKEN}">{ICON_TRASH}Bersihkan Sampah</a>'
     )
 
     cpu_pct = get_cpu_percent()
@@ -3657,6 +3913,7 @@ def build_fragments() -> dict:
         "update_block": update_block,
         "hermes_update_block": hermes_update_block,
         "log_card": log_card,
+        "clean_junk_card": render_clean_junk_card(),
         "quick_links_block": quick_links_block,
         "dash_bot_btns_block": dash_bot_btns_block,
         "aux_tasks_block": render_aux_tasks_block(),
@@ -3717,9 +3974,12 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
             'Aman dipakai kalau instance lain (server baru) yang sedang aktif.</div>'
         )
     elif just == "cleaned":
+        res = get_clean_junk_result()
+        freed_str = res.get("freed_human", "0 B")
+        files_str = f" ({res.get('files_count', 0)} item)" if res.get("files_count") else ""
         countdown_block = (
-            f'<div class="hint">{ICON_CHECK}Pembersihan berhasil! Log update, cache package, '
-            'dan sisa build docker telah dibersihkan.</div>'
+            f'<div class="hint">{ICON_CHECK}Pembersihan berhasil! Total sampah terhapus: '
+            f'<strong>{freed_str}</strong>{files_str}. Log rinci ditampilkan di bawah tombol.</div>'
         )
     elif just == "hermes-updating":
         countdown_block = COUNTDOWN_BLOCK.format(
@@ -3753,6 +4013,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         model_chips=frag["model_chips"],
         rate_limit_card=frag["rate_limit_card"],
         log_card=frag["log_card"],
+        clean_junk_card=frag["clean_junk_card"],
         update_block=frag["update_block"],
         hermes_update_block=frag["hermes_update_block"],
         aux_tasks_block=frag["aux_tasks_block"],
