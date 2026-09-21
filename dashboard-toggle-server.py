@@ -264,8 +264,8 @@ border-radius:12px;text-align:center;gap:.35rem;
 font-weight:500;font-size:.82rem;cursor:pointer;border:none;white-space:nowrap;
 background:transparent;color:var(--text-muted);transition:all .18s var(--ease)}}
 .tab:hover{{color:var(--text);background:rgba(255,255,255,0.04)}}
-.tab.active{{background:var(--surface-solid);color:var(--text);
-border:1px solid var(--border-hover);box-shadow:0 3px 12px rgba(0,0,0,0.35)}}
+.tab.active{{background:rgba(59,130,246,0.20);color:#fff;
+border:1px solid rgba(96,165,250,0.65);box-shadow:0 3px 14px rgba(37,99,235,0.40), inset 0 1px 0 rgba(255,255,255,0.08)}}
 
 /* Panels & Layout */
 .content-wrapper{{display:block;width:100%;max-width:1040px;margin:0 auto}}
@@ -289,6 +289,7 @@ display:flex;align-items:center;gap:.5rem}}
 /* Bento Tile Grid */
 .cc-grid{{display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:.75rem}}
 @media (max-width: 440px){{.cc-grid{{grid-template-columns:1fr}}}}
+@media (max-width:380px){{.tab{{font-size:.74rem;min-height:38px;gap:.2rem}}.tabs{{gap:.2rem;padding:.25rem}}}}
 
 .cc-tile{{background:rgba(255,255,255,0.025);border:1px solid var(--border-subtle);
 border-radius:var(--radius-lg);padding:1rem;display:flex;flex-direction:column;
@@ -305,11 +306,11 @@ justify-content:center;color:#fff;background:rgba(255,255,255,0.06);border:1px s
 
 .cc-tile-label{{font-size:.74rem;color:var(--text-muted);font-weight:500;text-transform:uppercase;letter-spacing:.05em}}
 .cc-tile-val{{font-size:1.02rem;font-weight:600;font-family:var(--font-mono);color:var(--text);
-font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:.35rem}}
+font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:.35rem;overflow-wrap:anywhere;word-break:break-word;min-width:0}}
 .cc-tile-sub{{font-size:.72rem;color:var(--text-dim);margin-top:.2rem}}
 
 /* Row Metrics */
-.row{{display:flex;justify-content:space-between;align-items:center;
+.row{{display:flex;justify-content:space-between;align-items:center;gap:.75rem;
 padding:.65rem 0;border-bottom:1px solid var(--border-subtle);font-size:.85rem}}
 .row:last-child{{border-bottom:none}}
 .label{{color:var(--text-muted);font-size:.82rem;font-weight:400;display:inline-flex;align-items:center;gap:.4rem}}
@@ -380,8 +381,8 @@ a.model-chip:hover{{
 }}
 a.model-chip:active{{transform:scale(.98)}}
 .model-chip.active{{
-  background:rgba(16,185,129,0.12) !important;color:var(--success) !important;
-  font-weight:600;border-color:rgba(16,185,129,0.4) !important;box-shadow:0 0 16px rgba(16,185,129,0.15);
+  background:rgba(59,130,246,0.16) !important;color:#bfdbfe !important;
+  font-weight:600;border-color:rgba(96,165,250,0.55) !important;box-shadow:0 0 16px rgba(59,130,246,0.22);
 }}
 .model-chip-content{{
   display:flex;align-items:center;gap:.45rem;overflow:hidden;min-width:0;flex:1;
@@ -394,7 +395,7 @@ a.model-chip:active{{transform:scale(.98)}}
   background:rgba(255,255,255,0.07);color:var(--text-dim);letter-spacing:.02em;
 }}
 .model-chip.active .model-chip-badge{{
-  background:rgba(16,185,129,0.2);color:var(--success);
+  background:rgba(59,130,246,0.25);color:#bfdbfe;
 }}
 @media (max-width:480px){{
   .models-grid{{grid-template-columns:1fr;}}
@@ -451,7 +452,7 @@ box-shadow:0 12px 48px rgba(0,0,0,0.7);backdrop-filter:blur(20px)}}
 .btn-danger{{background:rgba(239,68,68,0.18);color:#fca5a5;border:1px solid rgba(239,68,68,0.4)}}
 .btn-danger:hover{{background:rgba(239,68,68,0.3);border-color:var(--danger);color:#fff}}
 
-/* Auxiliary Tasks */
+/* Tugas Tambahan */
 .aux-header{{display:flex;justify-content:space-between;align-items:center;gap:.75rem;margin-bottom:.6rem;flex-wrap:wrap}}
 .aux-desc{{font-size:.8rem;color:var(--text-muted);line-height:1.4;margin-bottom:1rem}}
 .aux-task-row{{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.75rem .9rem;
@@ -476,7 +477,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .aux-model-opt-name{{font-family:var(--font-mono);font-size:.78rem;font-weight:600;color:var(--text)}}
 .aux-model-opt-sub{{font-size:.7rem;color:var(--text-dim)}}
 
-/* Windows Task Manager Elements */
+/* Process Table Elements */
 .task-table-wrap{{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.015);margin-bottom:.5rem}}
 .task-table{{width:100%;border-collapse:collapse;font-size:.78rem;text-align:left}}
 .task-table th{{background:rgba(255,255,255,0.04);color:var(--text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;padding:.65rem .85rem;border-bottom:1px solid var(--border);white-space:nowrap;font-family:var(--font-mono)}}
@@ -492,6 +493,21 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .btn-restart-task:hover{{background:rgba(255,255,255,0.14);color:#fff}}
 .btn-start-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.12);color:#6ee7b7;text-decoration:none;display:inline-block;cursor:pointer;font-weight:500}}
 .btn-start-task:hover{{background:rgba(16,185,129,0.28);color:#fff}}
+
+.task-table .td-label{{display:none}}
+/* Mobile: process table becomes stacked cards (no horizontal scroll) */
+@media (max-width:640px){{
+  .task-table thead{{display:none}}
+  .task-table,.task-table tbody,.task-table tr,.task-table td{{display:block;width:100%}}
+  .task-table tr{{border:1px solid var(--border);border-radius:var(--radius-md);margin-bottom:.6rem;padding:.5rem .7rem;background:rgba(255,255,255,0.02)}}
+  .task-table tr:hover td{{background:transparent}}
+  .task-table td{{border:none!important;padding:.28rem 0!important;text-align:left!important}}
+  .task-table td[data-c="aksi"]{{display:flex;gap:.45rem;flex-wrap:wrap;justify-content:flex-start;padding-top:.45rem!important}}
+  .task-table .td-label{{display:inline-block;font-size:.68rem;color:var(--text-dim);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.05em;margin-right:.5rem;min-width:52px}}
+  .task-table td[data-c="pid"],.task-table td[data-c="mem"]{{display:flex;align-items:baseline;justify-content:flex-start;text-align:left!important}}
+  .task-table td[data-c="pid"] .td-val,.task-table td[data-c="mem"] .td-val{{margin-left:auto;font-variant-numeric:tabular-nums}}
+  .task-table td[data-c="status"]{{display:flex;align-items:center;gap:.5rem}}
+}}
 
 /* Performance Sparkline Cards */
 .perf-tile{{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:1.35rem;margin-bottom:1.15rem;box-shadow:0 6px 24px rgba(0,0,0,0.3)}}
@@ -563,10 +579,10 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 <div id="aux-picker-modal">
   <div class="confirm-box" style="max-width:540px;width:92%;max-height:85vh;display:flex;flex-direction:column;padding:1.25rem">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
-      <h3 id="aux-picker-title" style="margin:0;font-size:1.05rem">Pilih Model Auxiliary</h3>
+      <h3 id="aux-picker-title" style="margin:0;font-size:1.05rem">Pilih Model</h3>
       <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeAuxPicker()">✕</button>
     </div>
-    <input type="text" id="aux-model-search" class="search-input" placeholder="Cari model… (filter)" oninput="filterAuxPicker(this.value)" style="margin-bottom:0.8rem">
+    <input type="text" id="aux-model-search" class="search-input" placeholder="Cari model… (saring)" oninput="filterAuxPicker(this.value)" style="margin-bottom:0.8rem">
     <div id="aux-picker-list" style="overflow-y:auto;flex:1;max-height:55vh;display:flex;flex-direction:column;gap:0.45rem;padding-right:2px">
     </div>
   </div>
@@ -590,11 +606,11 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 <div class="content-wrapper">
 <!-- STATUS TAB -->
 <div class="tab-panel active" id="tab-status">
-  <!-- Windows Task Manager Process Table -->
+  <!-- Process Table -->
   <div class="card card-status" style="padding:1.1rem;margin-bottom:1.25rem">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.8rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.4rem;margin-bottom:.8rem">
       <div class="card-title" style="margin-bottom:0">{icon_activity} Daftar Proses & Layanan Sistem</div>
-      <span style="font-size:0.72rem;color:var(--text-dim);font-family:var(--font-mono)">Windows Task Manager</span>
+      <span style="font-size:0.72rem;color:var(--text-dim);font-family:var(--font-mono)">Manajer Layanan Linux</span>
     </div>
     <div id="process-table-slot">
       {processes_table}
@@ -623,7 +639,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       </div>
       <div class="cc-tile">
         <div class="cc-tile-header">
-          <span class="cc-tile-label">Active Model AI</span>
+          <span class="cc-tile-label">Model AI Aktif</span>
           <div class="cc-icon-box cc-icon-green">{icon_hermes}</div>
         </div>
         <div class="cc-tile-val" id="cell-model" style="font-size:.95rem">{cell_model}</div>
@@ -654,9 +670,9 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     </div>
 
     <div class="grid">
-      <div class="row"><span class="label">{icon_disk} Storage</span>
+      <div class="row"><span class="label">{icon_disk} Penyimpanan</span>
         <span id="cell-disk">{cell_disk}</span></div>
-      <div class="row"><span class="label">{icon_clock} Uptime</span>
+      <div class="row"><span class="label">{icon_clock} Masa Aktif</span>
         <span id="cell-uptime">{cell_uptime}</span></div>
       <div class="row"><span class="label">{icon_network} IP LAN</span>
         <span id="cell-lan">{cell_lan}</span></div>
@@ -671,7 +687,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
       <div class="card-title" style="margin-bottom:0">{icon_layers} Model 9router</div>
     </div>
-    <input type="text" id="model-search" class="search-input" placeholder="Cari model… (filter chip)" oninput="filterModels(this.value)">
+    <input type="text" id="model-search" class="search-input" placeholder="Cari model… (saring)" oninput="filterModels(this.value)">
     <div id="model-chips">{model_chips}</div>
   </div>
 
@@ -684,7 +700,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div class="perf-header">
       <div>
         <div class="perf-title">{icon_cpu} CPU · Amlogic S905X3</div>
-        <div class="perf-sub">4 Cores @ 1.9GHz · Suhu: <span id="perf-temp">{cell_temp}</span> · Load: <span id="perf-load">{cell_load}</span></div>
+        <div class="perf-sub">4 Inti @ 1.9GHz · Suhu: <span id="perf-temp">{cell_temp}</span> · Beban: <span id="perf-load">{cell_load}</span></div>
       </div>
       <div class="perf-big-val" id="perf-cpu-val">{cpu_pct}%</div>
     </div>
@@ -703,7 +719,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div class="perf-header">
       <div>
         <div class="perf-title">{icon_ram} Memori · DDR4 + ZRAM</div>
-        <div class="perf-sub">Penggunaan: <span id="perf-ram-sub">{cell_ram}</span> · Swap ZRAM: <span id="cell-zram-perf">{cell_zram}</span></div>
+        <div class="perf-sub">Penggunaan: <span id="perf-ram-sub">{cell_ram}</span> · ZRAM: <span id="cell-zram-perf">{cell_zram}</span></div>
       </div>
       <div class="perf-big-val" id="perf-ram-val" style="color:#c084fc">{ram_pct}%</div>
     </div>
@@ -722,7 +738,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div class="card card-info">
       <div class="card-title">{icon_disk} Penyimpanan & Keausan</div>
       <div class="grid">
-        <div class="row"><span class="label">{icon_disk} Ruang Disk</span>
+        <div class="row"><span class="label">{icon_disk} Ruang</span>
           <span id="cell-disk-perf">{cell_disk}</span></div>
         <div class="row"><span class="label">{icon_shield} Status eMMC</span>
           <span id="cell-emmc-perf">{cell_emmc}</span></div>
@@ -730,13 +746,13 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     </div>
 
     <div class="card card-info">
-      <div class="card-title">{icon_network} Jaringan & Uptime</div>
+      <div class="card-title">{icon_network} Jaringan & Masa Aktif</div>
       <div class="grid">
         <div class="row"><span class="label">{icon_network} IP LAN</span>
           <span id="cell-lan-perf">{cell_lan}</span></div>
         <div class="row"><span class="label">{icon_network} Tailscale</span>
           <span id="cell-ts-perf">{cell_ts}</span></div>
-        <div class="row" style="grid-column: span 2"><span class="label">{icon_clock} Uptime Server</span>
+        <div class="row" style="grid-column: span 2"><span class="label">{icon_clock} Masa Aktif Server</span>
           <span id="cell-uptime-perf">{cell_uptime}</span></div>
       </div>
     </div>
@@ -747,18 +763,18 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 <div class="tab-panel" id="tab-control">
   {countdown_block}
   <div class="card card-info">
-    <div class="card-title">Quick Links</div>
+    <div class="card-title">Tautan Cepat</div>
     <div class="btn-row" id="quick-links-slot">
       {open_block}
       {router_open_block}
     </div>
   </div>
   <div class="card card-control">
-    <div class="card-title">Dashboard & Bot</div>
+    <div class="card-title">Dasbor & Bot</div>
     <div class="btn-row" id="dash-bot-btns-slot">
       <a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle?token={token}">{icon_power}{toggle_label}</a>
       <a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle?token={token}">{icon_power}{bot_toggle_label}</a>
-      <a class="toggle restart" href="/restart-bot?token={token}">{icon_refresh}Restart Bot</a>
+      <a class="toggle restart" href="/restart-bot?token={token}">{icon_refresh}Mulai Ulang Bot</a>
       <a class="toggle restart" href="/clean-junk?token={token}">{icon_trash}Bersihkan Sampah</a>
     </div>
     <div id="clean-log-slot">{clean_junk_card}</div>
@@ -768,13 +784,13 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   </div>
   <div class="card card-info" style="margin-bottom:1.25rem">
     <div class="aux-header">
-      <div class="card-title" style="margin-bottom:0">{icon_shield} Model Cadangan (Fallback)</div>
-      <button type="button" class="btn btn-action-sm" onclick="openFallbackPicker(-1, 'Tambah Backup Baru')">
-        + Tambah Backup
+      <div class="card-title" style="margin-bottom:0">{icon_shield} Model Cadangan</div>
+      <button type="button" class="btn btn-action-sm" onclick="openFallbackPicker(-1, 'Cadangan Baru')">
+        + Tambah Cadangan
       </button>
     </div>
     <div class="aux-desc">
-      Model cadangan otomatis digunakan saat model utama gagal atau kena limit (HTTP 429/500). Urutan fallback dieksekusi dari atas ke bawah.
+      Model cadangan otomatis dipakai saat model utama gagal atau kena batas (HTTP 429/500). Urutan jalan dari atas ke bawah.
     </div>
     <div id="backup-models-slot">
       {backup_models_block}
@@ -785,7 +801,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div id="log-slot">{log_card}</div>
     <div id="log-show-wrap" style="display:none;margin-top:.6rem">
       <button type="button" class="btn" style="width:auto;padding:0.35rem 0.8rem;font-size:0.75rem;margin:0"
-        onclick="toggleLog('logDismissed','log-show-wrap')">Tampilkan Log Update 9router</button>
+        onclick="toggleLog('logDismissed','log-show-wrap')">Tampilkan Log Pembaruan 9router</button>
     </div>
   </div>
   <div class="card card-warn" id="hermes-update-slot">{hermes_update_block}</div>
@@ -795,13 +811,13 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   </div>
 </div>
 
-<!-- AUXILIARY TAB -->
+<!-- TAB TUGAS -->
 <div class="tab-panel" id="tab-auxiliary">
   <div class="card card-status" style="padding:1.25rem">
     <div class="aux-header">
-      <div class="card-title" style="margin-bottom:0">{icon_cpu} Auxiliary Tasks</div>
+      <div class="card-title" style="margin-bottom:0">{icon_cpu} Tugas Tambahan</div>
       <a class="toggle restart" style="width:auto;min-height:34px;padding:0.35rem 0.8rem;font-size:0.75rem;margin:0" href="/reset-aux?token={token}">
-        {icon_refresh}Reset All to Auto
+        {icon_refresh}Kembalikan ke Otomatis
       </a>
     </div>
     <div class="aux-desc">
@@ -852,7 +868,7 @@ function openAuxPicker(taskKey, taskLabel){{
   currentAuxTask = taskKey;
   currentFallbackIndex = null;
   var title = document.getElementById('aux-picker-title');
-  if(title) title.textContent = 'Pilih Model: ' + taskLabel;
+  if(title) title.textContent = 'Pilih Model Tugas: ' + taskLabel;
   var input = document.getElementById('aux-model-search');
   if(input) input.value = '';
   var modal = document.getElementById('aux-picker-modal');
@@ -866,7 +882,7 @@ function openFallbackPicker(index, label){{
   currentFallbackIndex = index;
   currentAuxTask = '';
   var title = document.getElementById('aux-picker-title');
-  if(title) title.textContent = (index === -1 ? 'Tambah Model Cadangan (Backup)' : 'Ganti Model Cadangan: ' + label);
+  if(title) title.textContent = (index === -1 ? 'Tambah Model Cadangan' : 'Ganti Model Cadangan: ' + label);
   var input = document.getElementById('aux-model-search');
   if(input) input.value = '';
   var modal = document.getElementById('aux-picker-modal');
@@ -905,7 +921,7 @@ function renderFallbackPickerItems(q){{
           var mId = matched[i];
           var safeId = mId.replace(/"/g, '&quot;');
           var isFree = mId.toLowerCase().indexOf('free') !== -1;
-          var badge = isFree ? '<span class="model-chip-badge">FREE</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
+          var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
           out += '<a class="aux-model-opt" href="javascript:void(0)" onclick="selectFallbackModel(\\'custom:9router\\', \\'' + safeId + '\\')">' +
                    '<div style="min-width:0;flex:1">' +
                      '<div class="aux-model-opt-name" style="overflow:hidden;text-overflow:ellipsis">' + safeId + '</div>' +
@@ -956,11 +972,11 @@ function renderAuxPickerItems(q){{
   var container = document.getElementById('aux-picker-list');
   if(!container) return;
   var out = '';
-  if(!q || 'auto (gunakan model utama)'.indexOf(q) !== -1 || 'main model'.indexOf(q) !== -1){{
+  if(!q || 'otomatis (pakai model utama)'.indexOf(q) !== -1 || 'model utama'.indexOf(q) !== -1){{
     out += '<a class="aux-model-opt" href="javascript:void(0)" onclick="selectAuxModel(\\'auto\\', \\'\\')">' +
            '<div>' +
-             '<div class="aux-model-opt-name" style="color:var(--text)">⚡ Auto (Gunakan Model Utama)</div>' +
-             '<div class="aux-model-opt-sub">Inherit dari model obrolan default Hermes</div>' +
+             '<div class="aux-model-opt-name" style="color:var(--text)">Otomatis (Pakai Model Utama)</div>' +
+             '<div class="aux-model-opt-sub">Ikuti model obrolan utama Hermes</div>' +
            '</div>' +
            '<span class="model-chip-badge">AUTO</span>' +
          '</a>';
@@ -975,7 +991,7 @@ function renderAuxPickerItems(q){{
           var mId = matched[i];
           var safeId = mId.replace(/"/g, '&quot;');
           var isFree = mId.toLowerCase().indexOf('free') !== -1;
-          var badge = isFree ? '<span class="model-chip-badge">FREE</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
+          var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
           out += '<a class="aux-model-opt" href="javascript:void(0)" onclick="selectAuxModel(\\'custom:9router\\', \\'' + safeId + '\\')">' +
                    '<div style="min-width:0;flex:1">' +
                      '<div class="aux-model-opt-name" style="overflow:hidden;text-overflow:ellipsis">' + safeId + '</div>' +
@@ -1022,7 +1038,7 @@ function selectAuxModel(provider, model){{
           if(slot) slot.innerHTML = res.html;
         }} else if(valEl){{
           var isAuto = (provider === 'auto' || !provider) && !model;
-          valEl.textContent = isAuto ? 'auto (use main model)' : (provider && model ? provider + ' · ' + model : (model || provider));
+          valEl.textContent = isAuto ? 'otomatis (pakai model utama)' : (provider && model ? provider + ' · ' + model : (model || provider));
           valEl.className = isAuto ? 'mono-sub auto' : 'mono-sub custom';
         }}
       }} else {{
@@ -1157,9 +1173,9 @@ setTimeout(scrollAllLogsToBottom, 600);
 
 def get_open_block_active():
     # Hermes Dashboard selalu di H96 Max X3 (192.168.1.100)
-    return f'<a class="open" href="http://192.168.1.100:9119" target="_blank">{ICON_EXTERNAL_LINK}Buka Dashboard Hermes</a>'
+    return f'<a class="open" href="http://192.168.1.100:9119" target="_blank">{ICON_EXTERNAL_LINK}Buka Dasbor Hermes</a>'
 
-OPEN_BLOCK_INACTIVE = '<div class="hint-pill">Nyalakan dashboard dulu untuk membukanya</div>'
+OPEN_BLOCK_INACTIVE = '<div class="update-hint warn" style="margin:0">Dasbor Hermes mati — nyalakan dulu untuk membukanya</div>'
 
 def get_gateway_info() -> str:
     """Gateway service status: state, RSS memory, uptime."""
@@ -1201,9 +1217,13 @@ def get_gateway_info() -> str:
                     dt_str = f"{parts[1]} {parts[2]}"
                     start = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
                     delta = datetime.now() - start
-                    hours, rem = divmod(int(delta.total_seconds()), 3600)
+                    d, rem = divmod(int(delta.total_seconds()), 86400)
+                    hours, rem = divmod(rem, 3600)
                     mins, _ = divmod(rem, 60)
-                    uptime_part = f" · {hours}j{mins}m"
+                    if d > 0:
+                        uptime_part = f" · {d} hari {hours} jam"
+                    else:
+                        uptime_part = f" · {hours} jam {mins} mnt"
             except Exception:
                 pass
         return f"PID {pid} · {mem_mb:.0f}MB{uptime_part}"
@@ -1400,7 +1420,7 @@ SSE_SCRIPT = """<script>
     if(d.ram_pct !== undefined) {{
       updateSparkline('ram-sparkline', d.ram_pct, ramHistory);
       var rval = document.getElementById('perf-ram-val');
-      if(rval) rval.textContent = d.ram_pct.toFixed(0) + '%';
+      if(rval) rval.textContent = d.ram_pct.toFixed(1) + '%';
     }}
     if(d.cell_load) set('perf-load', d.cell_load);
     if(d.cells && d.cells.temp) set('perf-temp', d.cells.temp);
@@ -1488,16 +1508,19 @@ SSE_SCRIPT = """<script>
 # wrapper needed.
 NAV_SCRIPT = """<script>
 var CONFIRM_ROUTES = [
-  {match:'/update-hermes', title:'Update Hermes Agent', msg:'Update menjalankan git pull, install dependency, dan restart gateway. Bot tidak bisa dibalas selama proses (beberapa menit). Lanjutkan?'},
-  {match:'/update-router', title:'Update 9router', msg:'Update menjalankan docker compose pull + up -d untuk 9router. Container 9router akan restart. Lanjutkan?'},
-  {match:'/restart-bot', title:'Restart Hermes Gateway', msg:'Restart service hermes-gateway? Koneksi bot Telegram akan restart dalam beberapa detik.'},
+  {match:'/update-hermes', title:'Perbarui Hermes Agent', msg:'Perbarui Hermes via git pull + install dependency + mulai ulang gateway. Bot tidak bisa dibalas selama proses (beberapa menit). Lanjutkan?'},
+  {match:'/update-router', title:'Perbarui 9router', msg:'Perbarui 9router via docker compose pull + up -d. Kontainer 9router akan mulai ulang. Lanjutkan?'},
+  {match:'/restart-bot', title:'Mulai Ulang Hermes Gateway', msg:'Mulai ulang service hermes-gateway? Koneksi bot Telegram akan mulai ulang dalam beberapa detik.'},
   {match:'/bot-toggle', title:'Ubah Status Bot', msg:'Ubah status hidup/mati Bot Telegram hermes-gateway?'},
-  {match:'/clean-junk', title:'Bersihkan Cache & Sampah', msg:'Bersihkan log update, cache package uv/pip, dan builder docker dangling untuk melegakan penyimpanan STB?'},
-  {match:'/reset-aux', title:'Reset Auxiliary Models', msg:'Reset semua model tugas auxiliary ke "auto"? Pengaturan model per tugas akan dikembalikan menggunakan model obrolan utama.'},
-  {match:'/remove-fallback-model', title:'Hapus Model Cadangan', msg:'Hapus model ini dari daftar cadangan (fallback)?'},
-  {match:'/process-action?service=9router&action=stop', title:'Hentikan 9router (End Task)', msg:'Hentikan container 9router? AI routing akan offline sampai dinyalakan lagi.'},
-  {match:'/process-action?service=hermes-panel&action=restart', title:'Restart Hermes Control Panel', msg:'Restart service hermes-panel? Panel akan terhubung kembali dalam beberapa detik.'},
-  {match:'/process-action?action=restart', title:'Restart Tugas', msg:'Restart layanan yang dipilih sekarang?'}
+  {match:'/clean-junk', title:'Bersihkan Cache & Sampah', msg:'Bersihkan log pembaruan, cache package uv/pip, dan builder docker dangling untuk melegakan penyimpanan STB?'},
+  {match:'/reset-aux', title:'Kembalikan Model Tugas', msg:'Kembalikan semua model tugas tambahan ke otomatis? Setiap tugas akan ikut model obrolan utama.'},
+  {match:'/remove-fallback-model', title:'Hapus Model Cadangan', msg:'Hapus model ini dari daftar cadangan?'},
+  {match:'/process-action?service=9router&action=stop', title:'Hentikan 9router', msg:'Hentikan kontainer 9router? AI routing akan mati sampai dinyalakan lagi.'},
+  {match:'/process-action?service=cloudflared&action=stop', title:'Hentikan Cloudflared', msg:'Hentikan tunnel Cloudflared? Akses eksternal putus sampai dinyalakan lagi.'},
+  {match:'/process-action?service=pihole-pihole-1&action=stop', title:'Hentikan Pi-hole', msg:'Hentikan Pi-hole? DNS dan anti-iklan mati sampai dinyalakan lagi.'},
+  {match:'/process-action?service=hermes-dashboard&action=restart', title:'Mulai Ulang Dasbor', msg:'Mulai ulang layanan hermes-dashboard? Halaman dasbor :9119 terputus sebentar.'},
+  {match:'/process-action?service=hermes-panel&action=restart', title:'Mulai Ulang Panel', msg:'Mulai ulang layanan hermes-panel? Panel tersambung lagi dalam beberapa detik.'},
+  {match:'/process-action?action=restart', title:'Mulai Ulang Tugas', msg:'Mulai ulang layanan yang dipilih sekarang?'},
 ];
 document.addEventListener('click', function(e){
   var a = e.target.closest('a.toggle, a.open, a.model-chip, a.btn-end-task, a.btn-restart-task, a.btn-start-task');
@@ -1562,7 +1585,7 @@ def render_log_card(log_text: str, result: dict | None = None) -> str:
     return (
         f'<div class="card" id="router-log-card">'
         f'<div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">'
-        f'<div>{ICON_TERMINAL} Log update 9router {badge}</div>'
+        f'<div>{ICON_TERMINAL} Log pembaruan 9router {badge}</div>'
         f'<button type="button" class="btn" style="width:auto;padding:0.2rem 0.6rem;font-size:0.72rem;margin:0" '
         f"onclick=\"safeStore('setItem','logDismissed','1');document.getElementById('router-log-card').remove();if(window.syncLogUI)syncLogUI()\">"
         f'Sembunyikan Log</button>'
@@ -1699,7 +1722,7 @@ def render_patch_notes_block(title: str, notes: list[str]) -> str:
     total_pages = (len(notes) + page_size - 1) // page_size
     return (
         f'<div class="patch-notes-box" id="{box_id}" data-patch-current="1">'
-        f'<div class="patch-notes-title">📝 Patch Notes ({html.escape(title)}):</div>'
+        f'<div class="patch-notes-title">{ICON_TERMINAL} Catatan Pembaruan ({html.escape(title)}):</div>'
         f'<ul class="patch-notes-list">{"".join(items)}</ul>'
         f'<div class="patch-notes-pages">'
         f'<button type="button" class="btn patchPrev" disabled '
@@ -1786,7 +1809,7 @@ def run_hermes_update() -> None:
     with _hermes_update_lock:
         _hermes_update_running = True
         _hermes_update_result = {"status": "running", "exit_code": None,
-                                 "summary": "Update Hermes berjalan…", "finished_at": 0.0}
+                                 "summary": "Pembaruan Hermes berjalan…", "finished_at": 0.0}
 
     def _run():
         global _hermes_update_running, _hermes_update_result, _hermes_update_cache
@@ -1812,7 +1835,7 @@ def run_hermes_update() -> None:
                     log.write("\n[panel] ERROR: timeout 900 detik\n")
                     rc = 124
             if rc == 0:
-                summary = "Hermes update sukses: dependency, validasi, dan restart selesai"
+                summary = "Hermes sukses diperbarui: dependency, validasi, dan mulai ulang selesai"
             else:
                 summary = f"Hermes update gagal (exit {rc}); cek log lengkap"
             with _hermes_update_lock:
@@ -1993,7 +2016,7 @@ def get_available_models() -> dict:
     result = {}
     key = get_router_api_key()
     if not key:
-        return {"9router (Combos)": []}
+        return {"9router (Kombo)": []}
     try:
         host = get_9router_host()
         req = urllib.request.Request(
@@ -2011,7 +2034,7 @@ def get_available_models() -> dict:
             ob = str(item.get("owned_by", "")).lower()
 
             if ob == "combo":
-                group = "9router (Combos)"
+                group = "9router (Kombo)"
             elif ob == "ag" or mid.startswith("ag/"):
                 group = "Antigravity (ag)"
             elif ob == "cx" or mid.startswith("cx/"):
@@ -2038,15 +2061,15 @@ def get_available_models() -> dict:
             result.setdefault(group, []).append(mid)
 
         ordered_result = {}
-        if "9router (Combos)" in result:
-            ordered_result["9router (Combos)"] = sorted(result.pop("9router (Combos)"))
+        if "9router (Kombo)" in result:
+            ordered_result["9router (Kombo)"] = sorted(result.pop("9router (Kombo)"))
         for g in sorted(result.keys()):
             ordered_result[g] = sorted(result[g])
         return ordered_result
     except Exception:
         pass
 
-    return {"9router (Combos)": []}
+    return {"9router (Kombo)": []}
 
 
 def get_available_models_cached() -> dict:
@@ -2088,7 +2111,7 @@ def set_current_model(model_id: str) -> bool:
         return False
 
 
-# --- Auxiliary Task Models Configuration ---
+# --- Konfigurasi Model Tugas Tambahan ---
 AUX_TASK_DEFINITIONS: list[tuple[str, str, str]] = [
     ("vision", "Vision", "Image & screenshot analysis"),
     ("compression", "Compression", "Context summarization"),
@@ -2104,7 +2127,7 @@ AUX_TASK_DEFINITIONS: list[tuple[str, str, str]] = [
     ("delegation", "Delegation", "Subagent model (delegate_task)"),
     ("web_extract", "Web Extract", "Web content extraction"),
     ("memory_query_rewrite", "Memory Query Rewrite", "Memory retrieval queries"),
-    ("tts_audio_tags", "TTS Audio Tags", "Gemini TTS tag insertion"),
+    ("tts_audio_tags", "TTS Audio Tags", "Penyisipan tag audio TTS"),
     ("monitor", "Monitor", "System monitoring & watchdogs"),
 ]
 
@@ -2132,7 +2155,7 @@ def get_aux_tasks_config() -> list[dict]:
             is_auto = (provider == "auto" or not provider) and not model
 
         if is_auto:
-            display_val = "auto (use main model)"
+            display_val = "otomatis (pakai model utama)"
         elif provider and model:
             display_val = f"{provider} · {model}"
         elif model:
@@ -2352,7 +2375,7 @@ def render_backup_models_block() -> str:
     if not models:
         return (
             '<div class="update-hint" style="margin:0;font-size:0.75rem">'
-            'Belum ada model cadangan. Klik "+ Tambah Backup" untuk mengaktifkan fallback otomatis.'
+            'Belum ada model cadangan. Klik "+ Tambah Cadangan" untuk mengaktifkan pengalihan otomatis.'
             '</div>'
         )
     rows = []
@@ -2366,8 +2389,7 @@ def render_backup_models_block() -> str:
             f'<div class="aux-task-row" style="margin-bottom:0.45rem">'
             f'  <div class="aux-task-info">'
             f'    <div class="aux-task-title">'
-            f'      <span class="aux-task-name">Backup #{priority}</span>'
-            f'      <span class="aux-task-hint">Prioritas {priority}</span>'
+            f'      <span class="aux-task-name">Cadangan #{priority}</span>'
             f'    </div>'
             f'    <div class="mono-sub custom" style="font-weight:600">{model_name}</div>'
             f'    <div style="font-size:.68rem;color:var(--text-dim);margin-top:.1rem">{provider}</div>'
@@ -2442,7 +2464,7 @@ def _router_ssh(command: str, timeout: float = INFO_TIMEOUT):
 
 
 def _fmt_dur(seconds: float) -> str:
-    """Format duration into Indonesian units: Xh Yj Zm."""
+    """Format duration: X hari Y jam Z mnt (unambiguous, no h/j collision)."""
     if seconds < 0:
         return ""
     s = int(seconds)
@@ -2450,10 +2472,10 @@ def _fmt_dur(seconds: float) -> str:
     hours, rem = divmod(rem, 3600)
     mins = rem // 60
     if days > 0:
-        return f"{days}h {hours}j" if hours > 0 else f"{days}h"
+        return f"{days} hari {hours} jam" if hours > 0 else f"{days} hari"
     if hours > 0:
-        return f"{hours}j {mins}m" if mins > 0 else f"{hours}j"
-    return f"{max(1, mins)}m"
+        return f"{hours} jam {mins} mnt" if mins > 0 else f"{hours} jam"
+    return f"{max(1, mins)} mnt"
 
 
 def _parse_docker_started(raw: str) -> float | None:
@@ -3171,7 +3193,7 @@ def get_ram_info() -> tuple[float, str]:
         total = info["MemTotal"]
         avail = info["MemAvailable"]
         used_pct = (total - avail) / total * 100
-        return used_pct, f"{used_pct:.0f}% ({avail // 1024} MB free)"
+        return used_pct, f"{used_pct:.1f}% ({avail // 1024} MB tersedia)"
     except Exception:
         return 0.0, "?"
 
@@ -3179,6 +3201,29 @@ def get_ram_info() -> tuple[float, str]:
 _last_cpu_time: tuple[float, float] = (0.0, 0.0)
 _cpu_percent_cache: float = 0.0
 _cpu_lock = threading.Lock()
+_cpu_primed = False
+
+
+def _prime_cpu_sample() -> None:
+    """Seed the /proc/stat baseline so the first real reading is live."""
+    global _last_cpu_time, _cpu_primed
+    try:
+        with open("/proc/stat", "r") as f:
+            line = f.readline()
+        fields = [float(x) for x in line.strip().split()[1:]]
+        idle = fields[3] + (fields[4] if len(fields) > 4 else 0.0)
+        total = sum(fields)
+        with _cpu_lock:
+            _last_cpu_time = (total, idle)
+            _cpu_primed = True
+    except Exception:
+        pass
+
+
+try:
+    _prime_cpu_sample()
+except Exception:
+    pass
 
 
 def get_cpu_percent() -> float:
@@ -3238,7 +3283,7 @@ def get_docker_metric(cname: str) -> tuple[str, str, float]:
 
 
 def get_process_list() -> list[dict]:
-    """Inspect managed services and Docker containers for Windows Task Manager view."""
+    """Inspect managed services and Docker containers for Linux service manager view."""
     procs = []
 
     # 1. Hermes Gateway (Bot Telegram)
@@ -3264,12 +3309,13 @@ def get_process_list() -> list[dict]:
         procs.append({
             "id": "hermes-gateway",
             "name": "Hermes Gateway (Bot Telegram)",
-            "kind": "Systemd Service",
-            "status": "Running" if st == "active" else "Stopped",
+            "kind": "Layanan Systemd",
+            "status": "Berjalan" if st == "active" else "Berhenti",
             "is_active": (st == "active"),
             "pid": pid if pid != "0" else "-",
             "mem_mb": mem,
             "stop_url": f"/bot-toggle?token={TOKEN}",
+            "start_url": f"/bot-toggle?token={TOKEN}",
             "restart_url": f"/restart-bot?token={TOKEN}",
         })
     except Exception:
@@ -3282,8 +3328,8 @@ def get_process_list() -> list[dict]:
         procs.append({
             "id": "9router",
             "name": "9router AI Routing Engine",
-            "kind": "Docker Container",
-            "status": "Running" if is_run else "Stopped",
+            "kind": "Kontainer Docker",
+            "status": "Berjalan" if is_run else "Berhenti",
             "is_active": is_run,
             "pid": dpid if is_run else "-",
             "mem_mb": dmem,
@@ -3308,9 +3354,9 @@ def get_process_list() -> list[dict]:
             pass
         procs.append({
             "id": "hermes-panel",
-            "name": "Hermes Control Panel (:9120)",
-            "kind": "Systemd Service",
-            "status": "Running",
+            "name": "Panel Kontrol Hermes (:9120)",
+            "kind": "Layanan Systemd",
+            "status": "Berjalan",
             "is_active": True,
             "pid": str(cur_pid),
             "mem_mb": panel_mem,
@@ -3344,14 +3390,15 @@ def get_process_list() -> list[dict]:
                             pass
         procs.append({
             "id": "hermes-dashboard",
-            "name": "Hermes Web Dashboard (:9119)",
-            "kind": "Systemd Service",
-            "status": "Running" if dash_active else "Stopped",
+            "name": "Dasbor Web Hermes (:9119)",
+            "kind": "Layanan Systemd",
+            "status": "Berjalan" if dash_active else "Berhenti",
             "is_active": dash_active,
             "pid": dash_pid,
             "mem_mb": dash_mem,
             "stop_url": f"/toggle?token={TOKEN}",
             "start_url": f"/on?token={TOKEN}",
+            "restart_url": f"/process-action?service=hermes-dashboard&action=restart&token={TOKEN}",
         })
     except Exception:
         pass
@@ -3362,12 +3409,14 @@ def get_process_list() -> list[dict]:
         is_run = (dst.lower() == "running")
         procs.append({
             "id": "cloudflared",
-            "name": "Cloudflared (Secure Tunnel)",
-            "kind": "Docker Container",
-            "status": "Running" if is_run else "Stopped",
+            "name": "Cloudflared (Tunnel Aman)",
+            "kind": "Kontainer Docker",
+            "status": "Berjalan" if is_run else "Berhenti",
             "is_active": is_run,
             "pid": dpid if is_run else "-",
             "mem_mb": dmem,
+            "stop_url": f"/process-action?service=cloudflared&action=stop&token={TOKEN}",
+            "start_url": f"/process-action?service=cloudflared&action=start&token={TOKEN}",
             "restart_url": f"/process-action?service=cloudflared&action=restart&token={TOKEN}",
         })
     except Exception:
@@ -3379,12 +3428,14 @@ def get_process_list() -> list[dict]:
         is_run = (dst.lower() == "running")
         procs.append({
             "id": "pihole-pihole-1",
-            "name": "Pi-hole (DNS Ad-blocker)",
-            "kind": "Docker Container",
-            "status": "Running" if is_run else "Stopped",
+            "name": "Pi-hole (DNS Anti-Iklan)",
+            "kind": "Kontainer Docker",
+            "status": "Berjalan" if is_run else "Berhenti",
             "is_active": is_run,
             "pid": dpid if is_run else "-",
             "mem_mb": dmem,
+            "stop_url": f"/process-action?service=pihole-pihole-1&action=stop&token={TOKEN}",
+            "start_url": f"/process-action?service=pihole-pihole-1&action=start&token={TOKEN}",
             "restart_url": f"/process-action?service=pihole-pihole-1&action=restart&token={TOKEN}",
         })
     except Exception:
@@ -3394,7 +3445,7 @@ def get_process_list() -> list[dict]:
 
 
 def render_processes_table() -> str:
-    """Render Windows Task Manager styled table for running services & containers."""
+    """Render process table for running services & containers."""
     procs = get_process_list()
     rows = []
     for p in procs:
@@ -3407,23 +3458,23 @@ def render_processes_table() -> str:
 
         actions = []
         if p["is_active"] and p.get("stop_url"):
-            actions.append(f'<a href="{p["stop_url"]}" class="btn-end-task">Hentikan (End Task)</a>')
+            actions.append(f'<a href="{p["stop_url"]}" class="btn-end-task">Hentikan</a>')
         elif not p["is_active"] and p.get("start_url"):
             actions.append(f'<a href="{p["start_url"]}" class="btn-start-task">Nyalakan</a>')
         if p.get("restart_url"):
-            actions.append(f'<a href="{p["restart_url"]}" class="btn-restart-task">Restart</a>')
+            actions.append(f'<a href="{p["restart_url"]}" class="btn-restart-task">Mulai Ulang</a>')
 
         act_html = " ".join(actions) if actions else "-"
         rows.append(
             f'<tr>'
-            f'  <td class="task-name-cell">'
+            f'  <td class="task-name-cell" data-c="layanan">'
             f'    <div><div style="font-weight:600;color:var(--text)">{name}</div>'
             f'    <div style="font-size:0.72rem;color:var(--text-dim)">{kind}</div></div>'
             f'  </td>'
-            f'  <td><span class="badge {badge_cls}">{status_text}</span></td>'
-            f'  <td style="text-align:right;font-family:var(--font-mono);font-size:0.75rem;font-variant-numeric:tabular-nums">{pid}</td>'
-            f'  <td style="text-align:right;font-family:var(--font-mono);font-size:0.75rem;font-weight:600;font-variant-numeric:tabular-nums">{mem}</td>'
-            f'  <td style="text-align:right;white-space:nowrap">{act_html}</td>'
+            f'  <td data-c="status"><span class="td-label">Status</span><span class="badge {badge_cls}">{status_text}</span></td>'
+            f'  <td data-c="pid" style="text-align:right;font-family:var(--font-mono);font-size:0.75rem;font-variant-numeric:tabular-nums"><span class="td-label">PID</span><span class="td-val">{pid}</span></td>'
+            f'  <td data-c="mem" style="text-align:right;font-family:var(--font-mono);font-size:0.75rem;font-weight:600;font-variant-numeric:tabular-nums"><span class="td-label">Memori</span><span class="td-val">{mem}</span></td>'
+            f'  <td data-c="aksi" style="text-align:right;white-space:nowrap">{act_html}</td>'
             f'</tr>'
         )
 
@@ -3519,7 +3570,7 @@ def get_disk_info() -> str:
                 continue
             used_pct = (total - free) / total * 100
             total_gb = total / (1024 ** 3)
-            free_gb = free / (1024 ** 3)
+            used_gb = (total - free) / (1024 ** 3)
             # Label: / = eMMC, /DATA or sdX = by mount point
             if mp == "/":
                 label = "eMMC"
@@ -3529,7 +3580,7 @@ def get_disk_info() -> str:
                 label = mp.split("/")[-1].upper()
             else:
                 label = mp
-            parts.append(f"{label} {used_pct:.0f}% ({free_gb:.1f}/{total_gb:.1f} GB)")
+            parts.append(f"{label} {used_pct:.0f}% ({used_gb:.1f}/{total_gb:.1f} GB)")
         except Exception:
             pass
     return " · ".join(parts) if parts else "?"
@@ -3566,7 +3617,7 @@ def get_disk_pct() -> float:
 
 
 def get_uptime() -> str:
-    """Human-readable uptime from /proc/uptime."""
+    """Human-readable uptime from /proc/uptime (hari/jam/mnt)."""
     try:
         with open("/proc/uptime") as f:
             secs = float(f.read().split()[0])
@@ -3574,8 +3625,8 @@ def get_uptime() -> str:
         hours, rem = divmod(rem, 3600)
         minutes, _ = divmod(rem, 60)
         if days > 0:
-            return f"{days}h {hours}j {minutes}m"
-        return f"{hours}j {minutes}m"
+            return f"{days} hari {hours} jam {minutes} mnt"
+        return f"{hours} jam {minutes} mnt"
     except Exception:
         return "?"
 
@@ -3686,16 +3737,15 @@ def build_fragments() -> dict:
     prov_html = " ".join(prov_badges) or '<span class="value">9router</span>'
 
     cells = {
-        "dash": f'<span class="value" style="font-size:.72rem;color:var(--text-dim)">{router_host} · {router_ms*1000:.0f}ms</span>' if router_up else '<span class="value down" style="font-size:.72rem">Offline</span>',
+        "dash": f'<span class="value" style="font-size:.72rem;color:var(--text-dim)">citra {get_router_image_date()}</span>' if router_up else '<span class="value down" style="font-size:.72rem">Offline</span>',
         "bot": cell("up" if gw_active else "down", "Aktif" if gw_active else "Mati"),
         "gw": f'<span class="value up">{gw_info}</span>' if gw_active else f'<span class="value down">{gw_info}</span>',
         "model": f'<span class="value {"warn" if model_not_listed else ""}" title="{"Model aktif tidak muncul di daftar model" if model_not_listed else ""}">{html.escape(model)}{" ⚠ tidak terdaftar" if model_not_listed else ""}</span>',
         "providers": f'<div style="display:flex;gap:.3rem;flex-wrap:wrap">{prov_html}</div>',
         "router": cell(
             "up" if router_up else "down",
-            (f"Terhubung"
-             + (f" · {router_uptime}" if router_uptime else "")
-             + f" · {router_host} ({router_ms*1000:.0f}ms) · image {get_router_image_date()}"
+            (f"Terhubung · {router_host} ({router_ms*1000:.0f}ms)"
+             + (f" · aktif {router_uptime}" if router_uptime else "")
              if router_up else f"Tidak terhubung ({router_host})"),
         ),
         "ram": f'<span class="value {ram_class}">{ram_text}</span>',
@@ -3710,11 +3760,11 @@ def build_fragments() -> dict:
 
     fetch_btn = (
         f'<a class="toggle restart" style="width:auto;flex:1;min-height:38px;padding:.4rem .8rem;font-size:.76rem" href="/fetch-models?token={TOKEN}">'
-        f'{ICON_REFRESH}Fetch /models</a>'
+        f'{ICON_REFRESH}Ambil Daftar Model</a>'
     )
     reload_btn = (
         f'<a class="toggle restart" style="width:auto;flex:1;min-height:38px;padding:.4rem .8rem;font-size:.76rem" href="/reload-panel-config?token={TOKEN}">'
-        f'{ICON_REFRESH}Refresh Config</a>'
+        f'{ICON_REFRESH}Muat Ulang Konfig</a>'
     )
     action_hdr = (
         f'<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;width:100%">'
@@ -3735,7 +3785,7 @@ def build_fragments() -> dict:
                 display_name = display_name[:-5]
                 is_free = True
 
-            badge_html = '<span class="model-chip-badge">FREE</span>' if is_free else ""
+            badge_html = '<span class="model-chip-badge">GRATIS</span>' if is_free else ""
 
             # Vendor prefix styling
             if "/" in display_name:
@@ -3753,11 +3803,11 @@ def build_fragments() -> dict:
             )
 
             if mm == model:
-                chips.append(f'<span class="model-chip active">{chip_inner}</span>')
+                chips.append(f'<span class="model-chip active" title="{html.escape(mm)}">{chip_inner}</span>')
             else:
                 model_query = quote(mm, safe="")
                 chips.append(
-                    f'<a class="model-chip" href="/switch-model?token={TOKEN}&model={model_query}">{chip_inner}</a>'
+                    f'<a class="model-chip" title="{html.escape(mm)}" href="/switch-model?token={TOKEN}&model={model_query}">{chip_inner}</a>'
                 )
         return (
             f'<div class="model-group" style="margin-bottom:1.15rem">'
@@ -3770,7 +3820,7 @@ def build_fragments() -> dict:
         groups_html = "".join(render_chips_group(gname, mlist) for gname, mlist in all_models.items() if mlist)
         model_chips = action_hdr + groups_html
     else:
-        model_chips = action_hdr + '<span class="model-chip">Model tidak terhubung</span>'
+        model_chips = action_hdr + '<span class="model-chip">Belum ada daftar model — 9router tidak terhubung</span>'
 
     rl_errors = get_rate_limited_providers()
     if rl_errors:
@@ -3793,7 +3843,7 @@ def build_fragments() -> dict:
     update_result = get_router_update_result()
     if updating:
         update_block = '<div class="update-hint">{}</div>'.format(
-            f'{ICON_CLOCK}Menjalankan update 9router di {html.escape(router_host)}…'
+            f'{ICON_CLOCK}Menjalankan pembaruan 9router di {html.escape(router_host)}…'
         )
         log_card = render_log_card(tail_update_log(), update_result)
     else:
@@ -3807,14 +3857,14 @@ def build_fragments() -> dict:
 
         version_label = f"v{installed_version} &rarr; v{latest_version}" if (latest_version and latest_version != "?" and latest_version != installed_version) else f"v{installed_version}"
         cek_btn = (f'<a class="toggle restart" href="/check-update?token={TOKEN}">'
-                   f'{ICON_REFRESH}Cek Update 9router</a>')
+                   f'{ICON_REFRESH}Cek Pembaruan 9router</a>')
         router_notes = get_9router_patch_notes()
         router_patch_notes_html = render_patch_notes_block("9router", router_notes)
         if upd == "available":
             update_block = (
                 f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);'
                 f'color:#141922" href="/update-router?token={TOKEN}">'
-                f'{ICON_ARROW_UP_CIRCLE}Update 9router tersedia ({version_label})</a>'
+                f'{ICON_ARROW_UP_CIRCLE}Pembaruan 9router tersedia ({version_label})</a>'
                 + cek_btn
                 + router_patch_notes_html
             )
@@ -3828,11 +3878,11 @@ def build_fragments() -> dict:
             )
         elif upd == "unknown":
             update_block = (
-                f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek update Docker Hub — '
-                f'<a href="/update-router?token={TOKEN}">paksa update</a></div>' + cek_btn + router_patch_notes_html
+                f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek pembaruan Docker Hub — '
+                f'<a href="/update-router?token={TOKEN}">paksa perbarui</a></div>' + cek_btn + router_patch_notes_html
             )
         else:  # checking — the auto-poll picks up the settled result
-            update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek update 9router…</div>' + router_patch_notes_html
+            update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan 9router…</div>' + router_patch_notes_html
 
     # Hermes update status
     hermes_upd = get_hermes_update()
@@ -3851,28 +3901,28 @@ def build_fragments() -> dict:
             + hermes_patch_notes_html
         )
     elif hermes_status == "available":
-        cells["hermes"] = f'<span class="value warn">{html.escape(hermes_local)} ({hermes_behind} update tersedia)</span>'
+        cells["hermes"] = f'<span class="value warn">{html.escape(hermes_local)} ({hermes_behind} pembaruan tersedia)</span>'
         hermes_update_block = (
             f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);color:#141922" href="/update-hermes?token={TOKEN}">'
-            f'{ICON_ARROW_UP_CIRCLE}Update Hermes ({hermes_behind} commit)</a>'
-            f'<a class="toggle restart" href="/check-hermes-update?token={TOKEN}">{ICON_REFRESH}Cek Update Hermes</a>'
+            f'{ICON_ARROW_UP_CIRCLE}Perbarui Hermes ({hermes_behind} komit)</a>'
+            f'<a class="toggle restart" href="/check-hermes-update?token={TOKEN}">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
             + hermes_patch_notes_html
         )
     elif hermes_status == "current":
         cells["hermes"] = f'<span class="value up">{html.escape(hermes_local)} (terbaru)</span>'
         hermes_update_block = (
             f'<div class="update-hint">{ICON_CHECK}Hermes sudah versi terbaru ({html.escape(hermes_local)})</div>'
-            f'<a class="toggle restart" href="/check-hermes-update?token={TOKEN}">{ICON_REFRESH}Cek Update Hermes</a>'
+            f'<a class="toggle restart" href="/check-hermes-update?token={TOKEN}">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
             + hermes_patch_notes_html
         )
     else:
         cells["hermes"] = f'<span class="value">{html.escape(hermes_local)}</span>'
-        hermes_update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek update Hermes…</div>' + hermes_patch_notes_html
+        hermes_update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan Hermes…</div>' + hermes_patch_notes_html
 
     # Permanently render Hermes log card whenever log file exists or update result exists
     if hermes_log or hermes_result.get("status") != "idle" or os.path.exists("/root/.hermes/logs/update.log"):
         cls = "up" if hermes_result.get("status") == "success" else ("down" if hermes_result.get("status") == "failed" else "warn")
-        summary_text = html.escape(hermes_result.get("summary", "")) if hermes_result.get("summary") else ("Update sedang berjalan…" if hermes_result.get("running") else "Log Terakhir Update Hermes")
+        summary_text = html.escape(hermes_result.get("summary", "")) if hermes_result.get("summary") else ("Pembaruan sedang berjalan…" if hermes_result.get("running") else "Log Terakhir Pembaruan Hermes")
         hermes_update_block += (
             f'<div id="hermes-log-card" style="margin-top:0.8rem">'
             f'<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:0.4rem">'
@@ -3891,7 +3941,7 @@ def build_fragments() -> dict:
            f'target="_blank">{ICON_EXTERNAL_LINK}Buka 9router</a>')
     )
 
-    dash_label = "Matikan Dashboard" if dash_active else "Nyalakan Dashboard"
+    dash_label = "Matikan Dasbor" if dash_active else "Nyalakan Dasbor"
     dash_toggle_class = "btn-off" if dash_active else "btn-on"
     bot_label = "Matikan Bot Telegram" if gw_active else "Nyalakan Bot Telegram"
     bot_toggle_class = "btn-off" if gw_active else "btn-on"
@@ -3899,14 +3949,14 @@ def build_fragments() -> dict:
     dash_bot_btns_block = (
         f'<a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle?token={TOKEN}">{ICON_POWER}{dash_label}</a>'
         f'<a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle?token={TOKEN}">{ICON_POWER}{bot_label}</a>'
-        f'<a class="toggle restart" href="/restart-bot?token={TOKEN}">{ICON_REFRESH}Restart Bot</a>'
+        f'<a class="toggle restart" href="/restart-bot?token={TOKEN}">{ICON_REFRESH}Mulai Ulang Bot</a>'
         f'<a class="toggle restart" href="/clean-junk?token={TOKEN}">{ICON_TRASH}Bersihkan Sampah</a>'
     )
 
     cpu_pct = get_cpu_percent()
     try:
-        load1, load5, _ = os.getloadavg()
-        cell_load = f"{load1:.2f}, {load5:.2f}"
+        load1, load5, load15 = os.getloadavg()
+        cell_load = f"{load1:.2f}, {load5:.2f}, {load15:.2f}"
     except Exception:
         cell_load = "?"
 
@@ -3951,16 +4001,16 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         )
     elif just == "aux":
         countdown_block = (
-            f'<div class="hint">{ICON_CHECK}Model auxiliary berhasil diperbarui! '
+            f'<div class="hint">{ICON_CHECK}Model tugas tambahan berhasil diperbarui! '
             'Konfigurasi langsung tersimpan ke config.yaml.</div>'
         )
     elif just == "aux-reset":
         countdown_block = (
-            f'<div class="hint">{ICON_CHECK}Semua model auxiliary berhasil di-reset ke auto!</div>'
+            f'<div class="hint">{ICON_CHECK}Semua model tugas tambahan dikembalikan ke otomatis!</div>'
         )
     elif just == "fallback":
         countdown_block = (
-            f'<div class="hint">{ICON_CHECK}Model cadangan (fallback) berhasil disimpan ke config.yaml!</div>'
+            f'<div class="hint">{ICON_CHECK}Model cadangan berhasil disimpan ke config.yaml!</div>'
         )
     elif just == "fallback-del":
         countdown_block = (
@@ -3970,7 +4020,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         countdown_block = COUNTDOWN_BLOCK.format(
             seconds=STARTUP_COUNTDOWN_SECONDS,
             token=TOKEN,
-            message="Bot Telegram sedang restart...",
+            message="Bot Telegram sedang mulai ulang...",
         )
     elif just == "bot-off":
         countdown_block = (
@@ -4032,7 +4082,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         open_block=get_open_block_active() if dash_active else OPEN_BLOCK_INACTIVE,
         router_open_block=(f'<a class="open" href="{get_9router_public_url()}" '
                            f'target="_blank">{ICON_EXTERNAL_LINK}Buka 9router</a>'),
-        toggle_label="Matikan Dashboard" if dash_active else "Nyalakan Dashboard",
+        toggle_label="Matikan Dasbor" if dash_active else "Nyalakan Dasbor",
         dash_toggle_class="btn-off" if dash_active else "btn-on",
         bot_toggle_label="Matikan Bot Telegram" if gw_active else "Nyalakan Bot Telegram",
         bot_toggle_class="btn-off" if gw_active else "btn-on",
@@ -4092,7 +4142,7 @@ def _sse_push_loop():
         cells = frag.get("cells", {})
         def _extract_status(cell_html: str) -> str:
             import re as _re
-            for kw in ("NYALA", "MATI", "Aktif", "Mati", "Terhubung", "Tidak terhubung"):
+            for kw in ("Berjalan", "Berhenti", "Aktif", "Mati", "Terhubung", "Tidak terhubung"):
                 if kw in cell_html:
                     return kw
             m = _re.search(r'class="value(?:\s+[^\"]+)?"[^>]*>(.*?)</span>', cell_html)
@@ -4380,10 +4430,12 @@ class Handler(BaseHTTPRequestHandler):
                         subprocess.run(["docker", "compose", "-f", f"{ROUTER_COMPOSE_DIR}/docker-compose.yml", "up", "-d"])
                     elif action == "restart":
                         subprocess.run(["docker", "restart", "9router"])
-                elif service == "cloudflared" and action == "restart":
-                    subprocess.run(["docker", "restart", "cloudflared"])
-                elif service in ("pihole", "pihole-pihole-1") and action == "restart":
-                    subprocess.run(["docker", "restart", "pihole-pihole-1"])
+                elif service == "cloudflared" and action in ("start", "stop", "restart"):
+                    subprocess.run(["docker", action, "cloudflared"])
+                elif service in ("pihole", "pihole-pihole-1") and action in ("start", "stop", "restart"):
+                    subprocess.run(["docker", action, "pihole-pihole-1"])
+                elif service == "hermes-dashboard" and action == "restart":
+                    subprocess.run(["systemctl", "restart", "hermes-dashboard"])
                 elif service == "hermes-panel" and action == "restart":
                     def _delayed_restart():
                         time.sleep(0.5)

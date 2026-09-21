@@ -10,7 +10,7 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
 
 ## 📸 Tampilan Antarmuka
 
-| Windows Task Manager — Proses Sistem | Real-time Performance Sparkline |
+| Manajer Proses — Layanan Sistem | Real-time Performance Sparkline |
 |:---:|:---:|
 | ![Daftar Proses](assets/screenshots/panel-desktop-status.png) | ![Performa Realtime](assets/screenshots/panel-desktop-performance.png) |
 
@@ -23,7 +23,7 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
 ## 🚀 Fitur Utama
 
 - ⚡ **Zero-Dependency & Hemat Resource**: Berjalan di atas Python standard library murni (`http.server`, `threading`, `json`, `urllib`). Tanpa runtime Node.js/frontend bundler, memori stabil di kisaran ~18–22MB RAM.
-- 📊 **Tampilan Windows Task Manager**:
+- 📊 **Tampilan Manajer Proses**:
   - **Tab Proses**: Monitoring daftar proses sistem & container (`hermes-gateway`, `9router`, `cloudflared`, `hermes-dashboard`, dll.) dengan status, PID, memori, dan aksi End Task / Restart / Start langsung dari web.
   - **Tab Performa**: Grafik riwayat pemakaian CPU dan Memori (DDR4 + ZRAM) real-time menggunakan SVG sparkline tanpa dependensi chart JS eksternal.
   - **Tab Layanan**: Kontrol bot Telegram, toggle web dashboard resmi, pembersih sampah, quick links, dan pengaturan model backup.
@@ -37,7 +37,7 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
   - Update container 9router dengan proteksi OOM (otomatis menghentikan container sebelum `docker pull`).
   - Update native Hermes Agent resmi (`hermes update --yes`).
 - 🧹 **Pembersih Sampah & Cache**: Truncate log update lama, bersihkan cache `uv`/`pip`, dan bersihkan cache layer docker dangling untuk melegakan penyimpanan eMMC.
-- 💻 **Desain Responsif Desktop & Mobile**: Estetika modern Apple Control Center & Windows Task Manager, optimal pada perangkat mobile, tablet, hingga layar desktop lebar (1080p/1440p).
+- 💻 **Desain Responsif Desktop & Mobile**: Estetika modern Apple Control Center, optimal pada perangkat mobile, tablet, hingga layar desktop lebar (1080p/1440p).
 
 ---
 
