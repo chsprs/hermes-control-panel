@@ -32,7 +32,10 @@ SERVICE_FILE="/etc/systemd/system/hermes-panel.service"
 REPO_URL="https://github.com/chsprs/hermes-control-panel.git"
 RAW_BASE_URL="https://raw.githubusercontent.com/chsprs/hermes-control-panel/main"
 
-PANEL_TOKEN="${PANEL_TOKEN:-vita-stb-2026}"
+# Generate random secure token if not supplied via environment
+if [ -z "${PANEL_TOKEN:-}" ]; then
+    PANEL_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+fi
 PANEL_PORT="${PANEL_PORT:-9120}"
 
 echo -e "${GREEN}* Memeriksa dan memasang dependensi sistem...${NC}"

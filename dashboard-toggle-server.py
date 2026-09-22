@@ -34,6 +34,7 @@ same HTML fragments the initial page uses, so the client never re-implements it.
 """
 
 import glob
+import hmac
 import html
 import json
 import os
@@ -51,10 +52,11 @@ import time
 import urllib.request
 import yaml
 from datetime import datetime, timedelta, timezone
+from http import cookies as http_cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, quote
 
-TOKEN = os.environ.get("PANEL_TOKEN", "vita-stb-2026")
+TOKEN = os.environ.get("PANEL_TOKEN", "").strip()
 PORT = int(os.environ.get("PANEL_PORT", 9120))
 SERVICE = os.environ.get("HERMES_DASHBOARD_SERVICE", "hermes-dashboard")
 DEBOUNCE_SECONDS = 3.0
@@ -69,6 +71,19 @@ MODELS_TIMEOUT = 6.0  # /v1/models is heavier than the plain reachability
 ROUTER_HOST_OVERRIDE = os.environ.get("ROUTER_HOST", "").strip()
 HERMES_DASHBOARD_URL = os.environ.get("HERMES_DASHBOARD_URL", "").strip()
 CONFIG_PATH = os.environ.get("HERMES_CONFIG_PATH", "/root/.hermes/config.yaml")
+SESSION_COOKIE_NAME = "hermes_panel_session"
+# CasaOS one-click shortcuts may only mutate state via explicit GET when the
+# URL itself carries a valid token; every other mutation requires POST.
+MUTATING_PATHS = frozenset({
+    "/toggle", "/on", "/off", "/restart-bot", "/bot-toggle",
+    "/switch-model", "/update-router", "/check-update",
+    "/check-hermes-update", "/update-hermes",
+    "/clean-junk", "/fetch-models", "/reload-panel-config",
+    "/set-aux-model", "/reset-aux",
+    "/set-fallback-model", "/remove-fallback-model",
+    "/process-action",
+})
+LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off"})
 ROUTER_URL = "http://{host}:20128/"
 INFO_TIMEOUT = 2.0  # seconds — every live check below is capped at this
 ROUTER_DB_PATH = "/DATA/AppData/9router/db/data.sqlite"  # host-side path of
@@ -783,10 +798,10 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   <div class="card card-control">
     <div class="card-title">Dasbor & Bot</div>
     <div class="btn-row" id="dash-bot-btns-slot">
-      <a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle?token={token}">{icon_power}{toggle_label}</a>
-      <a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle?token={token}">{icon_power}{bot_toggle_label}</a>
-      <a class="toggle restart" href="/restart-bot?token={token}">{icon_refresh}Mulai Ulang Bot</a>
-      <a class="toggle restart" href="/clean-junk?token={token}">{icon_trash}Bersihkan Sampah</a>
+      <a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle">{icon_power}{toggle_label}</a>
+      <a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle">{icon_power}{bot_toggle_label}</a>
+      <a class="toggle restart" href="/restart-bot">{icon_refresh}Mulai Ulang Bot</a>
+      <a class="toggle restart" href="/clean-junk">{icon_trash}Bersihkan Sampah</a>
     </div>
     <div id="clean-log-slot">{clean_junk_card}</div>
     <div id="clean-log-show" style="display:none;margin-top:.6rem">
@@ -827,7 +842,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   <div class="card card-status" style="padding:1.25rem">
     <div class="aux-header">
       <div class="card-title" style="margin-bottom:0">{icon_cpu} Tugas Tambahan</div>
-      <a class="toggle restart" style="width:auto;min-height:34px;padding:0.35rem 0.8rem;font-size:0.75rem;margin:0" href="/reset-aux?token={token}">
+      <a class="toggle restart" style="width:auto;min-height:34px;padding:0.35rem 0.8rem;font-size:0.75rem;margin:0" href="/reset-aux">
         {icon_refresh}Kembalikan ke Otomatis
       </a>
     </div>
@@ -844,7 +859,6 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 {nav_script}
 {script}
 <script>
-var TOKEN = "{token}";
 var AVAILABLE_MODELS = {available_models_json};
 var currentAuxTask = '';
 var currentFallbackIndex = null;
@@ -862,7 +876,7 @@ function ensureAvailableModels(callback){{
   }}
   var container = document.getElementById('aux-picker-list');
   if(container) container.innerHTML = '<div style="padding:1.5rem;color:var(--text-dim);font-size:0.82rem;text-align:center">Memuat daftar model 9router…</div>';
-  fetch('/api/models?token=' + encodeURIComponent(TOKEN), {{headers: {{'Accept': 'application/json'}}}})
+  fetch('/api/models', {{headers: {{'Accept': 'application/json'}}}})
     .then(function(r){{ return r.json(); }})
     .then(function(data){{
       if(typeof data === 'object' && data !== null){{
@@ -957,10 +971,18 @@ function selectFallbackModel(provider, model){{
   var spin = document.getElementById('spin');
   if(spin) spin.classList.add('on');
 
-  var url = '/set-fallback-model?token=' + encodeURIComponent(TOKEN) + '&index=' + encodeURIComponent(idx) +
-            '&provider=' + encodeURIComponent(provider) + '&model=' + encodeURIComponent(model) + '&ajax=1';
+  var body = new URLSearchParams({{
+    index: idx,
+    provider: provider,
+    model: model,
+    ajax: '1'
+  }});
 
-  fetch(url, {{headers: {{'Accept': 'application/json'}}}})
+  fetch('/set-fallback-model', {{
+    method: 'POST',
+    headers: {{'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'}},
+    body: body.toString()
+  }})
     .then(function(r){{ return r.json(); }})
     .then(function(res){{
       if(pbar){{ pbar.style.width = '100%'; setTimeout(function(){{ pbar.style.width = '0'; }}, 300); }}
@@ -1035,10 +1057,18 @@ function selectAuxModel(provider, model){{
   var spin = document.getElementById('spin');
   if(spin) spin.classList.add('on');
 
-  var url = '/set-aux-model?token=' + encodeURIComponent(TOKEN) + '&task=' + encodeURIComponent(task) +
-            '&provider=' + encodeURIComponent(provider) + '&model=' + encodeURIComponent(model) + '&ajax=1';
+  var body = new URLSearchParams({{
+    task: task,
+    provider: provider,
+    model: model,
+    ajax: '1'
+  }});
 
-  fetch(url, {{headers: {{'Accept': 'application/json'}}}})
+  fetch('/set-aux-model', {{
+    method: 'POST',
+    headers: {{'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'}},
+    body: body.toString()
+  }})
     .then(function(r){{ return r.json(); }})
     .then(function(res){{
       if(pbar){{ pbar.style.width = '100%'; setTimeout(function(){{ pbar.style.width = '0'; }}, 300); }}
@@ -1200,7 +1230,39 @@ def get_open_block_active():
 
 OPEN_BLOCK_INACTIVE = '<div class="update-hint warn" style="margin:0">Dasbor Hermes mati — nyalakan dulu untuk membukanya</div>'
 
-def get_gateway_info() -> str:
+_status_probe_cache = {}
+_status_probe_cache_lock = threading.Lock()
+
+
+def _ttl_cached(key: str, ttl: float, loader):
+    """Return a short-lived cached probe result without holding the lock during I/O."""
+    now = time.monotonic()
+
+    with _status_probe_cache_lock:
+        entry = _status_probe_cache.get(key)
+        if entry and now - entry["at"] < ttl:
+            return entry["value"]
+
+    value = loader()
+
+    with _status_probe_cache_lock:
+        _status_probe_cache[key] = {
+            "at": time.monotonic(),
+            "value": value,
+        }
+
+    return value
+
+
+def _invalidate_status_cache(*keys: str) -> None:
+    with _status_probe_cache_lock:
+        if keys:
+            for key in keys:
+                _status_probe_cache.pop(key, None)
+        else:
+            _status_probe_cache.clear()
+
+def _probe_gateway_info() -> str:
     """Gateway service status: state, RSS memory, uptime."""
     try:
         r = subprocess.run(
@@ -1252,6 +1314,10 @@ def get_gateway_info() -> str:
         return f"PID {pid} · {mem_mb:.0f}MB{uptime_part}"
     except Exception:
         return "?"
+
+
+def get_gateway_info() -> str:
+    return _ttl_cached("gateway_info", 2.0, _probe_gateway_info)
 
 
 def get_9router_host() -> str:
@@ -1370,7 +1436,7 @@ const t = setInterval(() => {{
   el.textContent = n;
   if (n <= 0) {{
     clearInterval(t);
-    window.location.href = '/status?token={token}';
+    window.location.href = '/status';
   }}
 }}, 1000);
 </script>"""
@@ -1380,8 +1446,7 @@ const t = setInterval(() => {{
 # connection. Falls back to polling if SSE is unavailable.
 SSE_SCRIPT = """<script>
 (function(){
-  var TOKEN="__TOKEN__";
-  var pbar=document.getElementById('pbar'), spin=document.getElementById('spin');
+    var pbar=document.getElementById('pbar'), spin=document.getElementById('spin');
   var es=null, retryTimer=null;
   var cpuHistory = [10, 15, 12, 18, 22, 19, 14, 16, 20, 25, 22, 18, 15, 12, 10, 14, 18, 22, 19, 15, 20, 25, 18, 14, 12, 16, 18, 20, 15, 16];
   var ramHistory = [30, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 30, 31, 31, 31, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 30];
@@ -1495,7 +1560,7 @@ SSE_SCRIPT = """<script>
   function connect(){
     if(retryTimer){ clearTimeout(retryTimer); retryTimer=null; }
     if(es) try{ es.close(); }catch(x){}
-    es=new EventSource('/events?token='+encodeURIComponent(TOKEN));
+    es=new EventSource('/events');
     es.onopen=function(){
       if(spin) spin.classList.remove('on');
       var live=document.querySelector('.live-badge');
@@ -1537,6 +1602,16 @@ SSE_SCRIPT = """<script>
 # placeholders to fill, so this is inserted as a literal — no render_*()
 # wrapper needed.
 NAV_SCRIPT = """<script>
+var MUTATING_PREFIXES = [
+  '/toggle', '/on', '/off', '/restart-bot', '/bot-toggle',
+  '/update-router', '/check-update',
+  '/check-hermes-update', '/update-hermes',
+  '/clean-junk',
+  '/fetch-models', '/reload-panel-config',
+  '/set-aux-model', '/reset-aux',
+  '/set-fallback-model', '/remove-fallback-model',
+  '/process-action', '/switch-model'
+];
 var CONFIRM_ROUTES = [
   {match:'/update-hermes', title:'Perbarui Hermes Agent', msg:'Perbarui Hermes via git pull + install dependency + mulai ulang gateway. Bot tidak bisa dibalas selama proses (beberapa menit). Lanjutkan?'},
   {match:'/update-router', title:'Perbarui 9router', msg:'Perbarui 9router via docker compose pull + up -d. Kontainer 9router akan mulai ulang. Lanjutkan?'},
@@ -1552,8 +1627,36 @@ var CONFIRM_ROUTES = [
   {match:'/process-action?service=hermes-panel&action=restart', title:'Mulai Ulang Panel', msg:'Mulai ulang layanan hermes-panel? Panel tersambung lagi dalam beberapa detik.'},
   {match:'/process-action?action=restart', title:'Mulai Ulang Tugas', msg:'Mulai ulang layanan yang dipilih sekarang?'},
 ];
+
+function isMutatingPath(url) {
+  var path = (url || '').split('?')[0];
+  for (var i = 0; i < MUTATING_PREFIXES.length; i++) {
+    if (path === MUTATING_PREFIXES[i]) return true;
+  }
+  return false;
+}
+
+function postNavigate(url) {
+  var form = document.createElement('form');
+  form.method = 'POST';
+  var parts = url.split('?');
+  form.action = parts[0];
+  if (parts[1]) {
+    var params = new URLSearchParams(parts[1]);
+    params.forEach(function(v, k) {
+      var inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = k;
+      inp.value = v;
+      form.appendChild(inp);
+    });
+  }
+  document.body.appendChild(form);
+  form.submit();
+}
+
 document.addEventListener('click', function(e){
-  var a = e.target.closest('a.toggle, a.open, a.model-chip, a.btn-end-task, a.btn-restart-task, a.btn-start-task');
+  var a = e.target.closest('a.toggle, a.open, a.model-chip, a.btn-end-task, a.btn-restart-task, a.btn-start-task, a.btn-action-danger');
   if(!a || !a.getAttribute('href') || a.target === '_blank'
      || a.classList.contains('is-loading')) return;
   var href = a.getAttribute('href');
@@ -1564,12 +1667,23 @@ document.addEventListener('click', function(e){
       return;
     }
   }
+  if(isMutatingPath(href)){
+    e.preventDefault();
+    a.classList.add('is-loading');
+    var nl = document.getElementById('nav-label');
+    if(nl) nl.textContent = a.textContent.trim();
+    var ov = document.getElementById('navloader');
+    if(ov) ov.classList.add('show');
+    postNavigate(href);
+    return;
+  }
   a.classList.add('is-loading');
   var nl = document.getElementById('nav-label');
   if(nl) nl.textContent = a.textContent.trim();
   var ov = document.getElementById('navloader');
   if(ov) ov.classList.add('show');
 }, true);
+
 function confirmAction(route, href){
   var modal=document.getElementById('confirm-modal');
   document.getElementById('confirm-title').textContent = route.title;
@@ -1577,14 +1691,16 @@ function confirmAction(route, href){
   modal.classList.add('show');
   document.getElementById('confirm-cancel').onclick=function(){ modal.classList.remove('show'); };
   document.getElementById('confirm-ok').onclick=function(){
-    // Navigate FIRST — a blocked sessionStorage (private mode / strict
-    // browsers) must never be able to swallow the actual update action.
-    window.location.href = href;
     try{
       safeStore('removeItem','logDismissed');
       safeStore('removeItem','hermesLogDismissed');
       safeStore('removeItem','cleanLogDismissed');
     }catch(x){}
+    if(isMutatingPath(href)){
+      postNavigate(href);
+    } else {
+      window.location.href = href;
+    }
   };
 }
 function safeStore(fn, key, val){
@@ -1595,7 +1711,7 @@ function safeStore(fn, key, val){
 
 
 def render_poll_script() -> str:
-    return SSE_SCRIPT.replace("__TOKEN__", TOKEN)
+    return SSE_SCRIPT
 
 
 def render_log_card(log_text: str, result: dict | None = None) -> str:
@@ -2448,7 +2564,7 @@ def render_backup_models_block() -> str:
             f'    <button type="button" class="btn-action-sm" onclick="openFallbackPicker({idx}, \'{safe_model}\')">'
             f'      Ganti'
             f'    </button>'
-            f'    <a class="btn-action-sm btn-action-danger" href="/remove-fallback-model?token={TOKEN}&index={idx}">'
+            f'    <a class="btn-action-sm btn-action-danger" href="/remove-fallback-model?index={idx}">'
             f'      Hapus'
             f'    </a>'
             f'  </div>'
@@ -3374,9 +3490,9 @@ def get_process_list() -> list[dict]:
             "is_active": (st == "active"),
             "pid": pid if pid != "0" else "-",
             "mem_mb": mem,
-            "stop_url": f"/bot-toggle?token={TOKEN}",
-            "start_url": f"/bot-toggle?token={TOKEN}",
-            "restart_url": f"/restart-bot?token={TOKEN}",
+            "stop_url": "/bot-toggle",
+            "start_url": "/bot-toggle",
+            "restart_url": "/restart-bot",
         })
     except Exception:
         pass
@@ -3393,9 +3509,9 @@ def get_process_list() -> list[dict]:
             "is_active": is_run,
             "pid": dpid if is_run else "-",
             "mem_mb": dmem,
-            "stop_url": f"/process-action?service=9router&action=stop&token={TOKEN}",
-            "start_url": f"/process-action?service=9router&action=start&token={TOKEN}",
-            "restart_url": f"/process-action?service=9router&action=restart&token={TOKEN}",
+            "stop_url": "/process-action?service=9router&action=stop",
+            "start_url": "/process-action?service=9router&action=start",
+            "restart_url": "/process-action?service=9router&action=restart",
         })
     except Exception:
         pass
@@ -3420,7 +3536,7 @@ def get_process_list() -> list[dict]:
             "is_active": True,
             "pid": str(cur_pid),
             "mem_mb": panel_mem,
-            "restart_url": f"/process-action?service=hermes-panel&action=restart&token={TOKEN}",
+            "restart_url": "/process-action?service=hermes-panel&action=restart",
         })
     except Exception:
         pass
@@ -3456,9 +3572,9 @@ def get_process_list() -> list[dict]:
             "is_active": dash_active,
             "pid": dash_pid,
             "mem_mb": dash_mem,
-            "stop_url": f"/toggle?token={TOKEN}",
-            "start_url": f"/on?token={TOKEN}",
-            "restart_url": f"/process-action?service=hermes-dashboard&action=restart&token={TOKEN}",
+            "stop_url": "/toggle",
+            "start_url": "/on",
+            "restart_url": "/process-action?service=hermes-dashboard&action=restart",
         })
     except Exception:
         pass
@@ -3475,9 +3591,9 @@ def get_process_list() -> list[dict]:
             "is_active": is_run,
             "pid": dpid if is_run else "-",
             "mem_mb": dmem,
-            "stop_url": f"/process-action?service=cloudflared&action=stop&token={TOKEN}",
-            "start_url": f"/process-action?service=cloudflared&action=start&token={TOKEN}",
-            "restart_url": f"/process-action?service=cloudflared&action=restart&token={TOKEN}",
+            "stop_url": "/process-action?service=cloudflared&action=stop",
+            "start_url": "/process-action?service=cloudflared&action=start",
+            "restart_url": "/process-action?service=cloudflared&action=restart",
         })
     except Exception:
         pass
@@ -3494,9 +3610,9 @@ def get_process_list() -> list[dict]:
             "is_active": is_run,
             "pid": dpid if is_run else "-",
             "mem_mb": dmem,
-            "stop_url": f"/process-action?service=pihole-pihole-1&action=stop&token={TOKEN}",
-            "start_url": f"/process-action?service=pihole-pihole-1&action=start&token={TOKEN}",
-            "restart_url": f"/process-action?service=pihole-pihole-1&action=restart&token={TOKEN}",
+            "stop_url": "/process-action?service=pihole-pihole-1&action=stop",
+            "start_url": "/process-action?service=pihole-pihole-1&action=start",
+            "restart_url": "/process-action?service=pihole-pihole-1&action=restart",
         })
     except Exception:
         pass
@@ -3504,7 +3620,7 @@ def get_process_list() -> list[dict]:
     return procs
 
 
-def render_processes_table() -> str:
+def _render_processes_table_uncached() -> str:
     """Render process table for running services & containers."""
     procs = get_process_list()
     rows = []
@@ -3558,7 +3674,15 @@ def render_processes_table() -> str:
     )
 
 
-def get_emmc_health() -> tuple[str, str]:
+def render_processes_table() -> str:
+    return _ttl_cached(
+        "processes_table",
+        5.0,
+        _render_processes_table_uncached,
+    )
+
+
+def _probe_emmc_health() -> tuple[str, str]:
     """Check eMMC wear data from any mmcblk device that exposes eMMC sysfs fields."""
     readings = []
 
@@ -3594,6 +3718,14 @@ def get_emmc_health() -> tuple[str, str]:
     return cls, f"{wear}% aus ({status})"
 
 
+def get_emmc_health() -> tuple[str, str]:
+    return _ttl_cached(
+        "emmc_health",
+        60.0,
+        _probe_emmc_health,
+    )
+
+
 def get_zram_info() -> str:
     """Read zram compression status."""
     try:
@@ -3618,17 +3750,20 @@ def get_cpu_temp() -> tuple[float, str]:
         return 0.0, "?"
 
 
-def get_disk_info() -> str:
-    """Auto-detect all real partitions and show usage for each."""
-    # Skip virtual/pseudo filesystems and overlay docker mounts
+def _probe_disk_stats() -> tuple[str, float]:
+    """Scan real mounts once and return (display_text, highest_used_percent)."""
     skip_prefixes = ("/var/lib/docker", "/boot")
     skip_fstypes = {"tmpfs", "devtmpfs", "squashfs", "sysfs", "proc", "devpts"}
     parts = []
+    worst = 0.0
+    mounts = []
     try:
         with open("/proc/mounts") as f:
-            mounts = []
             for line in f:
-                dev, mp, fstype = line.split()[:3]
+                parts_line = line.split()
+                if len(parts_line) < 3:
+                    continue
+                dev, mp, fstype = parts_line[:3]
                 if fstype in skip_fstypes:
                     continue
                 if any(mp.startswith(p) for p in skip_prefixes):
@@ -3639,9 +3774,9 @@ def get_disk_info() -> str:
                     continue  # duplicate mount point
                 mounts.append((dev, mp, fstype))
     except Exception:
-        return "?"
+        return "?", 0.0
 
-    # Assign labels: root = eMMC (mmcblk), others by device type
+    # Assign labels: root = ROOT, others by device type
     for dev, mp, _ in mounts:
         try:
             st = os.statvfs(mp)
@@ -3650,9 +3785,9 @@ def get_disk_info() -> str:
             if total == 0:
                 continue
             used_pct = (total - free) / total * 100
+            worst = max(worst, used_pct)
             total_gb = total / (1024 ** 3)
             used_gb = (total - free) / (1024 ** 3)
-            # Label: / = ROOT (device-agnostic), /DATA or sdX = by mount point
             if mp == "/":
                 label = "ROOT"
             elif mp == "/DATA":
@@ -3664,37 +3799,20 @@ def get_disk_info() -> str:
             parts.append(f"{label} {used_pct:.0f}% ({used_gb:.1f}/{total_gb:.1f} GB)")
         except Exception:
             pass
-    return " · ".join(parts) if parts else "?"
+    display_text = " · ".join(parts) if parts else "?"
+    return display_text, worst
+
+
+def _get_disk_stats() -> tuple[str, float]:
+    return _ttl_cached("disk_stats", 10.0, _probe_disk_stats)
+
+
+def get_disk_info() -> str:
+    return _get_disk_stats()[0]
 
 
 def get_disk_pct() -> float:
-    """Highest disk usage % across all real mounts (for color coding)."""
-    skip_prefixes = ("/var/lib/docker", "/boot")
-    skip_fstypes = {"tmpfs", "devtmpfs", "squashfs", "sysfs", "proc", "devpts"}
-    worst = 0.0
-    try:
-        with open("/proc/mounts") as f:
-            seen = set()
-            for line in f:
-                _, mp, fstype = line.split()[:3]
-                if fstype in skip_fstypes or mp in seen:
-                    continue
-                if any(mp.startswith(p) for p in skip_prefixes):
-                    continue
-                if "/rootfs/" in mp:
-                    continue
-                seen.add(mp)
-                try:
-                    st = os.statvfs(mp)
-                    total = st.f_blocks * st.f_frsize
-                    free = st.f_bavail * st.f_frsize
-                    if total:
-                        worst = max(worst, (total - free) / total * 100)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    return worst
+    return _get_disk_stats()[1]
 
 
 def get_uptime() -> str:
@@ -3712,7 +3830,7 @@ def get_uptime() -> str:
         return "?"
 
 
-def get_server_ips() -> tuple[str, str]:
+def _probe_server_ips() -> tuple[str, str]:
     """Return (tailscale_ipv4, lan_ipv4). Empty string if not available."""
     ts_ip, lan_ip = "", ""
     try:
@@ -3735,6 +3853,14 @@ def get_server_ips() -> tuple[str, str]:
     except Exception:
         pass
     return ts_ip, lan_ip
+
+
+def get_server_ips() -> tuple[str, str]:
+    return _ttl_cached(
+        "server_ips",
+        30.0,
+        _probe_server_ips,
+    )
 
 
 _internet_status_cache = {"at": 0.0, "online": False, "ms": 0.0, "target": "1.1.1.1"}
@@ -3888,11 +4014,11 @@ def build_fragments() -> dict:
     }
 
     fetch_btn = (
-        f'<a class="toggle restart" style="width:auto;flex:1;min-height:38px;padding:.4rem .8rem;font-size:.76rem" href="/fetch-models?token={TOKEN}">'
+        f'<a class="toggle restart" style="width:auto;flex:1;min-height:38px;padding:.4rem .8rem;font-size:.76rem" href="/fetch-models">'
         f'{ICON_REFRESH}Ambil Daftar Model</a>'
     )
     reload_btn = (
-        f'<a class="toggle restart" style="width:auto;flex:1;min-height:38px;padding:.4rem .8rem;font-size:.76rem" href="/reload-panel-config?token={TOKEN}">'
+        f'<a class="toggle restart" style="width:auto;flex:1;min-height:38px;padding:.4rem .8rem;font-size:.76rem" href="/reload-panel-config">'
         f'{ICON_REFRESH}Muat Ulang Konfig</a>'
     )
     action_hdr = (
@@ -3936,7 +4062,7 @@ def build_fragments() -> dict:
             else:
                 model_query = quote(mm, safe="")
                 chips.append(
-                    f'<a class="model-chip" title="{html.escape(mm)}" href="/switch-model?token={TOKEN}&model={model_query}">{chip_inner}</a>'
+                    f'<a class="model-chip" title="{html.escape(mm)}" href="/switch-model?model={model_query}">{chip_inner}</a>'
                 )
         return (
             f'<div class="model-group" style="margin-bottom:1.15rem">'
@@ -3985,14 +4111,14 @@ def build_fragments() -> dict:
         npm_latest = cached_info.get("npm_latest", "")
 
         version_label = f"v{installed_version} &rarr; v{latest_version}" if (latest_version and latest_version != "?" and latest_version != installed_version) else f"v{installed_version}"
-        cek_btn = (f'<a class="toggle restart" href="/check-update?token={TOKEN}">'
+        cek_btn = (f'<a class="toggle restart" href="/check-update">'
                    f'{ICON_REFRESH}Cek Pembaruan 9router</a>')
         router_notes = get_9router_patch_notes()
         router_patch_notes_html = render_patch_notes_block("9router", router_notes)
         if upd == "available":
             update_block = (
                 f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);'
-                f'color:#141922" href="/update-router?token={TOKEN}">'
+                f'color:#141922" href="/update-router">'
                 f'{ICON_ARROW_UP_CIRCLE}Pembaruan 9router tersedia ({version_label})</a>'
                 + cek_btn
                 + router_patch_notes_html
@@ -4008,7 +4134,7 @@ def build_fragments() -> dict:
         elif upd == "unknown":
             update_block = (
                 f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek pembaruan Docker Hub — '
-                f'<a href="/update-router?token={TOKEN}">paksa perbarui</a></div>' + cek_btn + router_patch_notes_html
+                f'<a href="/update-router">paksa perbarui</a></div>' + cek_btn + router_patch_notes_html
             )
         else:  # checking — the auto-poll picks up the settled result
             update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan 9router…</div>' + router_patch_notes_html
@@ -4032,16 +4158,16 @@ def build_fragments() -> dict:
     elif hermes_status == "available":
         cells["hermes"] = f'<span class="value warn">{html.escape(hermes_local)} ({hermes_behind} pembaruan tersedia)</span>'
         hermes_update_block = (
-            f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);color:#141922" href="/update-hermes?token={TOKEN}">'
+            f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);color:#141922" href="/update-hermes">'
             f'{ICON_ARROW_UP_CIRCLE}Perbarui Hermes ({hermes_behind} komit)</a>'
-            f'<a class="toggle restart" href="/check-hermes-update?token={TOKEN}">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
+            f'<a class="toggle restart" href="/check-hermes-update">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
             + hermes_patch_notes_html
         )
     elif hermes_status == "current":
         cells["hermes"] = f'<span class="value up">{html.escape(hermes_local)} (terbaru)</span>'
         hermes_update_block = (
             f'<div class="update-hint">{ICON_CHECK}Hermes sudah versi terbaru ({html.escape(hermes_local)})</div>'
-            f'<a class="toggle restart" href="/check-hermes-update?token={TOKEN}">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
+            f'<a class="toggle restart" href="/check-hermes-update">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
             + hermes_patch_notes_html
         )
     else:
@@ -4076,10 +4202,10 @@ def build_fragments() -> dict:
     bot_toggle_class = "btn-off" if gw_active else "btn-on"
 
     dash_bot_btns_block = (
-        f'<a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle?token={TOKEN}">{ICON_POWER}{dash_label}</a>'
-        f'<a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle?token={TOKEN}">{ICON_POWER}{bot_label}</a>'
-        f'<a class="toggle restart" href="/restart-bot?token={TOKEN}">{ICON_REFRESH}Mulai Ulang Bot</a>'
-        f'<a class="toggle restart" href="/clean-junk?token={TOKEN}">{ICON_TRASH}Bersihkan Sampah</a>'
+        f'<a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle">{ICON_POWER}{dash_label}</a>'
+        f'<a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle">{ICON_POWER}{bot_label}</a>'
+        f'<a class="toggle restart" href="/restart-bot">{ICON_REFRESH}Mulai Ulang Bot</a>'
+        f'<a class="toggle restart" href="/clean-junk">{ICON_TRASH}Bersihkan Sampah</a>'
     )
 
     cpu_pct = get_cpu_percent()
@@ -4119,7 +4245,6 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
     if just == "start":
         countdown_block = COUNTDOWN_BLOCK.format(
             seconds=STARTUP_COUNTDOWN_SECONDS,
-            token=TOKEN,
             message="Server sedang menyala, halaman ini refresh otomatis...",
         )
     elif just == "model":
@@ -4148,7 +4273,6 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
     elif just == "restart":
         countdown_block = COUNTDOWN_BLOCK.format(
             seconds=STARTUP_COUNTDOWN_SECONDS,
-            token=TOKEN,
             message="Bot Telegram sedang mulai ulang...",
         )
     elif just == "bot-off":
@@ -4167,7 +4291,6 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
     elif just == "hermes-updating":
         countdown_block = COUNTDOWN_BLOCK.format(
             seconds=60,
-            token=TOKEN,
             message="Hermes sedang update dan restart...",
         )
     else:
@@ -4216,7 +4339,6 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         dash_toggle_class="btn-off" if dash_active else "btn-on",
         bot_toggle_label="Matikan Bot Telegram" if gw_active else "Nyalakan Bot Telegram",
         bot_toggle_class="btn-off" if gw_active else "btn-on",
-        token=TOKEN,
         nav_script=NAV_SCRIPT,
         script=render_poll_script(),
         icon_monitor=ICON_MONITOR,
@@ -4342,6 +4464,36 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # keep it quiet — no noisy access log filling up disk
 
+    @staticmethod
+    def _token_matches(candidate: str) -> bool:
+        return (
+            bool(TOKEN)
+            and bool(candidate)
+            and hmac.compare_digest(candidate, TOKEN)
+        )
+
+    def _has_valid_session(self) -> bool:
+        try:
+            cookie = http_cookies.SimpleCookie()
+            cookie.load(self.headers.get("Cookie", ""))
+            morsel = cookie.get(SESSION_COOKIE_NAME)
+            return bool(morsel) and self._token_matches(morsel.value)
+        except Exception:
+            return False
+
+    def _set_session_cookie(self) -> None:
+        self.send_header(
+            "Set-Cookie",
+            f"{SESSION_COOKIE_NAME}={TOKEN}; Path=/; HttpOnly; SameSite=Strict",
+        )
+
+    def _send_method_not_allowed(self):
+        self._send_html(
+            "<h1>405 Method Not Allowed</h1>"
+            "<p>Aksi perubahan hanya lewat POST (atau GET shortcut dengan token eksplisit).</p>",
+            405,
+        )
+
     def _send_html(self, body: str, code: int = 200):
         data = body.encode("utf-8")
         self.send_response(code)
@@ -4363,26 +4515,83 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _redirect_to_status(self, just: str = "", tab: str = ""):
-        location = f"/status?token={TOKEN}"
+        _invalidate_status_cache(
+            "processes_table",
+            "gateway_info",
+        )
+        # Clean URL: session cookie authenticates, no token in the Location.
+        location = "/status"
         if just:
-            location += f"&just={just}"
+            location += f"?just={quote(just)}"
         if tab:
-            location += f"&tab={tab}"
+            location += f"{'&' if just else '?'}tab={quote(tab)}"
         self.send_response(302)
         self.send_header("Location", location)
         self.end_headers()
+
+    def _authenticate(self, qs: dict) -> tuple[bool, bool]:
+        """Return (authorized, bootstrap_needed).
+
+        Bootstrap: valid ?token= in the URL sets the session cookie and
+        redirects to the same page without the token (only for GET page
+        routes). All other requests must present a valid cookie.
+        """
+        query_token = (qs.get("token") or [""])[0]
+        if self._has_valid_session():
+            return True, False
+        if self._token_matches(query_token):
+            return True, self.command == "GET"
+        return False, False
+
+    def do_POST(self):
+        """Mutations arrive here (UI fetch POST). Query string is parsed the
+        same way as GET; body (form-encoded) is merged into qs."""
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        if length > 0:
+            body = self.rfile.read(length).decode("utf-8", errors="replace")
+            body_qs = parse_qs(body)
+            for k, v in body_qs.items():
+                qs.setdefault(k, v)
+        self._handle_mutation(parsed, qs)
 
     def do_GET(self):
         global _last_action_at, _last_model_switch_at, _last_aux_model_at
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
-        token = (qs.get("token") or [""])[0]
 
-        if token != TOKEN:
+        authed, bootstrap = self._authenticate(qs)
+        if not authed:
             self._send_html("<h1>403 — token salah</h1>", 403)
             return
 
+        # Mutation over plain GET is not allowed (CasaOS shortcuts excepted:
+        # /toggle, /on, /off with an explicit valid token keep working).
+        if parsed.path in MUTATING_PATHS:
+            query_token = (qs.get("token") or [""])[0]
+            if not (parsed.path in LEGACY_GET_SHORTCUTS and self._token_matches(query_token)):
+                self._send_method_not_allowed()
+                return
+
         if parsed.path in ("/status", "/"):
+            if bootstrap:
+                # Strip the token from the URL: set cookie, redirect clean.
+                just = (qs.get("just") or [""])[0]
+                tab = (qs.get("tab") or [""])[0]
+                self.send_response(302)
+                self._set_session_cookie()
+                clean = "/status"
+                if just:
+                    clean += f"?just={quote(just)}"
+                if tab:
+                    clean += f"{'&' if just else '?'}tab={quote(tab)}"
+                self.send_header("Location", clean)
+                self.end_headers()
+                return
             just = (qs.get("just") or [""])[0]
             tab = (qs.get("tab") or [""])[0]
             self._send_html(build_status_page(just, active_tab=tab))
@@ -4445,6 +4654,16 @@ class Handler(BaseHTTPRequestHandler):
                     except ValueError:
                         pass
             return
+
+        if parsed.path in LEGACY_GET_SHORTCUTS:
+            self._handle_mutation(parsed, qs)
+            return
+
+        self._send_html("<h1>404</h1>", 404)
+        return
+    def _handle_mutation(self, parsed, qs: dict):
+        """Execute an already-authenticated action route, then redirect."""
+        global _last_action_at, _last_model_switch_at, _last_aux_model_at
 
         if parsed.path == "/switch-model":
             requested = (qs.get("model") or [""])[0]
@@ -4596,19 +4815,6 @@ class Handler(BaseHTTPRequestHandler):
             self._redirect_to_status(tab="status")
             return
 
-        if parsed.path not in (
-            "/toggle", "/on", "/off", "/restart-bot", "/bot-toggle",
-            "/update-router", "/check-update",
-            "/check-hermes-update", "/update-hermes",
-            "/clean-junk",
-            "/fetch-models", "/reload-panel-config",
-            "/set-aux-model", "/reset-aux",
-            "/set-fallback-model", "/remove-fallback-model",
-            "/process-action",
-        ):
-            self._send_html("<h1>404</h1>", 404)
-            return
-
         # Action route: perform once (debounced against duplicate/prefetch
         # requests), then redirect — never render an action route directly,
         # so a refresh of the resulting page can never re-trigger it.
@@ -4698,6 +4904,9 @@ class TimeoutThreadingHTTPServer(ThreadingHTTPServer):
 
 
 if __name__ == "__main__":
+    if not TOKEN:
+        print("[ERROR] PANEL_TOKEN is required. Set it in environment.", file=sys.stderr)
+        sys.exit(2)
     signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
     server = TimeoutThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.serve_forever()
