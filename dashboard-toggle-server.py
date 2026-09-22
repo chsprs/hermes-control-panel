@@ -175,6 +175,7 @@ ICON_CPU = _icon('<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y
 ICON_RAM = _icon('<path d="M2 2h20v20H2z"/><path d="M6 6h12v12H6z"/>', size=16)
 ICON_DISK = _icon('<line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/>', size=16)
 ICON_NETWORK = _icon('<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><line x1="12" y1="12" x2="12" y2="8"/>', size=16)
+ICON_GLOBE = _icon('<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>', size=16)
 ICON_BOT = _icon('<rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8.01" y2="16"/><line x1="16" y1="16" x2="16.01" y2="16"/>', size=16)
 ICON_ROUTER = _icon('<rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6" y2="14"/><line x1="18" y1="6" x2="18" y2="14"/><line x1="6" y1="18" x2="6.01" y2="18"/><line x1="10" y1="18" x2="10.01" y2="18"/>', size=16)
 ICON_HERMES = _icon('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>', size=16)
@@ -326,7 +327,10 @@ font-variant-numeric:tabular-nums}}
 .grid .row{{padding:.6rem 0}}
 .grid .row:nth-child(odd){{padding-right:.9rem}}
 .grid .row:nth-child(even){{padding-left:.9rem;border-left:1px solid var(--border-subtle)}}
-@media(max-width:540px){{.grid{{grid-template-columns:1fr}}.grid .row:nth-child(even){{border-left:none;padding-left:0}}}}
+@media(max-width:540px){{
+  .grid{{grid-template-columns:1fr}}
+  .grid .row{{grid-column:auto !important;padding-right:0 !important;padding-left:0 !important;border-left:none !important}}
+}}
 
 /* Buttons */
 a.toggle,.btn,a.open{{display:inline-flex;align-items:center;justify-content:center;gap:.55rem;
@@ -670,14 +674,16 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     </div>
 
     <div class="grid">
-      <div class="row"><span class="label">{icon_disk} Penyimpanan</span>
-        <span id="cell-disk">{cell_disk}</span></div>
-      <div class="row"><span class="label">{icon_clock} Masa Aktif</span>
-        <span id="cell-uptime">{cell_uptime}</span></div>
+      <div class="row"><span class="label">{icon_globe} Internet</span>
+        <span id="cell-internet">{cell_internet}</span></div>
       <div class="row"><span class="label">{icon_network} IP LAN</span>
         <span id="cell-lan">{cell_lan}</span></div>
       <div class="row"><span class="label">{icon_network} Tailscale</span>
         <span id="cell-ts">{cell_ts}</span></div>
+      <div class="row"><span class="label">{icon_clock} Masa Aktif</span>
+        <span id="cell-uptime">{cell_uptime}</span></div>
+      <div class="row" style="grid-column: span 2; padding-right: 0"><span class="label">{icon_disk} Penyimpanan</span>
+        <span id="cell-disk">{cell_disk}</span></div>
       <div class="row" style="display:none"><span class="label">Hermes CLI</span>
         <span id="cell-hermes">{cell_hermes}</span></div>
     </div>
@@ -748,11 +754,13 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div class="card card-info">
       <div class="card-title">{icon_network} Jaringan & Masa Aktif</div>
       <div class="grid">
+        <div class="row"><span class="label">{icon_globe} Internet</span>
+          <span id="cell-internet-perf">{cell_internet}</span></div>
         <div class="row"><span class="label">{icon_network} IP LAN</span>
           <span id="cell-lan-perf">{cell_lan}</span></div>
         <div class="row"><span class="label">{icon_network} Tailscale</span>
           <span id="cell-ts-perf">{cell_ts}</span></div>
-        <div class="row" style="grid-column: span 2"><span class="label">{icon_clock} Masa Aktif Server</span>
+        <div class="row"><span class="label">{icon_clock} Masa Aktif</span>
           <span id="cell-uptime-perf">{cell_uptime}</span></div>
       </div>
     </div>
@@ -1408,7 +1416,8 @@ SSE_SCRIPT = """<script>
       set('cell-gw',d.cells.gw); set('cell-model',d.cells.model); set('cell-providers',d.cells.providers); set('cell-router',d.cells.router); set('cell-hermes',d.cells.hermes);
       set('cell-ram',d.cells.ram); set('cell-zram',d.cells.zram); set('cell-temp',d.cells.temp); set('cell-emmc',d.cells.emmc);
       set('cell-disk',d.cells.disk); set('cell-uptime',d.cells.uptime);
-      set('cell-lan',d.cells.lan); set('cell-ts',d.cells.ts); }
+      set('cell-lan',d.cells.lan); set('cell-ts',d.cells.ts);
+      set('cell-internet',d.cells.internet); }
     // Static controls stay untouched: replacing them resets scroll/focus.
     // SSE updates only live metrics, process data, and active update logs.
     if(d.processes_table) set('process-table-slot',d.processes_table);
@@ -1431,6 +1440,7 @@ SSE_SCRIPT = """<script>
     if(d.cells && d.cells.lan) set('cell-lan-perf', d.cells.lan);
     if(d.cells && d.cells.ts) set('cell-ts-perf', d.cells.ts);
     if(d.cells && d.cells.uptime) set('cell-uptime-perf', d.cells.uptime);
+    if(d.cells && d.cells.internet) set('cell-internet-perf', d.cells.internet);
     if(!safeStore('getItem','logDismissed')) stickySet('log-slot',d.log_card);
     else { var rc=document.getElementById('router-log-card'); if(rc) rc.remove(); }
     if(!safeStore('getItem','hermesLogDismissed')) {{
@@ -3656,6 +3666,40 @@ def get_server_ips() -> tuple[str, str]:
     return ts_ip, lan_ip
 
 
+_internet_status_cache = {"at": 0.0, "online": False, "ms": 0.0}
+_internet_status_lock = threading.Lock()
+INTERNET_CACHE_TTL = 8.0  # seconds
+
+
+def get_internet_status() -> tuple[bool, float]:
+    """Check internet connectivity by reaching public DNS IPs (1.1.1.1 / 8.8.8.8) on port 53.
+    Returns (is_online, latency_ms). Thread-safe with 8s TTL cache."""
+    now = time.monotonic()
+    with _internet_status_lock:
+        if now - _internet_status_cache["at"] < INTERNET_CACHE_TTL:
+            return _internet_status_cache["online"], _internet_status_cache["ms"]
+
+    online = False
+    latency_ms = 0.0
+    for target in [("1.1.1.1", 53), ("8.8.8.8", 53)]:
+        t0 = time.monotonic()
+        try:
+            s = socket.create_connection(target, timeout=1.2)
+            s.close()
+            latency_ms = (time.monotonic() - t0) * 1000
+            online = True
+            break
+        except Exception:
+            continue
+
+    with _internet_status_lock:
+        _internet_status_cache["at"] = now
+        _internet_status_cache["online"] = online
+        _internet_status_cache["ms"] = latency_ms
+
+    return online, latency_ms
+
+
 def get_rate_limited_providers() -> list[dict]:
     """Retrieve detailed recent errors for accounts/providers with actual account name."""
     details = []
@@ -3715,6 +3759,7 @@ def build_fragments() -> dict:
     disk_class = "down" if disk_pct >= 95 else ("warn" if disk_pct >= 85 else "up")
     uptime_text = get_uptime()
     ts_ip, lan_ip = get_server_ips()
+    internet_up, internet_ms = get_internet_status()
     emmc_cls, emmc_text = get_emmc_health()
     zram_text = get_zram_info()
     gw_info = get_gateway_info()
@@ -3756,6 +3801,10 @@ def build_fragments() -> dict:
         "uptime": f'<span class="value">{uptime_text}</span>',
         "lan": f'<span class="value">{lan_ip or "–"}</span>',
         "ts": f'<span class="value">{ts_ip or "–"}</span>',
+        "internet": cell(
+            "up" if internet_up else "down",
+            f"Terhubung ({internet_ms:.0f}ms)" if internet_up else "Terputus",
+        ),
     }
 
     fetch_btn = (
@@ -4064,6 +4113,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         cell_uptime=frag["cells"]["uptime"],
         cell_lan=frag["cells"]["lan"],
         cell_ts=frag["cells"]["ts"],
+        cell_internet=frag["cells"]["internet"],
         model_chips=frag["model_chips"],
         rate_limit_card=frag["rate_limit_card"],
         log_card=frag["log_card"],
@@ -4100,6 +4150,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         icon_ram=ICON_RAM,
         icon_disk=ICON_DISK,
         icon_network=ICON_NETWORK,
+        icon_globe=ICON_GLOBE,
         icon_bot=ICON_BOT,
         icon_router=ICON_ROUTER,
         icon_hermes=ICON_HERMES,
@@ -4142,7 +4193,7 @@ def _sse_push_loop():
         cells = frag.get("cells", {})
         def _extract_status(cell_html: str) -> str:
             import re as _re
-            for kw in ("Berjalan", "Berhenti", "Aktif", "Mati", "Terhubung", "Tidak terhubung"):
+            for kw in ("Berjalan", "Berhenti", "Aktif", "Mati", "Terhubung", "Tidak terhubung", "Terputus"):
                 if kw in cell_html:
                     return kw
             m = _re.search(r'class="value(?:\s+[^\"]+)?"[^>]*>(.*?)</span>', cell_html)
@@ -4154,6 +4205,7 @@ def _sse_push_loop():
             "gw": _extract_status(cells.get("gw", "")),
             "model": _extract_status(cells.get("model", "")),
             "router": _extract_status(cells.get("router", "")),
+            "internet": _extract_status(cells.get("internet", "")),
             "ram": cells.get("ram", ""),
             "temp": cells.get("temp", ""),
             "disk": cells.get("disk", ""),
