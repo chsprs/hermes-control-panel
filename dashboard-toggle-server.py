@@ -66,6 +66,8 @@ MODELS_TIMEOUT = 6.0  # /v1/models is heavier than the plain reachability
 # ping — 9router has shown response times up to several seconds under load
 # this session, so give it more room than the quick INFO_TIMEOUT checks.
 
+ROUTER_HOST_OVERRIDE = os.environ.get("ROUTER_HOST", "").strip()
+HERMES_DASHBOARD_URL = os.environ.get("HERMES_DASHBOARD_URL", "").strip()
 CONFIG_PATH = os.environ.get("HERMES_CONFIG_PATH", "/root/.hermes/config.yaml")
 ROUTER_URL = "http://{host}:20128/"
 INFO_TIMEOUT = 2.0  # seconds — every live check below is capped at this
@@ -1181,8 +1183,20 @@ setTimeout(scrollAllLogsToBottom, 600);
 </body></html>"""
 
 def get_open_block_active():
-    # Hermes Dashboard selalu di H96 Max X3 (192.168.1.100)
-    return f'<a class="open" href="http://192.168.1.100:9119" target="_blank">{ICON_EXTERNAL_LINK}Buka Dasbor Hermes</a>'
+    if HERMES_DASHBOARD_URL:
+        target = html.escape(HERMES_DASHBOARD_URL, quote=True)
+        return (
+            f'<a class="open" href="{target}" target="_blank" rel="noopener">'
+            f'{ICON_EXTERNAL_LINK}Buka Dasbor Hermes</a>'
+        )
+
+    return (
+        f'<a class="open" href="#" '
+        f'onclick="window.open(window.location.protocol+\'//\'+'
+        f'window.location.hostname+\':9119\',\'_blank\',\'noopener\');'
+        f'return false;">'
+        f'{ICON_EXTERNAL_LINK}Buka Dasbor Hermes</a>'
+    )
 
 OPEN_BLOCK_INACTIVE = '<div class="update-hint warn" style="margin:0">Dasbor Hermes mati — nyalakan dulu untuk membukanya</div>'
 
@@ -1241,8 +1255,14 @@ def get_gateway_info() -> str:
 
 
 def get_9router_host() -> str:
-    """Auto-detect 9router host IP. Check local Docker first, then scan network."""
+    """Auto-detect 9router host IP. Explicit ROUTER_HOST first, then local Docker, then discovery."""
     global _9router_host_cache, _9router_host_at
+    if ROUTER_HOST_OVERRIDE:
+        with _9router_host_lock:
+            _9router_host_cache = ROUTER_HOST_OVERRIDE
+            _9router_host_at = time.time()
+        return ROUTER_HOST_OVERRIDE
+
     with _9router_host_lock:
         if _9router_host_cache and (time.time() - _9router_host_at) < 300:  # 5 min cache
             return _9router_host_cache
@@ -1267,9 +1287,8 @@ def get_9router_host() -> str:
     except Exception:
         pass
 
-    # 2. Check known hosts (from config or Tailscale peers)
-    known_hosts = ["192.168.1.50", "192.168.1.100", "100.99.159.9"]
-    # Also add Tailscale peers if available
+    # 2. Discovery: Tailscale peers only (no author-specific hardcoded hosts)
+    known_hosts = []
     try:
         r = subprocess.run(["tailscale", "status", "--json"], capture_output=True, text=True, timeout=5)
         if r.returncode == 0:
@@ -1327,7 +1346,7 @@ def get_9router_public_url() -> str:
     port = get_9router_port()
     if host in ("127.0.0.1", "localhost", "0.0.0.0"):
         _, lan_ip = get_server_ips()
-        host = lan_ip or "192.168.1.100"
+        host = lan_ip or "127.0.0.1"
     return f"http://{host}:{port}"
 
 
@@ -1952,6 +1971,60 @@ def get_router_api_key() -> str:
     return ""
 
 
+def _group_available_models(data: dict) -> dict:
+    """Group a /v1/models response by provider without performing I/O."""
+    result = {}
+
+    for item in data.get("data", []):
+        if not isinstance(item, dict):
+            continue
+
+        mid = item.get("id", "")
+        if not mid:
+            continue
+
+        ob = str(item.get("owned_by", "")).lower()
+
+        if ob == "combo":
+            group = "9router (Kombo)"
+        elif ob == "ag" or mid.startswith("ag/"):
+            group = "Antigravity (ag)"
+        elif ob == "cx" or mid.startswith("cx/"):
+            group = "Codex (cx)"
+        elif ob == "gemini" or mid.startswith("gemini/"):
+            group = "Google Gemini"
+        elif ob == "kr" or mid.startswith("kr/"):
+            group = "Kiro (kr)"
+        elif ob == "ollama" or mid.startswith("ollama/"):
+            group = "Ollama"
+        elif ob == "groq" or mid.startswith("groq/"):
+            group = "Groq"
+        elif ob == "openrouter" or mid.startswith("openrouter/"):
+            group = "OpenRouter"
+        elif ob == "cmc" or mid.startswith("cmc/"):
+            group = "CommandCode (cmc)"
+        elif ob == "nara" or mid.startswith("nara/"):
+            group = "Nara / KiloCode"
+        elif ob:
+            group = ob.upper()
+        else:
+            group = "Lainnya"
+
+        result.setdefault(group, []).append(mid)
+
+    ordered_result = {}
+
+    if "9router (Kombo)" in result:
+        ordered_result["9router (Kombo)"] = sorted(
+            result.pop("9router (Kombo)")
+        )
+
+    for group in sorted(result):
+        ordered_result[group] = sorted(result[group])
+
+    return ordered_result
+
+
 def fetch_remote_models() -> dict:
     """Explicitly query 9router's /v1/models endpoint, refresh cache, return status."""
     host = get_9router_host()
@@ -1965,11 +2038,18 @@ def fetch_remote_models() -> dict:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=MODELS_TIMEOUT) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        models = [m["id"] for m in data.get("data", []) if isinstance(m, dict) and "id" in m]
+
+        grouped = _group_available_models(data)
+
         with _models_cache_lock:
-            _models_cache["val"] = get_available_models()
+            _models_cache["val"] = grouped
             _models_cache["at"] = time.time()
-        return {"status": "success", "count": len(models), "host": host}
+
+        return {
+            "status": "success",
+            "count": sum(len(models) for models in grouped.values()),
+            "host": host,
+        }
     except Exception as exc:
         return {"status": "failed", "error": str(exc), "host": host}
 
@@ -2024,7 +2104,6 @@ def get_all_configured_providers() -> list[dict]:
 
 def get_available_models() -> dict:
     """Fetch live models from 9router /v1/models and group ALL models by provider/category."""
-    result = {}
     key = get_router_api_key()
     if not key:
         return {"9router (Kombo)": []}
@@ -2036,47 +2115,7 @@ def get_available_models() -> dict:
         with urllib.request.urlopen(req, timeout=MODELS_TIMEOUT) as resp:
             data = json.load(resp)
 
-        for item in data.get("data", []):
-            if not isinstance(item, dict):
-                continue
-            mid = item.get("id", "")
-            if not mid:
-                continue
-            ob = str(item.get("owned_by", "")).lower()
-
-            if ob == "combo":
-                group = "9router (Kombo)"
-            elif ob == "ag" or mid.startswith("ag/"):
-                group = "Antigravity (ag)"
-            elif ob == "cx" or mid.startswith("cx/"):
-                group = "Codex (cx)"
-            elif ob == "gemini" or mid.startswith("gemini/"):
-                group = "Google Gemini"
-            elif ob == "kr" or mid.startswith("kr/"):
-                group = "Kiro (kr)"
-            elif ob == "ollama" or mid.startswith("ollama/"):
-                group = "Ollama"
-            elif ob == "groq" or mid.startswith("groq/"):
-                group = "Groq"
-            elif ob == "openrouter" or mid.startswith("openrouter/"):
-                group = "OpenRouter"
-            elif ob == "cmc" or mid.startswith("cmc/"):
-                group = "CommandCode (cmc)"
-            elif ob == "nara" or mid.startswith("nara/"):
-                group = "Nara / KiloCode"
-            elif ob:
-                group = f"{ob.upper()}"
-            else:
-                group = "Lainnya"
-
-            result.setdefault(group, []).append(mid)
-
-        ordered_result = {}
-        if "9router (Kombo)" in result:
-            ordered_result["9router (Kombo)"] = sorted(result.pop("9router (Kombo)"))
-        for g in sorted(result.keys()):
-            ordered_result[g] = sorted(result[g])
-        return ordered_result
+        return _group_available_models(data)
     except Exception:
         pass
 
@@ -3098,6 +3137,15 @@ def cleanup_system_junk() -> dict:
     return result_data
 
 
+def _append_router_update_log(log_path: str, message: str) -> None:
+    """Best-effort append used by updater error paths. Never masks the root error."""
+    try:
+        with open(log_path, "a", encoding="utf-8") as log:
+            log.write(message)
+    except OSError:
+        pass
+
+
 def update_router() -> None:
     """Update 9router on detected host; retain live log and real exit status."""
     global _router_updating, _router_update_result
@@ -3155,14 +3203,15 @@ def update_router() -> None:
                                          "exit_code": rc, "changed": changed,
                                          "summary": summary, "finished_at": time.time()}
         except Exception as exc:
-            log.write(f"\\n[ERROR] {type(exc).__name__}: {exc}\\n")
+            _append_router_update_log(
+                log_path, f"\n[ERROR] {type(exc).__name__}: {exc}\n"
+            )
             with _router_update_lock:
                 _router_update_result = {"status": "failed", "exit_code": 1,
                                          "changed": None,
                                          "summary": f"Update gagal: {type(exc).__name__}",
                                          "finished_at": time.time()}
         finally:
-            log.close()
             with _router_update_lock:
                 _router_updating = False
             threading.Thread(target=_refresh_update_cache, daemon=True).start()
@@ -3510,18 +3559,39 @@ def render_processes_table() -> str:
 
 
 def get_emmc_health() -> tuple[str, str]:
-    """Check eMMC wear level and pre-EOL status directly from sysfs."""
-    try:
-        with open("/sys/block/mmcblk2/device/life_time") as f:
-            a, b = [int(x, 16) * 10 for x in f.read().split()[:2]]
-        with open("/sys/block/mmcblk2/device/pre_eol_info") as f:
-            eol = int(f.read().strip(), 16)
-        wear = max(a, b)
-        cls = "down" if (wear >= 80 or eol == 3) else ("warn" if (wear >= 60 or eol == 2) else "up")
-        status = "Urgent" if eol == 3 else ("Warn" if eol == 2 else "Normal")
-        return cls, f"{wear}% aus ({status})"
-    except Exception:
-        return "up", "Normal"
+    """Check eMMC wear data from any mmcblk device that exposes eMMC sysfs fields."""
+    readings = []
+
+    for device_dir in glob.glob("/sys/block/mmcblk*/device"):
+        try:
+            with open(os.path.join(device_dir, "life_time")) as f:
+                values = f.read().split()[:2]
+
+            if len(values) < 2:
+                continue
+
+            wear = max(int(value, 16) * 10 for value in values)
+
+            with open(os.path.join(device_dir, "pre_eol_info")) as f:
+                eol = int(f.read().strip(), 16)
+
+            readings.append((wear, eol))
+        except (OSError, ValueError):
+            continue
+
+    if not readings:
+        return "", "N/A"
+
+    wear, eol = max(readings, key=lambda item: (item[1], item[0]))
+
+    cls = "down" if (wear >= 80 or eol == 3) else (
+        "warn" if (wear >= 60 or eol == 2) else "up"
+    )
+    status = "Urgent" if eol == 3 else (
+        "Warn" if eol == 2 else "Normal"
+    )
+
+    return cls, f"{wear}% aus ({status})"
 
 
 def get_zram_info() -> str:
@@ -3582,9 +3652,9 @@ def get_disk_info() -> str:
             used_pct = (total - free) / total * 100
             total_gb = total / (1024 ** 3)
             used_gb = (total - free) / (1024 ** 3)
-            # Label: / = eMMC, /DATA or sdX = by mount point
+            # Label: / = ROOT (device-agnostic), /DATA or sdX = by mount point
             if mp == "/":
-                label = "eMMC"
+                label = "ROOT"
             elif mp == "/DATA":
                 label = "DATA"
             elif mp.startswith("/mnt/"):
@@ -4406,9 +4476,17 @@ class Handler(BaseHTTPRequestHandler):
                 if not debounced:
                     _last_aux_model_at = now
             if not debounced and task:
-                set_aux_task_model(task, provider, model)
+                saved = set_aux_task_model(task, provider, model)
                 if is_ajax:
-                    self._send_json({"ok": True, "task": task, "provider": provider, "model": model, "html": render_aux_tasks_block()})
+                    payload = {"ok": saved, "task": task, "provider": provider, "model": model}
+                    if saved:
+                        payload["html"] = render_aux_tasks_block()
+                    else:
+                        payload["reason"] = "failed to update config"
+                    self._send_json(payload, code=200 if saved else 500)
+                    return
+                if not saved:
+                    self._send_html("<h1>500 — gagal menyimpan konfigurasi auxiliary model</h1>", 500)
                     return
                 self._redirect_to_status(just="aux", tab="auxiliary")
                 return
@@ -4425,7 +4503,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not debounced:
                     _last_action_at = now
             if not debounced:
-                reset_all_aux_tasks()
+                if not reset_all_aux_tasks():
+                    self._send_html("<h1>500 — gagal mereset konfigurasi auxiliary model</h1>", 500)
+                    return
                 self._redirect_to_status(just="aux-reset", tab="auxiliary")
                 return
             self._redirect_to_status(tab="auxiliary")
@@ -4446,9 +4526,17 @@ class Handler(BaseHTTPRequestHandler):
                 if not debounced:
                     _last_aux_model_at = now
             if not debounced and model:
-                set_fallback_model(index, provider, model)
+                saved = set_fallback_model(index, provider, model)
                 if is_ajax:
-                    self._send_json({"ok": True, "html": render_backup_models_block()})
+                    payload = {"ok": saved}
+                    if saved:
+                        payload["html"] = render_backup_models_block()
+                    else:
+                        payload["reason"] = "failed to update config"
+                    self._send_json(payload, code=200 if saved else 500)
+                    return
+                if not saved:
+                    self._send_html("<h1>500 — gagal menyimpan fallback model</h1>", 500)
                     return
                 self._redirect_to_status(just="fallback", tab="control")
                 return
@@ -4470,7 +4558,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not debounced:
                     _last_action_at = now
             if not debounced and index >= 0:
-                remove_fallback_model(index)
+                if not remove_fallback_model(index):
+                    self._send_html("<h1>500 — gagal menghapus fallback model</h1>", 500)
+                    return
                 self._redirect_to_status(just="fallback-del", tab="control")
                 return
             self._redirect_to_status(tab="control")
