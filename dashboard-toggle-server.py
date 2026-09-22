@@ -3667,21 +3667,26 @@ def get_server_ips() -> tuple[str, str]:
     return ts_ip, lan_ip
 
 
-_internet_status_cache = {"at": 0.0, "online": False, "ms": 0.0}
+_internet_status_cache = {"at": 0.0, "online": False, "ms": 0.0, "target": "1.1.1.1"}
 _internet_status_lock = threading.Lock()
 INTERNET_CACHE_TTL = 8.0  # seconds
 
 
-def get_internet_status() -> tuple[bool, float]:
+def get_internet_status() -> tuple[bool, float, str]:
     """Check internet connectivity by reaching public DNS IPs (1.1.1.1 / 8.8.8.8) on port 53.
-    Returns (is_online, latency_ms). Thread-safe with 8s TTL cache."""
+    Returns (is_online, latency_ms, target_host). Thread-safe with 8s TTL cache."""
     now = time.monotonic()
     with _internet_status_lock:
         if now - _internet_status_cache["at"] < INTERNET_CACHE_TTL:
-            return _internet_status_cache["online"], _internet_status_cache["ms"]
+            return (
+                _internet_status_cache["online"],
+                _internet_status_cache["ms"],
+                _internet_status_cache.get("target", "1.1.1.1"),
+            )
 
     online = False
     latency_ms = 0.0
+    active_target = "1.1.1.1"
     for target in [("1.1.1.1", 53), ("8.8.8.8", 53)]:
         t0 = time.monotonic()
         try:
@@ -3689,6 +3694,7 @@ def get_internet_status() -> tuple[bool, float]:
             s.close()
             latency_ms = (time.monotonic() - t0) * 1000
             online = True
+            active_target = target[0]
             break
         except Exception:
             continue
@@ -3697,8 +3703,9 @@ def get_internet_status() -> tuple[bool, float]:
         _internet_status_cache["at"] = now
         _internet_status_cache["online"] = online
         _internet_status_cache["ms"] = latency_ms
+        _internet_status_cache["target"] = active_target
 
-    return online, latency_ms
+    return online, latency_ms, active_target
 
 
 def get_rate_limited_providers() -> list[dict]:
@@ -3760,7 +3767,7 @@ def build_fragments() -> dict:
     disk_class = "down" if disk_pct >= 95 else ("warn" if disk_pct >= 85 else "up")
     uptime_text = get_uptime()
     ts_ip, lan_ip = get_server_ips()
-    internet_up, internet_ms = get_internet_status()
+    internet_up, internet_ms, internet_target = get_internet_status()
     emmc_cls, emmc_text = get_emmc_health()
     zram_text = get_zram_info()
     gw_info = get_gateway_info()
@@ -3769,8 +3776,9 @@ def build_fragments() -> dict:
     all_flat_models = [m for m_list in all_models.values() for m in m_list]
     model_not_listed = bool(all_flat_models) and model not in all_flat_models
 
-    def cell(cls: str, text: str) -> str:
-        return f'<span class="value {cls}"><span class="dot {cls}"></span>{text}</span>'
+    def cell(cls: str, text: str, title: str = "") -> str:
+        t_attr = f' title="{html.escape(title)}"' if title else ""
+        return f'<span class="value {cls}"{t_attr}><span class="dot {cls}"></span>{text}</span>'
 
     # Format providers info
     all_providers = get_all_configured_providers()
@@ -3804,7 +3812,8 @@ def build_fragments() -> dict:
         "ts": f'<span class="value">{ts_ip or "–"}</span>',
         "internet": cell(
             "up" if internet_up else "down",
-            f"Terhubung ({internet_ms:.0f}ms)" if internet_up else "Terputus",
+            f"Terhubung · {internet_target} ({internet_ms:.0f}ms)" if internet_up else f"Terputus ({internet_target})",
+            title=f"Server tes: {internet_target} (DNS port 53, fallback: 8.8.8.8)",
         ),
     }
 
