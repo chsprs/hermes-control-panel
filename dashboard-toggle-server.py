@@ -45,6 +45,7 @@ import sqlite3
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -4587,7 +4588,17 @@ class TimeoutThreadingHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     timeout = 15
 
+    def server_bind(self):
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, "SO_REUSEPORT"):
+            try:
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except OSError:
+                pass
+        super().server_bind()
+
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
     server = TimeoutThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.serve_forever()
