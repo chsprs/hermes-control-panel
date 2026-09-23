@@ -643,11 +643,11 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 
   <!-- Apple CC Highlights (Bento 4-Tile Grid) -->
   <div class="card card-status" style="padding:1.1rem;margin-bottom:1.25rem">
-    <div class="card-title" style="margin-bottom:.8rem">{icon_monitor} Ringkasan Bot & Model AI</div>
+    <div class="card-title" style="margin-bottom:.8rem">{icon_monitor} Ringkasan Gateway & Model AI</div>
     <div class="cc-grid">
       <div class="cc-tile">
         <div class="cc-tile-header">
-          <span class="cc-tile-label">Hermes Bot</span>
+          <span class="cc-tile-label">Hermes Gateway</span>
           <div class="cc-icon-box cc-icon-blue">{icon_bot}</div>
         </div>
         <div class="cc-tile-val" id="cell-bot">{cell_bot}</div>
@@ -799,11 +799,11 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     </div>
   </div>
   <div class="card card-control">
-    <div class="card-title">Dasbor & Bot</div>
+    <div class="card-title">Dasbor & Gateway</div>
     <div class="btn-row" id="dash-bot-btns-slot">
       <a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle">{icon_power}{toggle_label}</a>
       <a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle">{icon_power}{bot_toggle_label}</a>
-      <a class="toggle restart" href="/restart-bot">{icon_refresh}Mulai Ulang Bot</a>
+      <a class="toggle restart" href="/restart-bot">{icon_refresh}Mulai Ulang Gateway</a>
       <a class="toggle restart" href="/clean-junk">{icon_trash}Bersihkan Sampah</a>
     </div>
     <div id="clean-log-slot">{clean_junk_card}</div>
@@ -1890,8 +1890,8 @@ var MUTATING_PREFIXES = [
 var CONFIRM_ROUTES = [
   {match:'/update-hermes', title:'Perbarui Hermes Agent', msg:'Perbarui Hermes via git pull + install dependency + mulai ulang gateway. Bot tidak bisa dibalas selama proses (beberapa menit). Lanjutkan?'},
   {match:'/update-router', title:'Perbarui 9router', msg:'Perbarui 9router via docker compose pull + up -d. Kontainer 9router akan mulai ulang. Lanjutkan?'},
-  {match:'/restart-bot', title:'Mulai Ulang Hermes Gateway', msg:'Mulai ulang service hermes-gateway? Koneksi bot Telegram akan mulai ulang dalam beberapa detik.'},
-  {match:'/bot-toggle', title:'Ubah Status Bot', msg:'Ubah status hidup/mati Bot Telegram hermes-gateway?'},
+  {match:'/restart-bot', title:'Mulai Ulang Hermes Gateway', msg:'Mulai ulang service hermes-gateway? Seluruh koneksi platform perpesanan akan mulai ulang dalam beberapa detik.'},
+  {match:'/bot-toggle', title:'Ubah Status Gateway', msg:'Ubah status hidup/mati Hermes Gateway? Seluruh platform perpesanan yang terhubung akan ikut mati/hidup.'},
   {match:'/clean-junk', title:'Bersihkan Cache & Sampah', msg:'Bersihkan log pembaruan, cache package uv/pip, dan builder docker dangling untuk melegakan penyimpanan STB?'},
   {match:'/reset-aux', title:'Kembalikan Model Tugas', msg:'Kembalikan semua model tugas tambahan ke otomatis? Setiap tugas akan ikut model obrolan utama.'},
   {match:'/remove-fallback-model', title:'Hapus Model Cadangan', msg:'Hapus model ini dari daftar cadangan?'},
@@ -3761,7 +3761,7 @@ def get_process_list() -> list[dict]:
                 pass
         procs.append({
             "id": "hermes-gateway",
-            "name": "Hermes Gateway (Bot Telegram)",
+            "name": "Hermes Gateway (Messaging)",
             "kind": "Layanan Systemd",
             "status": "Berjalan" if st == "active" else "Berhenti",
             "is_active": (st == "active"),
@@ -4478,13 +4478,13 @@ def build_fragments() -> dict:
 
     dash_label = "Matikan Dasbor" if dash_active else "Nyalakan Dasbor"
     dash_toggle_class = "btn-off" if dash_active else "btn-on"
-    bot_label = "Matikan Bot Telegram" if gw_active else "Nyalakan Bot Telegram"
+    bot_label = "Matikan Gateway" if gw_active else "Nyalakan Gateway"
     bot_toggle_class = "btn-off" if gw_active else "btn-on"
 
     dash_bot_btns_block = (
         f'<a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle">{ICON_POWER}{dash_label}</a>'
         f'<a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle">{ICON_POWER}{bot_label}</a>'
-        f'<a class="toggle restart" href="/restart-bot">{ICON_REFRESH}Mulai Ulang Bot</a>'
+        f'<a class="toggle restart" href="/restart-bot">{ICON_REFRESH}Mulai Ulang Gateway</a>'
         f'<a class="toggle restart" href="/clean-junk">{ICON_TRASH}Bersihkan Sampah</a>'
     )
 
@@ -4624,7 +4624,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
                            f'target="_blank">{ICON_EXTERNAL_LINK}Buka 9router</a>'),
         toggle_label="Matikan Dasbor" if dash_active else "Nyalakan Dasbor",
         dash_toggle_class="btn-off" if dash_active else "btn-on",
-        bot_toggle_label="Matikan Bot Telegram" if gw_active else "Nyalakan Bot Telegram",
+        bot_toggle_label="Matikan Gateway" if gw_active else "Nyalakan Gateway",
         bot_toggle_class="btn-off" if gw_active else "btn-on",
         nav_script=NAV_SCRIPT,
         script=render_poll_script(),
