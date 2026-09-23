@@ -636,14 +636,57 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     </div>
 
     <div id="gw-platform-select-wrap" style="margin-bottom:0.75rem;display:none">
-      <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Nama Platform</label>
-      <input type="text" id="gw-platform-input" class="search-input" placeholder="contoh: slack, discord, whatsapp..." style="margin-bottom:0.4rem">
-      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:0.5rem">
-        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="setGwTemplate('discord')">Discord</span>
-        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="setGwTemplate('slack')">Slack</span>
-        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="setGwTemplate('whatsapp')">WhatsApp</span>
-        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="setGwTemplate('webhook')">Webhook</span>
-        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="setGwTemplate('telegram')">Telegram</span>
+      <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Pilih Platform Gateway Hermes Resmi</label>
+      <select id="gw-platform-catalog-select" class="search-input" onchange="selectCatalogPlatform(this.value)" style="margin-bottom:0.45rem;background:rgba(255,255,255,0.06);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;font-size:0.8rem">
+        <option value="">-- Pilih dari 21 Platform Resmi Hermes --</option>
+        <optgroup label="Platform Populer">
+          <option value="telegram">Telegram Bot</option>
+          <option value="discord">Discord Bot</option>
+          <option value="webhook">HTTP Webhook Listener</option>
+          <option value="whatsapp">WhatsApp Multi-Device Bridge</option>
+          <option value="slack">Slack Bot (Socket Mode)</option>
+          <option value="line">LINE Messaging API</option>
+        </optgroup>
+        <optgroup label="Kolaborasi &amp; Terdesentralisasi">
+          <option value="matrix">Matrix (Synapse/Dendrite)</option>
+          <option value="mattermost">Mattermost Bot</option>
+          <option value="irc">IRC (Internet Relay Chat)</option>
+        </optgroup>
+        <optgroup label="Enterprise &amp; Workspace">
+          <option value="teams">Microsoft Teams (Azure Bot)</option>
+          <option value="feishu">Feishu / Lark</option>
+          <option value="google_chat">Google Chat</option>
+          <option value="dingtalk">DingTalk</option>
+          <option value="wecom">WeCom / WeChat Work</option>
+        </optgroup>
+        <optgroup label="Privasi &amp; Keamanan">
+          <option value="signal">Signal Messenger (signal-cli)</option>
+          <option value="simplex">SimpleX Chat</option>
+        </optgroup>
+        <optgroup label="Otomasi, Notifikasi &amp; Lainnya">
+          <option value="ntfy">ntfy.sh Push Notifications</option>
+          <option value="email">Email Gateway (IMAP/SMTP)</option>
+          <option value="homeassistant">Home Assistant</option>
+          <option value="sms">SMS Gateway (Twilio)</option>
+          <option value="bluebubbles">BlueBubbles (iMessage)</option>
+        </optgroup>
+        <optgroup label="Kustom">
+          <option value="custom">Kustom (Ketik Nama Platform Sendiri)</option>
+        </optgroup>
+      </select>
+      <input type="text" id="gw-platform-input" class="search-input" placeholder="Identifier platform (contoh: telegram, discord...)" style="margin-bottom:0.45rem;font-size:0.78rem">
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="selectCatalogPlatform('telegram')">Telegram</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="selectCatalogPlatform('discord')">Discord</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="selectCatalogPlatform('webhook')">Webhook</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="selectCatalogPlatform('whatsapp')">WhatsApp</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="selectCatalogPlatform('slack')">Slack</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="selectCatalogPlatform('matrix')">Matrix</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="selectCatalogPlatform('signal')">Signal</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="selectCatalogPlatform('mattermost')">Mattermost</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="selectCatalogPlatform('teams')">Teams</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="selectCatalogPlatform('ntfy')">ntfy</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="selectCatalogPlatform('email')">Email</span>
       </div>
     </div>
 
@@ -653,13 +696,38 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       </div>
       <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
         <select id="gw-template-picker" onchange="applyGwSelectedTemplate(this.value)" class="search-input" style="width:auto;margin:0;padding:0.2rem 0.5rem;font-size:0.72rem;background:rgba(255,255,255,0.06);color:var(--accent-light);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-sm);cursor:pointer">
-          <option value="">📋 Muat Contoh Template...</option>
-          <option value="telegram_full">Telegram (Lengkap: Filter Chat &amp; Reaksi)</option>
-          <option value="telegram_simple">Telegram (Standar Minimal)</option>
-          <option value="webhook_full">HTTP Webhook (Port &amp; Secret)</option>
-          <option value="discord_full">Discord (Token &amp; Mention Only)</option>
-          <option value="whatsapp_full">WhatsApp (Bridge URL)</option>
-          <option value="slack_full">Slack (Bot &amp; App Token)</option>
+          <option value="">📋 Muat Template...</option>
+          <optgroup label="Populer">
+            <option value="telegram">Telegram Bot</option>
+            <option value="discord">Discord Bot</option>
+            <option value="webhook">HTTP Webhook</option>
+            <option value="whatsapp">WhatsApp Bridge</option>
+            <option value="slack">Slack Bot</option>
+            <option value="line">LINE Messaging</option>
+          </optgroup>
+          <optgroup label="Kolaborasi">
+            <option value="matrix">Matrix</option>
+            <option value="mattermost">Mattermost</option>
+            <option value="irc">IRC</option>
+          </optgroup>
+          <optgroup label="Enterprise">
+            <option value="teams">Microsoft Teams</option>
+            <option value="feishu">Feishu / Lark</option>
+            <option value="google_chat">Google Chat</option>
+            <option value="dingtalk">DingTalk</option>
+            <option value="wecom">WeCom</option>
+          </optgroup>
+          <optgroup label="Privasi">
+            <option value="signal">Signal</option>
+            <option value="simplex">SimpleX</option>
+          </optgroup>
+          <optgroup label="Otomasi &amp; Lainnya">
+            <option value="ntfy">ntfy.sh</option>
+            <option value="email">Email Gateway</option>
+            <option value="homeassistant">Home Assistant</option>
+            <option value="sms">SMS (Twilio)</option>
+            <option value="bluebubbles">BlueBubbles</option>
+          </optgroup>
         </select>
         <label style="font-size:0.75rem;display:inline-flex;align-items:center;gap:0.35rem;cursor:pointer">
           <input type="checkbox" id="gw-config-enabled-chk" checked style="accent-color:var(--accent)">
@@ -1227,51 +1295,175 @@ restorePatchPages();
 var currentGwPlatform = '';
 var isNewGwPlatform = false;
 
+var GW_PLATFORM_NAMES = {{
+  telegram: "Telegram Bot",
+  discord: "Discord Bot",
+  webhook: "HTTP Webhook",
+  whatsapp: "WhatsApp",
+  slack: "Slack Bot",
+  matrix: "Matrix",
+  mattermost: "Mattermost",
+  signal: "Signal Messenger",
+  teams: "Microsoft Teams",
+  feishu: "Feishu / Lark",
+  google_chat: "Google Chat",
+  dingtalk: "DingTalk",
+  wecom: "WeCom",
+  line: "LINE Messaging",
+  ntfy: "ntfy Push",
+  email: "Email Gateway",
+  homeassistant: "Home Assistant",
+  simplex: "SimpleX Chat",
+  sms: "SMS (Twilio)",
+  irc: "IRC",
+  bluebubbles: "BlueBubbles"
+}};
+
 var GW_TEMPLATES = {{
-  telegram_full: [
-    "# Konfigurasi Lengkap Platform Telegram",
+  telegram: [
+    "# Konfigurasi Platform Telegram",
     "enabled: true",
-    "# token: 'BOT_TOKEN_JIKA_TIDAK_DI_ENV'  # Opsi: jika tidak di .env",
-    "# allowed_chats: '1992783463'          # Opsi: batasi hanya merespons ID ini",
-    "reactions: true                        # Opsi: bot memberi emoji reaksi",
-    "reply_to_mode: 'first'                 # Opsi: 'first', 'all', atau 'off'",
+    "# token: '123456:ABC-DEF'  # Opsi: jika token tidak di .env",
+    "# allowed_chats: '1992783463'  # Opsi: batasi respons hanya ID tertentu",
+    "reactions: true  # Izinkan bot memberi respons emoji reaksi",
+    "reply_to_mode: 'first'  # 'first', 'all', atau 'off'",
     "home_channel:",
     "  chat_id: '1992783463'",
     "  name: vitooo",
     "  platform: telegram"
   ].join(String.fromCharCode(10)),
-  telegram_simple: [
-    "# Konfigurasi Standar Telegram",
-    "enabled: true",
-    "home_channel:",
-    "  chat_id: '1992783463'",
-    "  name: vitooo",
-    "  platform: telegram"
-  ].join(String.fromCharCode(10)),
-  webhook_full: [
-    "# Konfigurasi HTTP Webhook",
-    "enabled: true",
-    "port: 8644                             # Port HTTP server di STB",
-    "# path: '/webhook'                     # Opsi: custom path URL",
-    "# secret: 'token-rahasia'              # Opsi: otentikasi Authorization"
-  ].join(String.fromCharCode(10)),
-  discord_full: [
+  discord: [
     "# Konfigurasi Discord Bot",
     "enabled: true",
-    "token: 'YOUR_DISCORD_BOT_TOKEN'        # Bot token dari Discord Developer Portal",
-    "require_mention: true                  # Hanya respons jika di-tag @bot",
-    "# allowed_channels: '123456789'        # Opsi: batasi channel ID tertentu"
+    "token: 'YOUR_DISCORD_BOT_TOKEN'",
+    "require_mention: true  # Hanya merespons jika bot di-tag @bot",
+    "# allowed_channels: '123456789'  # Opsi: batasi channel tertentu"
   ].join(String.fromCharCode(10)),
-  whatsapp_full: [
+  webhook: [
+    "# Konfigurasi HTTP Webhook Listener",
+    "enabled: true",
+    "port: 8644  # Port HTTP server di STB",
+    "# path: '/webhook'",
+    "# secret: 'token-rahasia'"
+  ].join(String.fromCharCode(10)),
+  whatsapp: [
     "# Konfigurasi WhatsApp Bridge",
     "enabled: true",
-    "# bridge_url: 'http://127.0.0.1:3000'  # URL bridge HTTP WhatsApp"
+    "# bridge_url: 'http://127.0.0.1:3000'  # URL bridge HTTP WhatsApp",
+    "# session: 'default'"
   ].join(String.fromCharCode(10)),
-  slack_full: [
+  slack: [
     "# Konfigurasi Slack Bot",
     "enabled: true",
-    "token: 'xoxb-your-bot-token'           # Bot User OAuth Token",
-    "# app_token: 'xapp-your-app-token'     # App-Level Token (Socket Mode)"
+    "token: 'xoxb-your-bot-token'",
+    "# app_token: 'xapp-your-app-token'  # Socket Mode",
+    "# allowed_channels: 'C123456'"
+  ].join(String.fromCharCode(10)),
+  matrix: [
+    "# Konfigurasi Matrix",
+    "enabled: true",
+    "homeserver: 'https://matrix.org'",
+    "user_id: '@bot:matrix.org'",
+    "access_token: 'syt_xxxx'",
+    "# allowed_rooms: '!roomid:matrix.org'"
+  ].join(String.fromCharCode(10)),
+  mattermost: [
+    "# Konfigurasi Mattermost",
+    "enabled: true",
+    "url: 'https://mattermost.example.com'",
+    "token: 'your-bot-access-token'",
+    "# team: 'your-team'"
+  ].join(String.fromCharCode(10)),
+  signal: [
+    "# Konfigurasi Signal Messenger",
+    "enabled: true",
+    "# phone_number: '+628123456789'",
+    "# http_host: '127.0.0.1'",
+    "# http_port: 8080"
+  ].join(String.fromCharCode(10)),
+  teams: [
+    "# Konfigurasi Microsoft Teams",
+    "enabled: true",
+    "app_id: 'AZURE_BOT_APP_ID'",
+    "app_password: 'AZURE_BOT_APP_PASSWORD'"
+  ].join(String.fromCharCode(10)),
+  feishu: [
+    "# Konfigurasi Feishu / Lark",
+    "enabled: true",
+    "app_id: 'cli_xxxx'",
+    "app_secret: 'xxxx'"
+  ].join(String.fromCharCode(10)),
+  google_chat: [
+    "# Konfigurasi Google Chat",
+    "enabled: true",
+    "# service_account_file: 'service_account.json'"
+  ].join(String.fromCharCode(10)),
+  dingtalk: [
+    "# Konfigurasi DingTalk",
+    "enabled: true",
+    "client_id: 'DINGTALK_CLIENT_ID'",
+    "client_secret: 'DINGTALK_CLIENT_SECRET'"
+  ].join(String.fromCharCode(10)),
+  wecom: [
+    "# Konfigurasi WeCom",
+    "enabled: true",
+    "corp_id: 'CORP_ID'",
+    "corp_secret: 'CORP_SECRET'"
+  ].join(String.fromCharCode(10)),
+  line: [
+    "# Konfigurasi LINE Messaging",
+    "enabled: true",
+    "channel_secret: 'CHANNEL_SECRET'",
+    "channel_access_token: 'CHANNEL_ACCESS_TOKEN'"
+  ].join(String.fromCharCode(10)),
+  ntfy: [
+    "# Konfigurasi ntfy Push Notification",
+    "enabled: true",
+    "topic: 'hermes-alerts'",
+    "server: 'https://ntfy.sh'"
+  ].join(String.fromCharCode(10)),
+  email: [
+    "# Konfigurasi Email Gateway (IMAP/SMTP)",
+    "enabled: true",
+    "imap_server: 'imap.gmail.com'",
+    "imap_port: 993",
+    "smtp_server: 'smtp.gmail.com'",
+    "smtp_port: 587",
+    "username: 'bot@example.com'",
+    "password: 'app-password'"
+  ].join(String.fromCharCode(10)),
+  homeassistant: [
+    "# Konfigurasi Home Assistant",
+    "enabled: true",
+    "url: 'http://homeassistant.local:8123'",
+    "token: 'LONG_LIVED_ACCESS_TOKEN'"
+  ].join(String.fromCharCode(10)),
+  simplex: [
+    "# Konfigurasi SimpleX Chat",
+    "enabled: true",
+    "# agent_address: '/tmp/simplex-agent.sock'"
+  ].join(String.fromCharCode(10)),
+  sms: [
+    "# Konfigurasi SMS Gateway (Twilio)",
+    "enabled: true",
+    "account_sid: 'AC_TWILIO_ACCOUNT_SID'",
+    "auth_token: 'TWILIO_AUTH_TOKEN'",
+    "from_number: '+1234567890'"
+  ].join(String.fromCharCode(10)),
+  irc: [
+    "# Konfigurasi IRC",
+    "enabled: true",
+    "server: 'irc.libera.chat'",
+    "port: 6697",
+    "nickname: 'hermes_bot'",
+    "# channels:",
+    "#   - '#hermes'"
+  ].join(String.fromCharCode(10)),
+  bluebubbles: [
+    "# Konfigurasi BlueBubbles (iMessage)",
+    "enabled: true",
+    "# server_url: 'http://127.0.0.1:1234'",
+    "# password: 'your-server-password'"
   ].join(String.fromCharCode(10))
 }};
 
@@ -1287,6 +1479,39 @@ function applyGwSelectedTemplate(key){{
   document.getElementById('gw-template-picker').value = '';
 }}
 
+function selectCatalogPlatform(plat){{
+  var inputEl = document.getElementById('gw-platform-input');
+  var yamlEl = document.getElementById('gw-config-yaml');
+  var titleEl = document.getElementById('gw-config-title');
+  var selectEl = document.getElementById('gw-platform-catalog-select');
+
+  if(!plat){{
+    if(inputEl) inputEl.value = '';
+    return;
+  }}
+  if(plat === 'custom'){{
+    if(inputEl){{ inputEl.value = ''; inputEl.focus(); }}
+    if(titleEl) titleEl.textContent = 'Tambah Gateway Kustom';
+    if(yamlEl && !yamlEl.value.trim()){{ yamlEl.value = 'enabled: true' + String.fromCharCode(10); }}
+    return;
+  }}
+  if(selectEl && selectEl.value !== plat) selectEl.value = plat;
+  if(inputEl) inputEl.value = plat;
+
+  var name = GW_PLATFORM_NAMES[plat] || plat.toUpperCase();
+  if(titleEl) titleEl.textContent = 'Tambah Gateway: ' + name;
+
+  if(GW_TEMPLATES[plat]){{
+    if(yamlEl) yamlEl.value = GW_TEMPLATES[plat];
+  }} else {{
+    fetch('/api/gateway-config?platform=' + encodeURIComponent(plat))
+      .then(function(r){{ return r.json(); }})
+      .then(function(d){{
+        if(d.ok && yamlEl) yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
+      }});
+  }}
+}}
+
 function openGwConfig(platform, title){{
   currentGwPlatform = platform || '';
   isNewGwPlatform = !platform;
@@ -1294,26 +1519,29 @@ function openGwConfig(platform, title){{
   var titleEl = document.getElementById('gw-config-title');
   var selectWrap = document.getElementById('gw-platform-select-wrap');
   var inputEl = document.getElementById('gw-platform-input');
+  var catalogSelect = document.getElementById('gw-platform-catalog-select');
   var yamlEl = document.getElementById('gw-config-yaml');
   var enabledChk = document.getElementById('gw-config-enabled-chk');
   var errEl = document.getElementById('gw-config-error');
   var saveBtn = document.getElementById('btn-save-gw-config');
-  
+
   if(errEl){{ errEl.style.display = 'none'; errEl.textContent = ''; }}
   if(titleEl) titleEl.textContent = title ? 'Konfigurasi: ' + title : 'Tambah Platform Gateway';
   if(saveBtn){{ saveBtn.textContent = 'Simpan'; saveBtn.disabled = false; }}
-  
+
   if(isNewGwPlatform){{
     if(selectWrap) selectWrap.style.display = 'block';
-    if(inputEl){{ inputEl.value = ''; inputEl.disabled = false; }}
-    if(yamlEl) yamlEl.value = 'enabled: true' + String.fromCharCode(10);
+    if(catalogSelect) catalogSelect.value = 'telegram';
+    if(inputEl){{ inputEl.value = 'telegram'; inputEl.disabled = false; }}
+    if(titleEl) titleEl.textContent = 'Tambah Gateway: Telegram Bot';
+    if(yamlEl) yamlEl.value = GW_TEMPLATES['telegram'] || ('enabled: true' + String.fromCharCode(10));
     if(enabledChk) enabledChk.checked = true;
     if(modal) modal.classList.add('show');
   }} else {{
     if(selectWrap) selectWrap.style.display = 'none';
     if(yamlEl) yamlEl.value = 'Memuat konfigurasi…';
     if(modal) modal.classList.add('show');
-    
+
     fetch('/api/gateway-config?platform=' + encodeURIComponent(platform))
       .then(function(r){{ return r.json(); }})
       .then(function(d){{
@@ -1336,22 +1564,6 @@ function closeGwConfig(){{
   currentGwPlatform = '';
 }}
 
-function setGwTemplate(plat){{
-  var inputEl = document.getElementById('gw-platform-input');
-  var yamlEl = document.getElementById('gw-config-yaml');
-  if(inputEl) inputEl.value = plat;
-  var tplKey = plat + '_full';
-  if(GW_TEMPLATES[tplKey]){{
-    if(yamlEl) yamlEl.value = GW_TEMPLATES[tplKey];
-  }} else {{
-    fetch('/api/gateway-config?platform=' + encodeURIComponent(plat))
-      .then(function(r){{ return r.json(); }})
-      .then(function(d){{
-        if(d.ok && yamlEl) yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
-      }});
-  }}
-}}
-
 function saveGwConfig(){{
   var inputEl = document.getElementById('gw-platform-input');
   var yamlEl = document.getElementById('gw-config-yaml');
@@ -1359,27 +1571,27 @@ function saveGwConfig(){{
   var restartChk = document.getElementById('gw-config-restart-chk');
   var errEl = document.getElementById('gw-config-error');
   var saveBtn = document.getElementById('btn-save-gw-config');
-  
+
   var plat = isNewGwPlatform ? (inputEl ? inputEl.value.trim().toLowerCase() : '') : currentGwPlatform;
   if(!plat){{
     if(errEl){{ errEl.textContent = 'Pilih atau ketik nama platform.'; errEl.style.display = 'block'; }}
     return;
   }}
-  
+
   var yamlContent = yamlEl ? yamlEl.value : '';
   var isEnabled = enabledChk ? enabledChk.checked : true;
   var restartGw = restartChk ? restartChk.checked : true;
-  
+
   if(saveBtn){{ saveBtn.textContent = 'Menyimpan…'; saveBtn.disabled = true; }}
   if(errEl) errEl.style.display = 'none';
-  
+
   var payload = {{
     platform: plat,
     yaml: yamlContent,
     enabled: isEnabled,
     restart_gw: restartGw
   }};
-  
+
   fetch('/save-gateway-platform', {{
     method: 'POST',
     headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
@@ -1653,18 +1865,30 @@ def _platform_icon(platform: str) -> str:
         return _icon('<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>', size=16)
     if p == "slack":
         return _icon('<line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>', size=16)
+    if p == "matrix":
+        return _icon('<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/>', size=16)
+    if p in ("teams", "feishu", "google_chat", "wecom", "dingtalk"):
+        return _icon('<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', size=16)
+    if p in ("signal", "simplex"):
+        return _icon('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', size=16)
+    if p == "email":
+        return _icon('<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>', size=16)
+    if p == "ntfy":
+        return _icon('<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>', size=16)
+    if p == "homeassistant":
+        return _icon('<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>', size=16)
     return ICON_BOT
 
 
 def _platform_icon_box_class(platform: str) -> str:
     p = platform.lower()
-    if p == "telegram":
+    if p in ("telegram", "signal", "mattermost", "homeassistant"):
         return "cc-icon-blue"
-    if p == "webhook":
+    if p in ("webhook", "ntfy", "line"):
         return "cc-icon-orange"
-    if p == "discord":
+    if p in ("discord", "slack", "teams", "feishu"):
         return "cc-icon-purple"
-    if p == "whatsapp":
+    if p in ("whatsapp", "matrix", "email", "google_chat"):
         return "cc-icon-green"
     return "cc-icon-blue"
 
@@ -1764,10 +1988,23 @@ def _probe_gateway_platforms() -> list[dict]:
             "webhook": "HTTP Webhook",
             "discord": "Discord Bot",
             "whatsapp": "WhatsApp",
-            "slack": "Slack",
-            "signal": "Signal",
-            "mattermost": "Mattermost",
+            "slack": "Slack Bot",
             "matrix": "Matrix",
+            "mattermost": "Mattermost",
+            "signal": "Signal Messenger",
+            "teams": "Microsoft Teams",
+            "feishu": "Feishu / Lark",
+            "google_chat": "Google Chat",
+            "dingtalk": "DingTalk",
+            "wecom": "WeCom",
+            "line": "LINE Messaging",
+            "ntfy": "ntfy Push",
+            "email": "Email Gateway",
+            "homeassistant": "Home Assistant",
+            "simplex": "SimpleX Chat",
+            "sms": "SMS (Twilio)",
+            "irc": "IRC",
+            "bluebubbles": "BlueBubbles",
         }
         display_name = labels_map.get(p, p.capitalize())
 
@@ -1913,11 +2150,27 @@ def get_gateway_platform_config(plat: str) -> dict:
         cfg_platforms = {}
 
     known_templates = {
-        "telegram": {"enabled": True, "home_channel": {"name": "", "chat_id": "", "platform": "telegram"}},
-        "webhook": {"enabled": True, "port": 8644},
+        "telegram": {"enabled": True, "reactions": True, "reply_to_mode": "first", "home_channel": {"name": "vitooo", "chat_id": "1992783463", "platform": "telegram"}},
         "discord": {"enabled": True, "token": "", "require_mention": True},
-        "whatsapp": {"enabled": True},
-        "slack": {"enabled": True, "token": ""},
+        "webhook": {"enabled": True, "port": 8644},
+        "whatsapp": {"enabled": True, "bridge_url": "http://127.0.0.1:3000"},
+        "slack": {"enabled": True, "token": "", "app_token": ""},
+        "matrix": {"enabled": True, "homeserver": "https://matrix.org", "user_id": "@bot:matrix.org", "access_token": ""},
+        "mattermost": {"enabled": True, "url": "https://mattermost.example.com", "token": ""},
+        "signal": {"enabled": True, "phone_number": "", "http_host": "127.0.0.1", "http_port": 8080},
+        "teams": {"enabled": True, "app_id": "", "app_password": ""},
+        "feishu": {"enabled": True, "app_id": "", "app_secret": ""},
+        "google_chat": {"enabled": True, "service_account_file": "credentials.json"},
+        "dingtalk": {"enabled": True, "client_id": "", "client_secret": ""},
+        "wecom": {"enabled": True, "corp_id": "", "corp_secret": ""},
+        "line": {"enabled": True, "channel_secret": "", "channel_access_token": ""},
+        "ntfy": {"enabled": True, "topic": "hermes-alerts", "server": "https://ntfy.sh"},
+        "email": {"enabled": True, "imap_server": "imap.gmail.com", "imap_port": 993, "smtp_server": "smtp.gmail.com", "smtp_port": 587, "username": "", "password": ""},
+        "homeassistant": {"enabled": True, "url": "http://homeassistant.local:8123", "token": ""},
+        "simplex": {"enabled": True, "agent_address": "/tmp/simplex-agent.sock"},
+        "sms": {"enabled": True, "account_sid": "", "auth_token": "", "from_number": ""},
+        "irc": {"enabled": True, "server": "irc.libera.chat", "port": 6697, "nickname": "hermes_bot"},
+        "bluebubbles": {"enabled": True, "server_url": "http://127.0.0.1:1234", "password": ""},
     }
 
     if plat and plat in cfg_platforms and isinstance(cfg_platforms[plat], dict):
