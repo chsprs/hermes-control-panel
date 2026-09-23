@@ -1206,7 +1206,7 @@ function openGwConfig(platform, title){{
   if(isNewGwPlatform){{
     if(selectWrap) selectWrap.style.display = 'block';
     if(inputEl){{ inputEl.value = ''; inputEl.disabled = false; }}
-    if(yamlEl) yamlEl.value = 'enabled: true\n';
+    if(yamlEl) yamlEl.value = 'enabled: true' + String.fromCharCode(10);
     if(enabledChk) enabledChk.checked = true;
     if(modal) modal.classList.add('show');
   }} else {{
@@ -1218,7 +1218,7 @@ function openGwConfig(platform, title){{
       .then(function(r){{ return r.json(); }})
       .then(function(d){{
         if(d.ok){{
-          if(yamlEl) yamlEl.value = d.yaml || 'enabled: true\n';
+          if(yamlEl) yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
           if(enabledChk) enabledChk.checked = !!d.enabled;
         }} else {{
           if(errEl){{ errEl.textContent = d.error || 'Gagal memuat konfigurasi'; errEl.style.display = 'block'; }}
@@ -1243,7 +1243,7 @@ function setGwTemplate(plat){{
   fetch('/api/gateway-config?platform=' + encodeURIComponent(plat))
     .then(function(r){{ return r.json(); }})
     .then(function(d){{
-      if(d.ok && yamlEl) yamlEl.value = d.yaml || 'enabled: true\n';
+      if(d.ok && yamlEl) yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
     }});
 }}
 
