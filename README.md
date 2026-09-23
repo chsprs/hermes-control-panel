@@ -23,6 +23,7 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
 ## 🚀 Fitur Utama
 
 - ⚡ **Zero-Dependency & Hemat Resource**: Berjalan di atas Python standard library murni (`http.server`, `threading`, `json`, `urllib`). Tanpa runtime Node.js/frontend bundler, memori stabil di kisaran ~18–22MB RAM.
+- 🔐 **Session Cookie Authentication**: Token tidak lagi menempel permanen di URL. Akses `?token=` sekali → server terbitkan cookie `HttpOnly` + `SameSite=Strict` dan redirect ke URL bersih `/status`. Seluruh mutasi dikunci ke HTTP POST (GET → `405 Method Not Allowed`), kecuali shortcut CasaOS (`/toggle`, `/on`, `/off`) dengan token valid. Tanpa `PANEL_TOKEN` server menolak start.
 - 📊 **Tampilan Manajer Proses**:
   - **Tab Proses**: Monitoring daftar proses sistem & container (`hermes-gateway`, `9router`, `cloudflared`, `hermes-dashboard`, dll.) dengan status, PID, memori, dan aksi End Task / Restart / Start langsung dari web.
   - **Tab Performa**: Grafik riwayat pemakaian CPU dan Memori (DDR4 + ZRAM) real-time menggunakan SVG sparkline tanpa dependensi chart JS eksternal.
@@ -33,6 +34,7 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
 - 🛡️ **Model Cadangan (Fallback)**: Susun prioritas model backup bertingkat yang otomatis dipanggil saat model utama terkena limit atau error (HTTP 429/500), tersimpan langsung ke `config.yaml`.
 - 🧩 **Auxiliary Task Models**: Konfigurasi model AI terpisah untuk tugas-tugas spesifik (Vision, Context Compression, Skills Hub, MCP, Delegation, Approval, Title Generation, Triage, Curator).
 - 📜 **Patch Notes Updater**: Menampilkan log pembaruan changelog terkini dari upstream GitHub secara otomatis di bawah tombol update.
+- ⏱️ **TTL Probe Cache**: Probe berat (IP Tailscale, eMMC health, tabel proses, statistik disk) di-cache TTL singkat sehingga SSE tetap enteng di SoC Armbian.
 - 📦 **Updater Terintegrasi & Aman**:
   - Update container 9router dengan proteksi OOM (otomatis menghentikan container sebelum `docker pull`).
   - Update native Hermes Agent resmi (`hermes update --yes`).
@@ -82,7 +84,7 @@ Service dikelola melalui systemd pada berkas `/etc/systemd/system/hermes-panel.s
 
 | Variabel | Default | Keterangan |
 |---|---|---|
-| `PANEL_TOKEN` | `vita-stb-2026` | Token autentikasi URL akses panel (`?token=...`) |
+| `PANEL_TOKEN` | *(auto-generate)* | Token autentikasi akses pertama (`?token=...`). **Wajib** — panel menolak start tanpa ini |
 | `PANEL_PORT` | `9120` | Port listening HTTP web panel |
 | `HERMES_CONFIG_PATH` | `/root/.hermes/config.yaml` | Lokasi berkas konfigurasi Hermes |
 | `ROUTER_COMPOSE_DIR` | `/opt/AppData/9router` | Direktori docker-compose 9router |
@@ -100,6 +102,29 @@ Setelah mengubah konfigurasi unit systemd:
 sudo systemctl daemon-reload
 sudo systemctl restart hermes-panel.service
 ```
+
+### 🔑 Cara Login Panel
+
+1. Buka `http://<IP_SERVER>:9120/?token=<PANEL_TOKEN>` **satu kali** di browser.
+2. Server menukar token dengan cookie sesi `hermes_panel_session` (HttpOnly, SameSite=Strict), lalu redirect ke URL bersih `/status` — token tidak tersimpan di address bar maupun riwayat browser.
+3. Klik tombol aksi selanjutnya dikirim sebagai HTTP POST oleh JavaScript panel; request GET pada rute mutasi akan ditolak `405`.
+
+> ℹ️ Token diambil dari output installer, atau cek kapan pun via:
+> ```bash
+> grep PANEL_TOKEN /etc/systemd/system/hermes-panel.service
+> ```
+
+---
+
+## 🧪 Test Suite
+
+Repositori menyertakan unit test tanpa dependensi eksternal:
+
+```bash
+python3 -m unittest -v tests/test_panel.py
+```
+
+Mencakup 16 skenario: updater error handling, propagasi gagal tulis config (HTTP 500), deduplikasi request model API, deteksi eMMC portable, hostname dinamis, auth cookie/session (403/302/200), penegakan 405/POST, dan TTL cache probe.
 
 ---
 
