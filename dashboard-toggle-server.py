@@ -387,6 +387,20 @@ a.open:hover{{background:linear-gradient(135deg,#2563eb,#3b82f6);box-shadow:0 6p
 .btn-action-primary{{background:rgba(59,130,246,0.18);color:var(--accent-light);border:1px solid rgba(59,130,246,0.4)}}
 .btn-action-primary:hover{{background:rgba(59,130,246,0.32);border-color:var(--accent);color:#fff}}
 
+/* Gateway Platform Card Responsive Elements */
+.gw-card-row{{display:flex;flex-direction:column;gap:.6rem;padding:.75rem .9rem;
+background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:.55rem;
+transition:background .15s ease,border-color .15s ease}}
+.gw-card-row:hover{{background:rgba(255,255,255,0.035);border-color:rgba(255,255,255,0.12)}}
+.gw-card-top{{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-width:0;width:100%}}
+.gw-card-left{{display:flex;align-items:center;gap:.75rem;min-width:0;flex:1}}
+.gw-card-info{{min-width:0;flex:1}}
+.gw-card-title-wrap{{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;line-height:1.2}}
+.gw-card-title{{font-size:.85rem;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.gw-card-meta{{font-family:var(--font-mono);font-size:.72rem;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:.15rem}}
+.gw-card-badge-wrap{{flex-shrink:0;display:flex;align-items:center}}
+.gw-card-bottom{{display:flex;align-items:center;justify-content:flex-end;gap:.45rem;padding-top:.45rem;border-top:1px solid rgba(255,255,255,0.05);flex-wrap:wrap;width:100%}}
+
 /* Model Selector Chips & Groups */
 .models-container{{display:flex;flex-direction:column;gap:1.1rem;width:100%}}
 .model-group-title{{display:flex;align-items:center;gap:.4rem;font-size:.72rem;font-family:var(--font-mono);
@@ -633,15 +647,41 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       </div>
     </div>
 
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
-      <label style="font-size:0.75rem;color:var(--text-muted)">Pengaturan YAML (<code>platforms.&lt;nama&gt;</code>)</label>
-      <label style="font-size:0.75rem;display:inline-flex;align-items:center;gap:0.35rem;cursor:pointer">
-        <input type="checkbox" id="gw-config-enabled-chk" checked style="accent-color:var(--accent)">
-        <span>Aktifkan Platform</span>
-      </label>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem;flex-wrap:wrap;gap:0.4rem">
+      <div style="display:flex;align-items:center;gap:0.45rem">
+        <label style="font-size:0.75rem;color:var(--text-muted);font-weight:600">Pengaturan YAML (<code>platforms.&lt;nama&gt;</code>)</label>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+        <select id="gw-template-picker" onchange="applyGwSelectedTemplate(this.value)" class="search-input" style="width:auto;margin:0;padding:0.2rem 0.5rem;font-size:0.72rem;background:rgba(255,255,255,0.06);color:var(--accent-light);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-sm);cursor:pointer">
+          <option value="">📋 Muat Contoh Template...</option>
+          <option value="telegram_full">Telegram (Lengkap: Filter Chat &amp; Reaksi)</option>
+          <option value="telegram_simple">Telegram (Standar Minimal)</option>
+          <option value="webhook_full">HTTP Webhook (Port &amp; Secret)</option>
+          <option value="discord_full">Discord (Token &amp; Mention Only)</option>
+          <option value="whatsapp_full">WhatsApp (Bridge URL)</option>
+          <option value="slack_full">Slack (Bot &amp; App Token)</option>
+        </select>
+        <label style="font-size:0.75rem;display:inline-flex;align-items:center;gap:0.35rem;cursor:pointer">
+          <input type="checkbox" id="gw-config-enabled-chk" checked style="accent-color:var(--accent)">
+          <span>Aktifkan</span>
+        </label>
+      </div>
     </div>
 
-    <textarea id="gw-config-yaml" spellcheck="false" style="width:100%;height:220px;max-height:35vh;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:var(--radius-sm);color:#e2e8f0;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;outline:none;box-sizing:border-box" placeholder="enabled: true..."></textarea>
+    <textarea id="gw-config-yaml" spellcheck="false" style="width:100%;height:200px;max-height:32vh;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:var(--radius-sm);color:#e2e8f0;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;outline:none;box-sizing:border-box" placeholder="enabled: true..."></textarea>
+
+    <details style="margin-top:0.4rem;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.35rem 0.55rem;font-size:0.71rem">
+      <summary style="cursor:pointer;color:var(--accent-light);font-weight:600;user-select:none">💡 Panduan Kunci &amp; Contoh Format</summary>
+      <div style="margin-top:0.35rem;color:var(--text-muted);line-height:1.45;display:flex;flex-direction:column;gap:0.25rem">
+        <div>• <code>enabled: true</code> / <code>false</code> — Hidupkan atau matikan gateway platform.</div>
+        <div>• <code>token: "..."</code> — Token bot Telegram / Discord / Slack (opsional jika sudah di .env).</div>
+        <div>• <code>port: 8644</code> — Port HTTP listener (khusus Webhook).</div>
+        <div>• <code>allowed_chats: "1992783463, ..."</code> — Batasi bot agar hanya membalas chat ID tertentu.</div>
+        <div>• <code>require_mention: true</code> — Hanya merespons jika bot di-tag @bot (Discord).</div>
+        <div>• <code>reactions: true</code> — Izinkan bot memberi emoji reaction pada pesan (Telegram).</div>
+        <div>• <code>home_channel: {{ chat_id: '...', name: '...', platform: '...' }}</code> — Kanal utama notifikasi.</div>
+      </div>
+    </details>
 
     <div id="gw-config-error" style="display:none;color:var(--danger);font-size:0.75rem;margin-top:0.4rem;padding:0.35rem 0.5rem;background:var(--danger-dim);border-radius:var(--radius-sm);border:1px solid rgba(239,68,68,0.3)"></div>
 
@@ -1187,6 +1227,66 @@ restorePatchPages();
 var currentGwPlatform = '';
 var isNewGwPlatform = false;
 
+var GW_TEMPLATES = {{
+  telegram_full: [
+    "# Konfigurasi Lengkap Platform Telegram",
+    "enabled: true",
+    "# token: 'BOT_TOKEN_JIKA_TIDAK_DI_ENV'  # Opsi: jika tidak di .env",
+    "# allowed_chats: '1992783463'          # Opsi: batasi hanya merespons ID ini",
+    "reactions: true                        # Opsi: bot memberi emoji reaksi",
+    "reply_to_mode: 'first'                 # Opsi: 'first', 'all', atau 'off'",
+    "home_channel:",
+    "  chat_id: '1992783463'",
+    "  name: vitooo",
+    "  platform: telegram"
+  ].join(String.fromCharCode(10)),
+  telegram_simple: [
+    "# Konfigurasi Standar Telegram",
+    "enabled: true",
+    "home_channel:",
+    "  chat_id: '1992783463'",
+    "  name: vitooo",
+    "  platform: telegram"
+  ].join(String.fromCharCode(10)),
+  webhook_full: [
+    "# Konfigurasi HTTP Webhook",
+    "enabled: true",
+    "port: 8644                             # Port HTTP server di STB",
+    "# path: '/webhook'                     # Opsi: custom path URL",
+    "# secret: 'token-rahasia'              # Opsi: otentikasi Authorization"
+  ].join(String.fromCharCode(10)),
+  discord_full: [
+    "# Konfigurasi Discord Bot",
+    "enabled: true",
+    "token: 'YOUR_DISCORD_BOT_TOKEN'        # Bot token dari Discord Developer Portal",
+    "require_mention: true                  # Hanya respons jika di-tag @bot",
+    "# allowed_channels: '123456789'        # Opsi: batasi channel ID tertentu"
+  ].join(String.fromCharCode(10)),
+  whatsapp_full: [
+    "# Konfigurasi WhatsApp Bridge",
+    "enabled: true",
+    "# bridge_url: 'http://127.0.0.1:3000'  # URL bridge HTTP WhatsApp"
+  ].join(String.fromCharCode(10)),
+  slack_full: [
+    "# Konfigurasi Slack Bot",
+    "enabled: true",
+    "token: 'xoxb-your-bot-token'           # Bot User OAuth Token",
+    "# app_token: 'xapp-your-app-token'     # App-Level Token (Socket Mode)"
+  ].join(String.fromCharCode(10))
+}};
+
+function applyGwSelectedTemplate(key){{
+  if(!key || !GW_TEMPLATES[key]) return;
+  var yamlEl = document.getElementById('gw-config-yaml');
+  if(!yamlEl) return;
+  if(yamlEl.value.trim() && !confirm('Muat template contoh? Teks konfigurasi saat ini akan diganti dengan template pilihan.')){{
+    document.getElementById('gw-template-picker').value = '';
+    return;
+  }}
+  yamlEl.value = GW_TEMPLATES[key];
+  document.getElementById('gw-template-picker').value = '';
+}}
+
 function openGwConfig(platform, title){{
   currentGwPlatform = platform || '';
   isNewGwPlatform = !platform;
@@ -1240,11 +1340,16 @@ function setGwTemplate(plat){{
   var inputEl = document.getElementById('gw-platform-input');
   var yamlEl = document.getElementById('gw-config-yaml');
   if(inputEl) inputEl.value = plat;
-  fetch('/api/gateway-config?platform=' + encodeURIComponent(plat))
-    .then(function(r){{ return r.json(); }})
-    .then(function(d){{
-      if(d.ok && yamlEl) yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
-    }});
+  var tplKey = plat + '_full';
+  if(GW_TEMPLATES[tplKey]){{
+    if(yamlEl) yamlEl.value = GW_TEMPLATES[tplKey];
+  }} else {{
+    fetch('/api/gateway-config?platform=' + encodeURIComponent(plat))
+      .then(function(r){{ return r.json(); }})
+      .then(function(d){{
+        if(d.ok && yamlEl) yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
+      }});
+  }}
 }}
 
 function saveGwConfig(){{
@@ -1744,10 +1849,10 @@ def render_gateway_platforms_html() -> str:
         box_cls = _platform_icon_box_class(p["platform"])
 
         cfg_badge = (
-            '<span class="badge" style="background:rgba(59,130,246,0.12);color:var(--accent-light);'
-            'border:1px solid rgba(59,130,246,0.25);font-size:.62rem;padding:.08rem .35rem">Config Aktif</span>'
+            '<span class="badge" style="display:inline-flex;align-items:center;background:rgba(59,130,246,0.12);color:var(--accent-light);'
+            'border:1px solid rgba(59,130,246,0.25);font-size:.62rem;padding:.08rem .35rem;border-radius:4px;white-space:nowrap;line-height:1.2">Config Aktif</span>'
             if p["enabled"] else
-            '<span class="badge badge-muted" style="font-size:.62rem;padding:.08rem .35rem">Config Nonaktif</span>'
+            '<span class="badge badge-muted" style="display:inline-flex;align-items:center;font-size:.62rem;padding:.08rem .35rem;border-radius:4px;white-space:nowrap;line-height:1.2">Config Nonaktif</span>'
         )
 
         err_div = ""
@@ -1770,22 +1875,26 @@ def render_gateway_platforms_html() -> str:
         edit_btn = f'<button type="button" class="btn-action-sm" onclick="openGwConfig(\'{safe_p}\', \'{safe_name}\')">Atur</button>'
 
         rows.append(
-            f'<div class="aux-task-row" style="margin-bottom:0.45rem">'
-            f'  <div style="display:flex;align-items:center;gap:.75rem;min-width:0;flex:1">'
-            f'    <div class="cc-icon-box {box_cls}" style="width:34px;height:34px;min-width:34px;border-radius:10px">'
-            f'      {icon_svg}'
-            f'    </div>'
-            f'    <div class="aux-task-info">'
-            f'      <div class="aux-task-title">'
-            f'        <span class="aux-task-name">{name}</span>'
-            f'        {cfg_badge}'
+            f'<div class="gw-card-row">'
+            f'  <div class="gw-card-top">'
+            f'    <div class="gw-card-left">'
+            f'      <div class="cc-icon-box {box_cls}" style="width:34px;height:34px;min-width:34px;border-radius:10px">'
+            f'        {icon_svg}'
             f'      </div>'
-            f'      <div class="mono-sub" style="color:var(--text-dim);font-size:.72rem">{meta}</div>'
-            f'      {err_div}'
+            f'      <div class="gw-card-info">'
+            f'        <div class="gw-card-title-wrap">'
+            f'          <span class="gw-card-title">{name}</span>'
+            f'          {cfg_badge}'
+            f'        </div>'
+            f'        <div class="gw-card-meta">{meta}</div>'
+            f'        {err_div}'
+            f'      </div>'
+            f'    </div>'
+            f'    <div class="gw-card-badge-wrap">'
+            f'      <span class="badge {b_cls}" style="display:inline-flex;align-items:center;white-space:nowrap">{b_label}</span>'
             f'    </div>'
             f'  </div>'
-            f'  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
-            f'    <span class="badge {b_cls}">{b_label}</span>'
+            f'  <div class="gw-card-bottom">'
             f'    {toggle_btn}'
             f'    {edit_btn}'
             f'    {del_btn}'
