@@ -218,17 +218,23 @@ class TestHermesControlPanel(unittest.TestCase):
 
     def test_15_mutation_method_enforcement(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
-        # 1. GET to mutating route without shortcut -> 405 Method Not Allowed
-        code, _, _ = self._request("/restart-bot", method="GET", headers={"Cookie": cookie})
-        self.assertEqual(code, 405)
+        with mock.patch.object(panel, "restart_bot") as mock_restart, \
+             mock.patch.object(panel.subprocess, "run") as mock_run:
+            # 1. GET to mutating route without shortcut -> 405 Method Not Allowed
+            code, _, _ = self._request("/restart-bot", method="GET", headers={"Cookie": cookie})
+            self.assertEqual(code, 405)
+            mock_restart.assert_not_called()
 
-        # 2. POST to mutating route -> allowed (302)
-        code, headers, _ = self._request("/restart-bot", method="POST", headers={"Cookie": cookie})
-        self.assertEqual(code, 302)
+            # 2. POST to mutating route -> allowed (302)
+            code, headers, _ = self._request("/restart-bot", method="POST", headers={"Cookie": cookie})
+            self.assertEqual(code, 302)
+            mock_restart.assert_called_once()
 
-        # 3. GET shortcut with token (CasaOS compat) -> allowed (302)
-        code, headers, _ = self._request(f"/toggle?token={panel.TOKEN}", method="GET")
-        self.assertEqual(code, 302)
+            # 3. GET shortcut with token (CasaOS compat) -> allowed (302)
+            panel._last_action_at = 0.0
+            code, headers, _ = self._request(f"/toggle?token={panel.TOKEN}", method="GET")
+            self.assertEqual(code, 302)
+            mock_run.assert_called()
 
     # --- PR 7: Status probe TTL cache ---
     def test_16_status_probe_ttl_caching(self):
