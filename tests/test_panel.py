@@ -384,6 +384,112 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn('id="cell-gw-platforms"', page)
         self.assertIn('id="gw-summary-badge"', page)
         self.assertIn("Platform Gateway", page)
+        self.assertIn('id="gw-config-modal"', page)
+
+    def test_20_gateway_platform_config_retrieval_and_templates(self):
+        """get_gateway_platform_config returns existing YAML or prefilled templates."""
+        mock_cfg = {
+            "platforms": {
+                "telegram": {
+                    "enabled": True,
+                    "home_channel": {"chat_id": "12345", "name": "vitooo", "platform": "telegram"},
+                }
+            }
+        }
+        with mock.patch.object(panel, "get_parsed_config", return_value=mock_cfg):
+            res_tg = panel.get_gateway_platform_config("telegram")
+            self.assertTrue(res_tg["ok"])
+            self.assertFalse(res_tg["is_new"])
+            self.assertIn("12345", res_tg["yaml"])
+            self.assertTrue(res_tg["enabled"])
+
+            res_slack = panel.get_gateway_platform_config("slack")
+            self.assertTrue(res_slack["ok"])
+            self.assertTrue(res_slack["is_new"])
+            self.assertIn("token", res_slack["yaml"])
+
+    def test_21_gateway_platform_config_save_and_validation(self):
+        """save_gateway_platform_config validates YAML and updates atomically."""
+        import tempfile
+        with tempfile.NamedTemporaryFile("w+", suffix=".yaml", delete=False) as tf:
+            panel.yaml.safe_dump({"platforms": {"telegram": {"enabled": True}}}, tf)
+            tmp_path = tf.name
+
+        try:
+            with mock.patch.object(panel, "CONFIG_PATH", tmp_path):
+                # 1. Invalid platform name
+                ok, err = panel.save_gateway_platform_config("bad name!", "enabled: true")
+                self.assertFalse(ok)
+                self.assertIn("huruf kecil", err)
+
+                # 2. Invalid YAML syntax
+                ok, err = panel.save_gateway_platform_config("slack", "enabled: [unclosed")
+                self.assertFalse(ok)
+                self.assertIn("Sintaks YAML tidak valid", err)
+
+                # 3. Valid custom config with extra keys
+                custom_yaml = "enabled: true\ntoken: xoxb-secret\nchannels:\n  - '#dev'\n"
+                ok, err = panel.save_gateway_platform_config("slack", custom_yaml)
+                self.assertTrue(ok)
+
+                with open(tmp_path, "r", encoding="utf-8") as rf:
+                    saved = panel.yaml.safe_load(rf)
+                self.assertEqual(saved["platforms"]["slack"]["token"], "xoxb-secret")
+                self.assertEqual(saved["platforms"]["slack"]["channels"], ["#dev"])
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    def test_22_gateway_platform_toggle_and_remove(self):
+        """toggle_gateway_platform_config and remove_gateway_platform_config mutate config safely."""
+        import tempfile
+        with tempfile.NamedTemporaryFile("w+", suffix=".yaml", delete=False) as tf:
+            panel.yaml.safe_dump({
+                "platforms": {
+                    "telegram": {"enabled": True},
+                    "discord": {"enabled": False}
+                }
+            }, tf)
+            tmp_path = tf.name
+
+        try:
+            with mock.patch.object(panel, "CONFIG_PATH", tmp_path):
+                # Toggle discord to True
+                ok, _ = panel.toggle_gateway_platform_config("discord", True)
+                self.assertTrue(ok)
+                with open(tmp_path) as rf:
+                    self.assertTrue(panel.yaml.safe_load(rf)["platforms"]["discord"]["enabled"])
+
+                # Remove discord
+                ok, _ = panel.remove_gateway_platform_config("discord")
+                self.assertTrue(ok)
+                with open(tmp_path) as rf:
+                    self.assertNotIn("discord", panel.yaml.safe_load(rf)["platforms"])
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    def test_23_gateway_platform_http_endpoints(self):
+        """HTTP endpoints /api/gateway-config and mutations work with proper auth."""
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+
+        # 1. GET /api/gateway-config
+        code, headers, body = self._request("/api/gateway-config?platform=telegram", method="GET", headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        data = json.loads(body if isinstance(body, str) else body.decode("utf-8"))
+        self.assertTrue(data.get("ok"))
+
+        # 2. POST /save-gateway-platform
+        with mock.patch.object(panel, "restart_bot") as mock_restart, \
+             mock.patch.object(panel, "save_gateway_platform_config", return_value=(True, "")):
+            code, _, body = self._request(
+                "/save-gateway-platform",
+                method="POST",
+                headers={"Cookie": cookie, "Content-Type": "application/json", "Accept": "application/json"},
+                data=json.dumps({"platform": "telegram", "yaml": "enabled: true\n", "restart_gw": True}).encode("utf-8")
+            )
+            self.assertEqual(code, 200)
+            mock_restart.assert_called_once()
 
 
 if __name__ == "__main__":

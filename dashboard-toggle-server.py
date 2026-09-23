@@ -82,6 +82,7 @@ MUTATING_PATHS = frozenset({
     "/set-aux-model", "/reset-aux",
     "/set-fallback-model", "/remove-fallback-model",
     "/process-action",
+    "/save-gateway-platform", "/toggle-gateway-platform", "/remove-gateway-platform",
 })
 LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off"})
 ROUTER_URL = "http://{host}:20128/"
@@ -383,6 +384,8 @@ a.open:hover{{background:linear-gradient(135deg,#2563eb,#3b82f6);box-shadow:0 6p
 .btn-action-sm:hover{{background:rgba(255,255,255,0.12);border-color:var(--border-hover);color:#fff}}
 .btn-action-danger{{background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.3)}}
 .btn-action-danger:hover{{background:rgba(239,68,68,0.25);border-color:var(--danger);color:#fff}}
+.btn-action-primary{{background:rgba(59,130,246,0.18);color:var(--accent-light);border:1px solid rgba(59,130,246,0.4)}}
+.btn-action-primary:hover{{background:rgba(59,130,246,0.32);border-color:var(--accent);color:#fff}}
 
 /* Model Selector Chips & Groups */
 .models-container{{display:flex;flex-direction:column;gap:1.1rem;width:100%}}
@@ -461,9 +464,9 @@ opacity:0;pointer-events:none;transition:opacity .15s var(--ease);z-index:200}}
 border-top-color:var(--accent-light);border-radius:50%;animation:spin .7s linear infinite}}
 #navloader span{{color:var(--text-muted);font-size:.82rem;font-family:var(--font-mono)}}
 /* Confirm modal */
-#confirm-modal, #aux-picker-modal{{position:fixed;inset:0;background:rgba(7,9,14,0.85);backdrop-filter:blur(8px);
+#confirm-modal, #aux-picker-modal, #gw-config-modal{{position:fixed;inset:0;background:rgba(7,9,14,0.85);backdrop-filter:blur(8px);
 display:none;align-items:center;justify-content:center;z-index:300;padding:1.5rem}}
-#confirm-modal.show, #aux-picker-modal.show{{display:flex}}
+#confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show{{display:flex}}
 .confirm-box{{background:rgba(22,27,38,0.95);border:1px solid var(--border-hover);
 border-radius:var(--radius-xl);padding:1.6rem 1.5rem;max-width:360px;width:100%;
 box-shadow:0 12px 48px rgba(0,0,0,0.7);backdrop-filter:blur(20px)}}
@@ -608,6 +611,49 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     </div>
     <input type="text" id="aux-model-search" class="search-input" placeholder="Cari model… (saring)" oninput="filterAuxPicker(this.value)" style="margin-bottom:0.8rem">
     <div id="aux-picker-list" style="overflow-y:auto;flex:1;max-height:55vh;display:flex;flex-direction:column;gap:0.45rem;padding-right:2px">
+    </div>
+  </div>
+</div>
+<div id="gw-config-modal">
+  <div class="confirm-box" style="max-width:580px;width:94%;max-height:88vh;display:flex;flex-direction:column;padding:1.4rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+      <h3 id="gw-config-title" style="margin:0;font-size:1.05rem">Konfigurasi Gateway</h3>
+      <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeGwConfig()">✕</button>
+    </div>
+
+    <div id="gw-platform-select-wrap" style="margin-bottom:0.75rem;display:none">
+      <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Nama Platform</label>
+      <input type="text" id="gw-platform-input" class="search-input" placeholder="contoh: slack, discord, whatsapp..." style="margin-bottom:0.4rem">
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:0.5rem">
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="setGwTemplate('discord')">Discord</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="setGwTemplate('slack')">Slack</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="setGwTemplate('whatsapp')">WhatsApp</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="setGwTemplate('webhook')">Webhook</span>
+        <span class="model-chip" style="font-size:0.7rem;padding:0.15rem 0.45rem;cursor:pointer" onclick="setGwTemplate('telegram')">Telegram</span>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+      <label style="font-size:0.75rem;color:var(--text-muted)">Pengaturan YAML (<code>platforms.&lt;nama&gt;</code>)</label>
+      <label style="font-size:0.75rem;display:inline-flex;align-items:center;gap:0.35rem;cursor:pointer">
+        <input type="checkbox" id="gw-config-enabled-chk" checked style="accent-color:var(--accent)">
+        <span>Aktifkan Platform</span>
+      </label>
+    </div>
+
+    <textarea id="gw-config-yaml" spellcheck="false" style="width:100%;height:220px;max-height:35vh;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:var(--radius-sm);color:#e2e8f0;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;outline:none;box-sizing:border-box" placeholder="enabled: true..."></textarea>
+
+    <div id="gw-config-error" style="display:none;color:var(--danger);font-size:0.75rem;margin-top:0.4rem;padding:0.35rem 0.5rem;background:var(--danger-dim);border-radius:var(--radius-sm);border:1px solid rgba(239,68,68,0.3)"></div>
+
+    <div style="margin-top:0.75rem;display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap">
+      <label style="font-size:0.72rem;color:var(--text-dim);display:inline-flex;align-items:center;gap:0.35rem;cursor:pointer">
+        <input type="checkbox" id="gw-config-restart-chk" checked style="accent-color:var(--accent)">
+        <span>Mulai ulang gateway setelah simpan</span>
+      </label>
+      <div style="display:flex;gap:0.5rem">
+        <button type="button" class="btn" style="width:auto;margin:0" onclick="closeGwConfig()">Batal</button>
+        <button type="button" class="btn btn-action-primary" id="btn-save-gw-config" style="width:auto;margin:0;font-weight:600" onclick="saveGwConfig()">Simpan</button>
+      </div>
     </div>
   </div>
 </div>
@@ -814,10 +860,13 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   <div class="card card-info" style="margin-bottom:1.25rem">
     <div class="aux-header">
       <div class="card-title" style="margin-bottom:0">{icon_bot} Platform Gateway Perpesanan</div>
-      <span class="badge {gw_summary_badge_class}" id="gw-summary-badge">{gw_summary_text}</span>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span class="badge {gw_summary_badge_class}" id="gw-summary-badge">{gw_summary_text}</span>
+        <button type="button" class="btn-action-sm" onclick="openGwConfig('', 'Platform Baru')">+ Tambah Gateway</button>
+      </div>
     </div>
     <div class="aux-desc">
-      Daftar platform komunikasi yang terkonfigurasi di <code>config.yaml</code> beserta status koneksi dan error gateway secara realtime.
+      Daftar platform komunikasi yang terkonfigurasi di <code>config.yaml</code>. Klik <strong>Atur</strong> untuk menyesuaikan parameter YAML, token, webhook port, atau channel secara kustom.
     </div>
     <div id="gateway-list-slot">
       {gateway_list_block}
@@ -1134,6 +1183,152 @@ if(activeTabFromUrl){{
   }}
 }}
 restorePatchPages();
+
+var currentGwPlatform = '';
+var isNewGwPlatform = false;
+
+function openGwConfig(platform, title){{
+  currentGwPlatform = platform || '';
+  isNewGwPlatform = !platform;
+  var modal = document.getElementById('gw-config-modal');
+  var titleEl = document.getElementById('gw-config-title');
+  var selectWrap = document.getElementById('gw-platform-select-wrap');
+  var inputEl = document.getElementById('gw-platform-input');
+  var yamlEl = document.getElementById('gw-config-yaml');
+  var enabledChk = document.getElementById('gw-config-enabled-chk');
+  var errEl = document.getElementById('gw-config-error');
+  var saveBtn = document.getElementById('btn-save-gw-config');
+  
+  if(errEl){{ errEl.style.display = 'none'; errEl.textContent = ''; }}
+  if(titleEl) titleEl.textContent = title ? 'Konfigurasi: ' + title : 'Tambah Platform Gateway';
+  if(saveBtn){{ saveBtn.textContent = 'Simpan'; saveBtn.disabled = false; }}
+  
+  if(isNewGwPlatform){{
+    if(selectWrap) selectWrap.style.display = 'block';
+    if(inputEl){{ inputEl.value = ''; inputEl.disabled = false; }}
+    if(yamlEl) yamlEl.value = 'enabled: true\n';
+    if(enabledChk) enabledChk.checked = true;
+    if(modal) modal.classList.add('show');
+  }} else {{
+    if(selectWrap) selectWrap.style.display = 'none';
+    if(yamlEl) yamlEl.value = 'Memuat konfigurasi…';
+    if(modal) modal.classList.add('show');
+    
+    fetch('/api/gateway-config?platform=' + encodeURIComponent(platform))
+      .then(function(r){{ return r.json(); }})
+      .then(function(d){{
+        if(d.ok){{
+          if(yamlEl) yamlEl.value = d.yaml || 'enabled: true\n';
+          if(enabledChk) enabledChk.checked = !!d.enabled;
+        }} else {{
+          if(errEl){{ errEl.textContent = d.error || 'Gagal memuat konfigurasi'; errEl.style.display = 'block'; }}
+        }}
+      }})
+      .catch(function(e){{
+        if(errEl){{ errEl.textContent = 'Error koneksi: ' + e; errEl.style.display = 'block'; }}
+      }});
+  }}
+}}
+
+function closeGwConfig(){{
+  var modal = document.getElementById('gw-config-modal');
+  if(modal) modal.classList.remove('show');
+  currentGwPlatform = '';
+}}
+
+function setGwTemplate(plat){{
+  var inputEl = document.getElementById('gw-platform-input');
+  var yamlEl = document.getElementById('gw-config-yaml');
+  if(inputEl) inputEl.value = plat;
+  fetch('/api/gateway-config?platform=' + encodeURIComponent(plat))
+    .then(function(r){{ return r.json(); }})
+    .then(function(d){{
+      if(d.ok && yamlEl) yamlEl.value = d.yaml || 'enabled: true\n';
+    }});
+}}
+
+function saveGwConfig(){{
+  var inputEl = document.getElementById('gw-platform-input');
+  var yamlEl = document.getElementById('gw-config-yaml');
+  var enabledChk = document.getElementById('gw-config-enabled-chk');
+  var restartChk = document.getElementById('gw-config-restart-chk');
+  var errEl = document.getElementById('gw-config-error');
+  var saveBtn = document.getElementById('btn-save-gw-config');
+  
+  var plat = isNewGwPlatform ? (inputEl ? inputEl.value.trim().toLowerCase() : '') : currentGwPlatform;
+  if(!plat){{
+    if(errEl){{ errEl.textContent = 'Pilih atau ketik nama platform.'; errEl.style.display = 'block'; }}
+    return;
+  }}
+  
+  var yamlContent = yamlEl ? yamlEl.value : '';
+  var isEnabled = enabledChk ? enabledChk.checked : true;
+  var restartGw = restartChk ? restartChk.checked : true;
+  
+  if(saveBtn){{ saveBtn.textContent = 'Menyimpan…'; saveBtn.disabled = true; }}
+  if(errEl) errEl.style.display = 'none';
+  
+  var payload = {{
+    platform: plat,
+    yaml: yamlContent,
+    enabled: isEnabled,
+    restart_gw: restartGw
+  }};
+  
+  fetch('/save-gateway-platform', {{
+    method: 'POST',
+    headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
+    body: JSON.stringify(payload)
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res.ok){{
+      closeGwConfig();
+      if(res.html){{
+        var slot = document.getElementById('gateway-list-slot');
+        if(slot) slot.innerHTML = res.html;
+      }}
+    }} else {{
+      if(saveBtn){{ saveBtn.textContent = 'Simpan'; saveBtn.disabled = false; }}
+      if(errEl){{ errEl.textContent = res.error || 'Gagal menyimpan konfigurasi'; errEl.style.display = 'block'; }}
+    }}
+  }})
+  .catch(function(err){{
+    if(saveBtn){{ saveBtn.textContent = 'Simpan'; saveBtn.disabled = false; }}
+    if(errEl){{ errEl.textContent = 'Kesalahan jaringan: ' + err; errEl.style.display = 'block'; }}
+  }});
+}}
+
+function toggleGwPlatform(plat, enable){{
+  fetch('/toggle-gateway-platform', {{
+    method: 'POST',
+    headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
+    body: JSON.stringify({{ platform: plat, enabled: enable, restart_gw: true }})
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res.ok && res.html){{
+      var slot = document.getElementById('gateway-list-slot');
+      if(slot) slot.innerHTML = res.html;
+    }}
+  }});
+}}
+
+function deleteGwPlatform(plat, name){{
+  if(!confirm('Hapus konfigurasi platform ' + (name || plat) + ' dari config.yaml?')) return;
+  fetch('/remove-gateway-platform', {{
+    method: 'POST',
+    headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
+    body: JSON.stringify({{ platform: plat, restart_gw: true }})
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res.ok && res.html){{
+      var slot = document.getElementById('gateway-list-slot');
+      if(slot) slot.innerHTML = res.html;
+    }}
+  }});
+}}
 
 function scrollAllLogsToBottom(){{
   document.querySelectorAll('.logbox').forEach(function(b){{
@@ -1564,6 +1759,16 @@ def render_gateway_platforms_html() -> str:
                 f'<span>⚠ {err_msg}</span></div>'
             )
 
+        safe_p = p["platform"].replace("'", "\'")
+        safe_name = name.replace("'", "\'")
+        toggle_btn = (
+            f'<button type="button" class="btn-action-sm" onclick="toggleGwPlatform(\'{safe_p}\', false)">Matikan</button>'
+            if p["enabled"] else
+            f'<button type="button" class="btn-action-sm btn-action-primary" onclick="toggleGwPlatform(\'{safe_p}\', true)">Nyalakan</button>'
+        )
+        del_btn = f'<button type="button" class="btn-action-sm btn-action-danger" onclick="deleteGwPlatform(\'{safe_p}\', \'{safe_name}\')">Hapus</button>'
+        edit_btn = f'<button type="button" class="btn-action-sm" onclick="openGwConfig(\'{safe_p}\', \'{safe_name}\')">Atur</button>'
+
         rows.append(
             f'<div class="aux-task-row" style="margin-bottom:0.45rem">'
             f'  <div style="display:flex;align-items:center;gap:.75rem;min-width:0;flex:1">'
@@ -1579,13 +1784,165 @@ def render_gateway_platforms_html() -> str:
             f'      {err_div}'
             f'    </div>'
             f'  </div>'
-            f'  <div style="display:flex;align-items:center;gap:6px">'
+            f'  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
             f'    <span class="badge {b_cls}">{b_label}</span>'
+            f'    {toggle_btn}'
+            f'    {edit_btn}'
+            f'    {del_btn}'
             f'  </div>'
             f'</div>'
         )
 
     return "".join(rows)
+
+
+def get_gateway_platform_config(plat: str) -> dict:
+    """Retrieve raw YAML config for a specific platform from config.yaml."""
+    cfg = get_parsed_config()
+    cfg_platforms = cfg.get("platforms")
+    if not isinstance(cfg_platforms, dict):
+        cfg_platforms = {}
+
+    known_templates = {
+        "telegram": {"enabled": True, "home_channel": {"name": "", "chat_id": "", "platform": "telegram"}},
+        "webhook": {"enabled": True, "port": 8644},
+        "discord": {"enabled": True, "token": "", "require_mention": True},
+        "whatsapp": {"enabled": True},
+        "slack": {"enabled": True, "token": ""},
+    }
+
+    if plat and plat in cfg_platforms and isinstance(cfg_platforms[plat], dict):
+        plat_data = cfg_platforms[plat]
+        yaml_text = yaml.safe_dump(plat_data, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        return {
+            "ok": True,
+            "platform": plat,
+            "enabled": bool(plat_data.get("enabled", False)),
+            "yaml": yaml_text,
+            "is_new": False,
+        }
+    elif plat in known_templates:
+        yaml_text = yaml.safe_dump(known_templates[plat], default_flow_style=False, sort_keys=False, allow_unicode=True)
+        return {
+            "ok": True,
+            "platform": plat,
+            "enabled": True,
+            "yaml": yaml_text,
+            "is_new": True,
+        }
+    else:
+        yaml_text = "enabled: true\n"
+        return {
+            "ok": True,
+            "platform": plat or "",
+            "enabled": True,
+            "yaml": yaml_text,
+            "is_new": True,
+        }
+
+
+def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override: bool | None = None) -> tuple[bool, str]:
+    """Validate and atomically update platforms.<platform> in config.yaml."""
+    platform = platform.strip().lower()
+    if not platform:
+        return False, "Nama platform tidak boleh kosong."
+
+    if not re.match(r"^[a-z0-9_-]+$", platform):
+        return False, "Nama platform hanya boleh berisi huruf kecil, angka, garis bawah (_), dan tanda hubung (-)."
+
+    try:
+        parsed_data = yaml.safe_load(yaml_str) if yaml_str.strip() else {}
+    except Exception as e:
+        return False, f"Sintaks YAML tidak valid: {e}"
+
+    if parsed_data is None:
+        parsed_data = {}
+    elif not isinstance(parsed_data, dict):
+        return False, "Format YAML harus berupa mapping/dictionary (key: value)."
+
+    if enabled_override is not None:
+        parsed_data["enabled"] = bool(enabled_override)
+    elif "enabled" not in parsed_data:
+        parsed_data["enabled"] = True
+
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+
+        if not isinstance(cfg, dict):
+            return False, "Format config.yaml tidak valid (bukan dictionary root)."
+
+        if "platforms" not in cfg or not isinstance(cfg["platforms"], dict):
+            cfg["platforms"] = {}
+
+        cfg["platforms"][platform] = parsed_data
+
+        tmp_path = CONFIG_PATH + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+        os.replace(tmp_path, CONFIG_PATH)
+        invalidate_config_cache()
+        _invalidate_status_cache("gateway_platforms")
+        return True, ""
+    except Exception as e:
+        return False, f"Gagal menyimpan ke config.yaml: {e}"
+
+
+def toggle_gateway_platform_config(platform: str, enabled: bool) -> tuple[bool, str]:
+    """Atomically toggle enabled state of a platform in config.yaml."""
+    platform = platform.strip().lower()
+    if not platform:
+        return False, "Nama platform tidak valid."
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+
+        if not isinstance(cfg, dict):
+            return False, "Format config.yaml tidak valid."
+
+        if "platforms" not in cfg or not isinstance(cfg["platforms"], dict):
+            cfg["platforms"] = {}
+
+        if platform not in cfg["platforms"] or not isinstance(cfg["platforms"][platform], dict):
+            cfg["platforms"][platform] = {"enabled": enabled}
+        else:
+            cfg["platforms"][platform]["enabled"] = enabled
+
+        tmp_path = CONFIG_PATH + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+        os.replace(tmp_path, CONFIG_PATH)
+        invalidate_config_cache()
+        _invalidate_status_cache("gateway_platforms")
+        return True, ""
+    except Exception as e:
+        return False, f"Gagal mengubah status: {e}"
+
+
+def remove_gateway_platform_config(platform: str) -> tuple[bool, str]:
+    """Atomically remove a platform from config.yaml."""
+    platform = platform.strip().lower()
+    if not platform:
+        return False, "Nama platform tidak valid."
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+
+        if isinstance(cfg, dict) and isinstance(cfg.get("platforms"), dict):
+            if platform in cfg["platforms"]:
+                del cfg["platforms"][platform]
+                tmp_path = CONFIG_PATH + ".tmp"
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+                os.replace(tmp_path, CONFIG_PATH)
+                invalidate_config_cache()
+                _invalidate_status_cache("gateway_platforms")
+                return True, ""
+        return False, f"Platform '{platform}' tidak ditemukan di config.yaml."
+    except Exception as e:
+        return False, f"Gagal menghapus platform: {e}"
 
 
 def get_9router_host() -> str:
@@ -1885,7 +2242,8 @@ var MUTATING_PREFIXES = [
   '/fetch-models', '/reload-panel-config',
   '/set-aux-model', '/reset-aux',
   '/set-fallback-model', '/remove-fallback-model',
-  '/process-action', '/switch-model'
+  '/process-action', '/switch-model',
+  '/save-gateway-platform', '/toggle-gateway-platform', '/remove-gateway-platform'
 ];
 var CONFIRM_ROUTES = [
   {match:'/update-hermes', title:'Perbarui Hermes Agent', msg:'Perbarui Hermes via git pull + install dependency + mulai ulang gateway. Bot tidak bisa dibalas selama proses (beberapa menit). Lanjutkan?'},
@@ -4839,12 +5197,21 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = 0
+        json_data = {}
         if length > 0:
             body = self.rfile.read(length).decode("utf-8", errors="replace")
+            content_type = self.headers.get("Content-Type", "")
+            if "application/json" in content_type or body.strip().startswith("{"):
+                try:
+                    loaded = json.loads(body)
+                    if isinstance(loaded, dict):
+                        json_data = loaded
+                except Exception:
+                    pass
             body_qs = parse_qs(body)
             for k, v in body_qs.items():
                 qs.setdefault(k, v)
-        self._handle_mutation(parsed, qs)
+        self._handle_mutation(parsed, qs, json_data=json_data)
 
     def do_GET(self):
         global _last_action_at, _last_model_switch_at, _last_aux_model_at
@@ -4886,6 +5253,18 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/status":
             body = json.dumps(build_fragments()).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/api/gateway-config":
+            plat = (qs.get("platform") or [""])[0].strip().lower()
+            data = get_gateway_platform_config(plat)
+            body = json.dumps(data).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -4948,7 +5327,69 @@ class Handler(BaseHTTPRequestHandler):
 
         self._send_html("<h1>404</h1>", 404)
         return
-    def _handle_mutation(self, parsed, qs: dict):
+    def _handle_mutation(self, parsed, qs: dict, json_data: dict = None):
+        if json_data is None:
+            json_data = {}
+        is_ajax = bool(json_data) or bool((qs.get("ajax") or [""])[0]) or "application/json" in self.headers.get("Accept", "")
+
+        if parsed.path == "/save-gateway-platform":
+            plat = str(json_data.get("platform") or (qs.get("platform") or [""])[0]).strip().lower()
+            yaml_content = str(json_data.get("yaml") if "yaml" in json_data else (qs.get("yaml") or [""])[0])
+            enabled_raw = json_data.get("enabled") if "enabled" in json_data else (qs.get("enabled") or [None])[0]
+            enabled = bool(enabled_raw) if enabled_raw is not None else None
+            restart_gw = bool(json_data.get("restart_gw") if "restart_gw" in json_data else ((qs.get("restart_gw") or ["1"])[0] in ("1", "true", "True")))
+
+            ok, err = save_gateway_platform_config(plat, yaml_content, enabled)
+            if ok and restart_gw:
+                restart_bot()
+
+            if is_ajax:
+                code = 200 if ok else 400
+                self._send_json({"ok": ok, "error": err, "html": render_gateway_platforms_html() if ok else ""}, code=code)
+                return
+            if not ok:
+                self._send_html(f"<h1>400 — {html.escape(err)}</h1>", 400)
+                return
+            self._redirect_to_status(just="gw-save", tab="control")
+            return
+
+        if parsed.path == "/toggle-gateway-platform":
+            plat = str(json_data.get("platform") or (qs.get("platform") or [""])[0]).strip().lower()
+            enabled_raw = json_data.get("enabled") if "enabled" in json_data else (qs.get("enabled") or ["1"])[0]
+            enabled = bool(enabled_raw) if isinstance(enabled_raw, bool) else (enabled_raw in ("1", "true", "True"))
+            restart_gw = bool(json_data.get("restart_gw") if "restart_gw" in json_data else ((qs.get("restart_gw") or ["1"])[0] in ("1", "true", "True")))
+
+            ok, err = toggle_gateway_platform_config(plat, enabled)
+            if ok and restart_gw:
+                restart_bot()
+
+            if is_ajax:
+                code = 200 if ok else 400
+                self._send_json({"ok": ok, "error": err, "html": render_gateway_platforms_html() if ok else ""}, code=code)
+                return
+            if not ok:
+                self._send_html(f"<h1>400 — {html.escape(err)}</h1>", 400)
+                return
+            self._redirect_to_status(tab="control")
+            return
+
+        if parsed.path == "/remove-gateway-platform":
+            plat = str(json_data.get("platform") or (qs.get("platform") or [""])[0]).strip().lower()
+            restart_gw = bool(json_data.get("restart_gw") if "restart_gw" in json_data else ((qs.get("restart_gw") or ["1"])[0] in ("1", "true", "True")))
+
+            ok, err = remove_gateway_platform_config(plat)
+            if ok and restart_gw:
+                restart_bot()
+
+            if is_ajax:
+                code = 200 if ok else 400
+                self._send_json({"ok": ok, "error": err, "html": render_gateway_platforms_html() if ok else ""}, code=code)
+                return
+            if not ok:
+                self._send_html(f"<h1>400 — {html.escape(err)}</h1>", 400)
+                return
+            self._redirect_to_status(tab="control")
+            return
         """Execute an already-authenticated action route, then redirect."""
         global _last_action_at, _last_model_switch_at, _last_aux_model_at
 
