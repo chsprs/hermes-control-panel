@@ -509,6 +509,8 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .task-name-cell{{display:flex;align-items:center;gap:.45rem;font-weight:500}}
 .badge-up{{background:var(--success-dim);color:var(--success);border:1px solid rgba(16,185,129,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
 .badge-down{{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(239,68,68,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
+.badge-warn{{background:var(--warning-dim);color:var(--warning);border:1px solid rgba(245,158,11,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
+.badge-muted{{background:rgba(255,255,255,0.05);color:var(--text-dim);border:1px solid rgba(255,255,255,0.08);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
 .btn-end-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.12);color:#fca5a5;text-decoration:none;display:inline-block;cursor:pointer;font-weight:500;transition:all .15s ease}}
 .btn-end-task:hover{{background:rgba(239,68,68,0.28);border-color:var(--danger);color:#fff}}
 .btn-restart-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.06);color:var(--text);text-decoration:none;display:inline-block;cursor:pointer;margin-left:.3rem;transition:all .15s ease}}
@@ -650,6 +652,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         </div>
         <div class="cc-tile-val" id="cell-bot">{cell_bot}</div>
         <div class="cc-tile-sub" id="cell-gw">{cell_gw}</div>
+        <div class="cc-tile-sub" id="cell-gw-platforms" style="margin-top:.25rem;font-size:.72rem">{cell_gw_platforms}</div>
       </div>
       <div class="cc-tile">
         <div class="cc-tile-header">
@@ -806,6 +809,18 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div id="clean-log-slot">{clean_junk_card}</div>
     <div id="clean-log-show" style="display:none;margin-top:.6rem">
       <button type="button" class="btn btn-action-sm" onclick="toggleLog('cleanLogDismissed','clean-log-show')">Tampilkan Log Pembersihan</button>
+    </div>
+  </div>
+  <div class="card card-info" style="margin-bottom:1.25rem">
+    <div class="aux-header">
+      <div class="card-title" style="margin-bottom:0">{icon_bot} Platform Gateway Perpesanan</div>
+      <span class="badge {gw_summary_badge_class}" id="gw-summary-badge">{gw_summary_text}</span>
+    </div>
+    <div class="aux-desc">
+      Daftar platform komunikasi yang terkonfigurasi di <code>config.yaml</code> beserta status koneksi dan error gateway secara realtime.
+    </div>
+    <div id="gateway-list-slot">
+      {gateway_list_block}
     </div>
   </div>
   <div class="card card-info" style="margin-bottom:1.25rem">
@@ -1320,6 +1335,259 @@ def get_gateway_info() -> str:
     return _ttl_cached("gateway_info", 2.0, _probe_gateway_info)
 
 
+HERMES_GATEWAY_STATE_PATH = os.environ.get(
+    "HERMES_GATEWAY_STATE_PATH",
+    "/opt/AppData/hermes-native/hermes-data/gateway_state.json",
+)
+
+
+def _platform_icon(platform: str) -> str:
+    p = platform.lower()
+    if p == "telegram":
+        return _icon('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>', size=16)
+    if p == "webhook":
+        return _icon('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>', size=16)
+    if p == "discord":
+        return _icon('<rect x="2" y="6" width="20" height="12" rx="6"/><circle cx="8" cy="12" r="1.5"/><circle cx="16" cy="12" r="1.5"/>', size=16)
+    if p == "whatsapp":
+        return _icon('<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>', size=16)
+    if p == "slack":
+        return _icon('<line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>', size=16)
+    return ICON_BOT
+
+
+def _platform_icon_box_class(platform: str) -> str:
+    p = platform.lower()
+    if p == "telegram":
+        return "cc-icon-blue"
+    if p == "webhook":
+        return "cc-icon-orange"
+    if p == "discord":
+        return "cc-icon-purple"
+    if p == "whatsapp":
+        return "cc-icon-green"
+    return "cc-icon-blue"
+
+
+def _probe_gateway_platforms() -> list[dict]:
+    """Inspect messaging platforms configured in config.yaml and their live runtime status."""
+    cfg = get_parsed_config()
+    cfg_platforms = cfg.get("platforms")
+    if not isinstance(cfg_platforms, dict):
+        cfg_platforms = {}
+
+    candidate_platforms = []
+    for p in cfg_platforms.keys():
+        if p not in candidate_platforms:
+            candidate_platforms.append(p)
+
+    for k in ("telegram", "discord", "slack", "whatsapp", "webhook", "mattermost", "matrix", "signal", "feishu"):
+        if k not in candidate_platforms and k in cfg and isinstance(cfg[k], dict):
+            if cfg[k].get("enabled") is True or cfg[k].get("token") or cfg[k].get("bot_token"):
+                candidate_platforms.append(k)
+
+    state = {}
+    if os.path.exists(HERMES_GATEWAY_STATE_PATH):
+        try:
+            with open(HERMES_GATEWAY_STATE_PATH, encoding="utf-8") as f:
+                state = json.load(f) or {}
+        except Exception:
+            state = {}
+
+    gw_active = service_active("hermes-gateway", user=True)
+    rt_platforms = state.get("platforms") if isinstance(state.get("platforms"), dict) else {}
+
+    results = []
+    for p in candidate_platforms:
+        p_cfg = cfg_platforms.get(p)
+        if not isinstance(p_cfg, dict):
+            p_cfg = cfg.get(p) if isinstance(cfg.get(p), dict) else {}
+
+        enabled = bool(p_cfg.get("enabled", False))
+        rt = rt_platforms.get(p) if isinstance(rt_platforms.get(p), dict) else {}
+
+        rt_state = str(rt.get("state") or "").strip().lower()
+        err_code = rt.get("error_code")
+        err_msg = rt.get("error_message")
+        needs_attention = bool(rt.get("needs_attention", False))
+
+        is_error = bool(err_code or err_msg or rt_state in ("error", "failed", "fatal", "degraded") or needs_attention)
+        error_detail = ""
+        if err_msg:
+            error_detail = str(err_msg).strip()
+        elif err_code:
+            error_detail = f"Kode error: {err_code}"
+        elif rt_state in ("error", "failed", "fatal", "degraded"):
+            error_detail = f"Status error: {rt_state}"
+
+        meta_parts = []
+        home = p_cfg.get("home_channel") if isinstance(p_cfg.get("home_channel"), dict) else {}
+        if home:
+            h_name = home.get("name")
+            h_id = home.get("chat_id")
+            if h_name and h_id:
+                meta_parts.append(f"Home: {h_name} ({h_id})")
+            elif h_name or h_id:
+                meta_parts.append(f"Chat: {h_name or h_id}")
+        if rt.get("listener_base"):
+            meta_parts.append(f"Listener: {rt.get('listener_base')}")
+        if enabled and gw_active and rt.get("writer_pid"):
+            meta_parts.append(f"PID {rt.get('writer_pid')}")
+
+        if not gw_active:
+            status_key = "gateway_down"
+            status_label = "Gateway Berhenti"
+            badge_class = "badge-down"
+        elif not enabled:
+            status_key = "disabled"
+            status_label = "Nonaktif"
+            badge_class = "badge-muted"
+        elif is_error:
+            status_key = "error"
+            status_label = "Error"
+            badge_class = "badge-down"
+        elif rt_state in ("connected", "running", "ok", "ready"):
+            status_key = "connected"
+            status_label = "Terhubung"
+            badge_class = "badge-up"
+        elif rt_state in ("connecting", "retrying"):
+            status_key = "connecting"
+            status_label = "Menghubungkan…"
+            badge_class = "badge-warn"
+        else:
+            status_key = "disconnected"
+            status_label = "Terputus"
+            badge_class = "badge-down"
+
+        labels_map = {
+            "telegram": "Telegram Bot",
+            "webhook": "HTTP Webhook",
+            "discord": "Discord Bot",
+            "whatsapp": "WhatsApp",
+            "slack": "Slack",
+            "signal": "Signal",
+            "mattermost": "Mattermost",
+            "matrix": "Matrix",
+        }
+        display_name = labels_map.get(p, p.capitalize())
+
+        metadata_text = " · ".join(meta_parts) if meta_parts else ("Nonaktif di konfigurasi" if not enabled else "Menunggu inisialisasi…")
+
+        results.append({
+            "platform": p,
+            "display_name": display_name,
+            "enabled": enabled,
+            "status_key": status_key,
+            "status_label": status_label,
+            "badge_class": badge_class,
+            "is_error": is_error,
+            "error_detail": error_detail,
+            "metadata": metadata_text,
+        })
+
+    results.sort(key=lambda x: (not x["enabled"], x["display_name"]))
+    return results
+
+
+def get_gateway_platforms() -> list[dict]:
+    return _ttl_cached("gateway_platforms", 3.0, _probe_gateway_platforms)
+
+
+def get_gateway_platforms_summary() -> tuple[str, str, str]:
+    """Return (badge_text, badge_class, compact_bento_text) for gateway platforms."""
+    platforms = get_gateway_platforms()
+    enabled = [p for p in platforms if p["enabled"]]
+    if not enabled:
+        return "0 Gateway", "badge-muted", "Tidak ada gateway aktif"
+
+    connected_count = sum(1 for p in enabled if p["status_key"] == "connected")
+    error_count = sum(1 for p in enabled if p["is_error"])
+
+    if error_count > 0:
+        badge_text = f"{error_count} Error · {connected_count}/{len(enabled)} Konek"
+        badge_class = "badge-down"
+    elif connected_count == len(enabled):
+        badge_text = f"{connected_count} Terhubung"
+        badge_class = "badge-up"
+    else:
+        badge_text = f"{connected_count}/{len(enabled)} Terhubung"
+        badge_class = "badge-warn"
+
+    compact_items = []
+    for p in enabled:
+        pname = p["platform"].capitalize()
+        if p["is_error"]:
+            compact_items.append(f'{pname}: <span class="down">⚠ Error</span>')
+        elif p["status_key"] == "connected":
+            compact_items.append(f'{pname}: <span class="up">Terhubung</span>')
+        elif p["status_key"] == "connecting":
+            compact_items.append(f'{pname}: <span class="warn">Konek…</span>')
+        else:
+            compact_items.append(f'{pname}: <span class="down">{html.escape(p["status_label"])}</span>')
+
+    compact_bento = " · ".join(compact_items)
+    return badge_text, badge_class, compact_bento
+
+
+def render_gateway_platforms_html() -> str:
+    """Render list of gateway platforms for Tab Layanan."""
+    platforms = get_gateway_platforms()
+    if not platforms:
+        return (
+            '<div class="update-hint" style="margin:0;font-size:0.75rem">'
+            'Belum ada gateway yang dikonfigurasi pada config.yaml.'
+            '</div>'
+        )
+
+    rows = []
+    for p in platforms:
+        name = html.escape(p["display_name"])
+        meta = html.escape(p["metadata"])
+        b_cls = p["badge_class"]
+        b_label = html.escape(p["status_label"])
+        icon_svg = _platform_icon(p["platform"])
+        box_cls = _platform_icon_box_class(p["platform"])
+
+        cfg_badge = (
+            '<span class="badge" style="background:rgba(59,130,246,0.12);color:var(--accent-light);'
+            'border:1px solid rgba(59,130,246,0.25);font-size:.62rem;padding:.08rem .35rem">Config Aktif</span>'
+            if p["enabled"] else
+            '<span class="badge badge-muted" style="font-size:.62rem;padding:.08rem .35rem">Config Nonaktif</span>'
+        )
+
+        err_div = ""
+        if p["is_error"] and p["error_detail"]:
+            err_msg = html.escape(p["error_detail"])
+            err_div = (
+                f'<div style="color:var(--danger);font-size:.7rem;margin-top:.25rem;'
+                f'display:flex;align-items:center;gap:.3rem">'
+                f'<span>⚠ {err_msg}</span></div>'
+            )
+
+        rows.append(
+            f'<div class="aux-task-row" style="margin-bottom:0.45rem">'
+            f'  <div style="display:flex;align-items:center;gap:.75rem;min-width:0;flex:1">'
+            f'    <div class="cc-icon-box {box_cls}" style="width:34px;height:34px;min-width:34px;border-radius:10px">'
+            f'      {icon_svg}'
+            f'    </div>'
+            f'    <div class="aux-task-info">'
+            f'      <div class="aux-task-title">'
+            f'        <span class="aux-task-name">{name}</span>'
+            f'        {cfg_badge}'
+            f'      </div>'
+            f'      <div class="mono-sub" style="color:var(--text-dim);font-size:.72rem">{meta}</div>'
+            f'      {err_div}'
+            f'    </div>'
+            f'  </div>'
+            f'  <div style="display:flex;align-items:center;gap:6px">'
+            f'    <span class="badge {b_cls}">{b_label}</span>'
+            f'  </div>'
+            f'</div>'
+        )
+
+    return "".join(rows)
+
+
 def get_9router_host() -> str:
     """Auto-detect 9router host IP. Explicit ROUTER_HOST first, then local Docker, then discovery."""
     global _9router_host_cache, _9router_host_at
@@ -1502,10 +1770,17 @@ SSE_SCRIPT = """<script>
       set('cell-ram',d.cells.ram); set('cell-zram',d.cells.zram); set('cell-temp',d.cells.temp); set('cell-emmc',d.cells.emmc);
       set('cell-disk',d.cells.disk); set('cell-uptime',d.cells.uptime);
       set('cell-lan',d.cells.lan); set('cell-ts',d.cells.ts);
-      set('cell-internet',d.cells.internet); }
+      set('cell-internet',d.cells.internet);
+      if(d.cells.gw_platforms) set('cell-gw-platforms', d.cells.gw_platforms); }
     // Static controls stay untouched: replacing them resets scroll/focus.
     // SSE updates only live metrics, process data, and active update logs.
     if(d.processes_table) set('process-table-slot',d.processes_table);
+    if(d.gateway_list_block) set('gateway-list-slot', d.gateway_list_block);
+    if(d.gw_summary_text) set('gw-summary-badge', d.gw_summary_text);
+    if(d.gw_summary_badge_class) {{
+      var gwb = document.getElementById('gw-summary-badge');
+      if(gwb) gwb.className = 'badge ' + d.gw_summary_badge_class;
+    }}
     if(d.cpu_pct !== undefined) {{
       updateSparkline('cpu-sparkline', d.cpu_pct, cpuHistory);
       var cval = document.getElementById('perf-cpu-val');
@@ -2574,6 +2849,7 @@ def render_backup_models_block() -> str:
 
 
 def restart_bot() -> None:
+    _invalidate_status_cache("gateway_platforms")
     env = os.environ.copy()
     env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
     # Non-blocking: a drain (active task) can make this take a while, and
@@ -2583,6 +2859,7 @@ def restart_bot() -> None:
 
 
 def bot_action(action: str) -> None:
+    _invalidate_status_cache("gateway_platforms")
     """start/stop hermes-gateway. Used for the STB-vs-new-server switch:
     only one hermes instance may poll a given Telegram bot token at a time,
     Telegram rejects a second concurrent poller (409). Enable/disable, not
@@ -3967,6 +4244,8 @@ def build_fragments() -> dict:
     emmc_cls, emmc_text = get_emmc_health()
     zram_text = get_zram_info()
     gw_info = get_gateway_info()
+    gw_summary_text, gw_summary_badge_class, cell_gw_platforms = get_gateway_platforms_summary()
+    gateway_list_block = render_gateway_platforms_html()
     updating = _router_updating
     all_models = get_available_models_cached() if router_up else {}
     all_flat_models = [m for m_list in all_models.values() for m in m_list]
@@ -4011,6 +4290,7 @@ def build_fragments() -> dict:
             f"Terhubung · {internet_target} ({internet_ms:.0f}ms)" if internet_up else f"Terputus ({internet_target})",
             title=f"Server tes: {internet_target} (DNS port 53, fallback: 8.8.8.8)",
         ),
+        "gw_platforms": cell_gw_platforms,
     }
 
     fetch_btn = (
@@ -4228,6 +4508,9 @@ def build_fragments() -> dict:
         "aux_tasks_block": render_aux_tasks_block(),
         "backup_models_block": render_backup_models_block(),
         "processes_table": render_processes_table(),
+        "gateway_list_block": gateway_list_block,
+        "gw_summary_text": gw_summary_text,
+        "gw_summary_badge_class": gw_summary_badge_class,
         "cpu_pct": cpu_pct,
         "ram_pct": round(ram_pct, 1),
         "cell_load": cell_load,
@@ -4331,6 +4614,10 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         cell_load=frag["cell_load"],
         available_models_json=available_models_json,
         active_tab=active_tab,
+        gateway_list_block=frag["gateway_list_block"],
+        gw_summary_text=frag["gw_summary_text"],
+        gw_summary_badge_class=frag["gw_summary_badge_class"],
+        cell_gw_platforms=frag["cells"]["gw_platforms"],
         countdown_block=countdown_block,
         open_block=get_open_block_active() if dash_active else OPEN_BLOCK_INACTIVE,
         router_open_block=(f'<a class="open" href="{get_9router_public_url()}" '

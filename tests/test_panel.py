@@ -263,5 +263,122 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertEqual(mock_procs.call_count, 1)
 
 
+    def test_17_gateway_platforms_detection_and_badges(self):
+        """Gateway platforms are detected from config and display connected/disabled/error badges."""
+        mock_cfg = {
+            "platforms": {
+                "telegram": {
+                    "enabled": True,
+                    "home_channel": {"name": "vitooo", "chat_id": "12345"},
+                },
+                "webhook": {"enabled": True},
+                "discord": {"enabled": False},
+            }
+        }
+        mock_state = {
+            "gateway_state": "running",
+            "platforms": {
+                "telegram": {"state": "connected", "error_code": None, "error_message": None},
+                "webhook": {"state": "connected", "listener_base": "http://127.0.0.1:8644"},
+                "discord": {"state": "disconnected"},
+            },
+        }
+
+        panel._invalidate_status_cache("gateway_platforms")
+        with mock.patch.object(panel, "get_parsed_config", return_value=mock_cfg):
+            with mock.patch("os.path.exists", return_value=True):
+                with mock.patch("builtins.open", mock.mock_open(read_data=json.dumps(mock_state))):
+                    with mock.patch.object(panel, "service_active", return_value=True):
+                        platforms = panel.get_gateway_platforms()
+                        summary_text, summary_cls, bento = panel.get_gateway_platforms_summary()
+                        html_out = panel.render_gateway_platforms_html()
+
+        plat_map = {p["platform"]: p for p in platforms}
+        self.assertIn("telegram", plat_map)
+        self.assertIn("webhook", plat_map)
+        self.assertIn("discord", plat_map)
+
+        # Telegram: enabled + connected -> badge-up
+        self.assertTrue(plat_map["telegram"]["enabled"])
+        self.assertEqual(plat_map["telegram"]["status_key"], "connected")
+        self.assertEqual(plat_map["telegram"]["badge_class"], "badge-up")
+        self.assertEqual(plat_map["telegram"]["status_label"], "Terhubung")
+
+        # Discord: disabled in config -> badge-muted
+        self.assertFalse(plat_map["discord"]["enabled"])
+        self.assertEqual(plat_map["discord"]["badge_class"], "badge-muted")
+        self.assertEqual(plat_map["discord"]["status_label"], "Nonaktif")
+
+        # Summary
+        self.assertEqual(summary_cls, "badge-up")
+        self.assertIn("Terhubung", summary_text)
+        self.assertIn("Telegram Bot", html_out)
+        self.assertIn("Config Aktif", html_out)
+
+    def test_18_gateway_platforms_error_badge(self):
+        """Gateway platforms with error_code or error_message render badge-down and error details."""
+        mock_cfg = {
+            "platforms": {
+                "telegram": {"enabled": True},
+            }
+        }
+        mock_state = {
+            "gateway_state": "running",
+            "platforms": {
+                "telegram": {
+                    "state": "error",
+                    "error_code": 401,
+                    "error_message": "Unauthorized: invalid bot token",
+                }
+            },
+        }
+
+        panel._invalidate_status_cache("gateway_platforms")
+        with mock.patch.object(panel, "get_parsed_config", return_value=mock_cfg):
+            with mock.patch("os.path.exists", return_value=True):
+                with mock.patch("builtins.open", mock.mock_open(read_data=json.dumps(mock_state))):
+                    with mock.patch.object(panel, "service_active", return_value=True):
+                        platforms = panel.get_gateway_platforms()
+                        summary_text, summary_cls, bento = panel.get_gateway_platforms_summary()
+                        html_out = panel.render_gateway_platforms_html()
+
+        tg = platforms[0]
+        self.assertTrue(tg["is_error"])
+        self.assertEqual(tg["badge_class"], "badge-down")
+        self.assertEqual(tg["status_label"], "Error")
+        self.assertEqual(summary_cls, "badge-down")
+        self.assertIn("1 Error", summary_text)
+        self.assertIn("Unauthorized: invalid bot token", html_out)
+        self.assertIn("badge-down", html_out)
+
+    def test_19_gateway_list_slot_in_rendered_page(self):
+        """Rendered status page includes gateway-list-slot and cell-gw-platforms."""
+        mock_frag = {
+            "cells": {
+                "dash": "", "bot": "", "gw": "", "model": "", "providers": "",
+                "router": "", "hermes": "", "ram": "", "zram": "", "temp": "",
+                "emmc": "", "disk": "", "uptime": "", "lan": "", "ts": "", "internet": "",
+                "gw_platforms": "Telegram: Terhubung",
+            },
+            "model_chips": "", "rate_limit_card": "", "update_block": "",
+            "hermes_update_block": "", "log_card": "", "clean_junk_card": "",
+            "quick_links_block": "", "dash_bot_btns_block": "", "aux_tasks_block": "",
+            "backup_models_block": "", "processes_table": "", "cpu_pct": 0, "ram_pct": 0,
+            "cell_load": "", "updating": False, "dash_active": False, "gw_active": True,
+            "gateway_list_block": '<div id="test-gateway-item">Telegram</div>',
+            "gw_summary_text": "1 Terhubung",
+            "gw_summary_badge_class": "badge-up",
+        }
+
+        with mock.patch.object(panel, "build_fragments", return_value=mock_frag):
+            with mock.patch.object(panel, "get_available_models_cached", return_value={}):
+                page = panel.build_status_page()
+
+        self.assertIn('id="gateway-list-slot"', page)
+        self.assertIn('id="cell-gw-platforms"', page)
+        self.assertIn('id="gw-summary-badge"', page)
+        self.assertIn("Platform Gateway", page)
+
+
 if __name__ == "__main__":
     unittest.main()

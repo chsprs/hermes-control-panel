@@ -24,6 +24,7 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
 
 - ⚡ **Zero-Dependency & Hemat Resource**: Berjalan di atas Python standard library murni (`http.server`, `threading`, `json`, `urllib`). Tanpa runtime Node.js/frontend bundler, memori stabil di kisaran ~18–22MB RAM.
 - 🔐 **Session Cookie Authentication**: Token tidak lagi menempel permanen di URL. Akses `?token=` sekali → server terbitkan cookie `HttpOnly` + `SameSite=Strict` dan redirect ke URL bersih `/status`. Seluruh mutasi dikunci ke HTTP POST (GET → `405 Method Not Allowed`), kecuali shortcut CasaOS (`/toggle`, `/on`, `/off`) dengan token valid. Tanpa `PANEL_TOKEN` server menolak start.
+- 📡 **Monitoring Gateway Perpesanan**: Menampilkan daftar platform messaging terkonfigurasi di `config.yaml` (Telegram, Webhook, Discord, WhatsApp, dll.) dengan status live realtime: badge terhubung (`Terhubung`), belum konek (`Menghubungkan…` / `Terputus`), atau badge error (`Error`) beserta detail kode/pesan error.
 - 📊 **Tampilan Manajer Proses**:
   - **Tab Proses**: Monitoring daftar proses sistem & container (`hermes-gateway`, `9router`, `cloudflared`, `hermes-dashboard`, dll.) dengan status, PID, memori, dan aksi End Task / Restart / Start langsung dari web.
   - **Tab Performa**: Grafik riwayat pemakaian CPU dan Memori (DDR4 + ZRAM) real-time menggunakan SVG sparkline tanpa dependensi chart JS eksternal.
