@@ -738,16 +738,9 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 
     <textarea id="gw-config-yaml" spellcheck="false" style="width:100%;height:200px;max-height:32vh;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:var(--radius-sm);color:#e2e8f0;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;outline:none;box-sizing:border-box" placeholder="enabled: true..."></textarea>
 
-    <details style="margin-top:0.4rem;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.35rem 0.55rem;font-size:0.71rem">
-      <summary style="cursor:pointer;color:var(--accent-light);font-weight:600;user-select:none">💡 Panduan Kunci &amp; Contoh Format</summary>
-      <div style="margin-top:0.35rem;color:var(--text-muted);line-height:1.45;display:flex;flex-direction:column;gap:0.25rem">
-        <div>• <code>enabled: true</code> / <code>false</code> — Hidupkan atau matikan gateway platform.</div>
-        <div>• <code>token: "..."</code> — Token bot Telegram / Discord / Slack (opsional jika sudah di .env).</div>
-        <div>• <code>port: 8644</code> — Port HTTP listener (khusus Webhook).</div>
-        <div>• <code>allowed_chats: "1992783463, ..."</code> — Batasi bot agar hanya membalas chat ID tertentu.</div>
-        <div>• <code>require_mention: true</code> — Hanya merespons jika bot di-tag @bot (Discord).</div>
-        <div>• <code>reactions: true</code> — Izinkan bot memberi emoji reaction pada pesan (Telegram).</div>
-        <div>• <code>home_channel: {{ chat_id: '...', name: '...', platform: '...' }}</code> — Kanal utama notifikasi.</div>
+    <details id="gw-config-guide-details" open style="margin-top:0.4rem;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.4rem 0.6rem;font-size:0.71rem">
+      <summary id="gw-config-guide-title" style="cursor:pointer;color:var(--accent-light);font-weight:600;user-select:none">💡 Panduan Kunci &amp; Format Platform</summary>
+      <div id="gw-config-guide-content" style="margin-top:0.35rem;color:var(--text-muted);line-height:1.5;display:flex;flex-direction:column;gap:0.25rem">
       </div>
     </details>
 
@@ -1319,6 +1312,169 @@ var GW_PLATFORM_NAMES = {{
   bluebubbles: "BlueBubbles"
 }};
 
+var GW_PLATFORM_GUIDES = {{
+  telegram: [
+    {{ key: "enabled: true / false", desc: "Status aktif gateway saat runtime Hermes berjalan." }},
+    {{ key: "token: '123456:ABC...'", desc: "Bot token dari @BotFather. Opsi: bisa dikosongkan jika sudah diset di file .env (TELEGRAM_BOT_TOKEN)." }},
+    {{ key: "allowed_chats: '1992783463, ...'", desc: "Filter whitelist Chat ID. Bot hanya akan merespons user/grup dengan ID ini (pisahkan dengan koma)." }},
+    {{ key: "reactions: true / false", desc: "Izinkan bot memberikan emoji reaction pada pesan masuk." }},
+    {{ key: "reply_to_mode: 'first' | 'all' | 'off'", desc: "Mode kutip balasan: 'first' (pesan pertama saja), 'all' (semua), atau 'off'." }},
+    {{ key: "home_channel:", desc: "Kanal default notifikasi & interaksi. Berisi sub-kunci: chat_id, name, platform, thread_id." }},
+    {{ key: "gateway_restart_notification: true", desc: "Kirim pesan notifikasi otomatis saat bot/gateway berhasil restart." }},
+    {{ key: "typing_indicator: true", desc: "Tampilkan indikator status 'mengetik...' di Telegram saat AI memproses jawaban." }}
+  ],
+  discord: [
+    {{ key: "enabled: true / false", desc: "Status aktif bot Discord." }},
+    {{ key: "token: 'DISCORD_BOT_TOKEN'", desc: "Bot token yang didapat dari Discord Developer Portal." }},
+    {{ key: "require_mention: true / false", desc: "Jika true, bot hanya merespons saat namanya di-mention (@bot) di dalam channel." }},
+    {{ key: "allowed_channels: '123456, ...'", desc: "Whitelist Channel ID (pisahkan koma) agar bot hanya membaca channel tertentu." }},
+    {{ key: "home_channel:", desc: "Channel utama untuk notifikasi broadcast dan log awal." }}
+  ],
+  webhook: [
+    {{ key: "enabled: true / false", desc: "Status aktif HTTP Webhook listener." }},
+    {{ key: "port: 8644", desc: "Port HTTP server di STB yang menerima request webhook masuk." }},
+    {{ key: "path: '/webhook'", desc: "Endpoint URL route (default: /webhook)." }},
+    {{ key: "secret: 'token-rahasia'", desc: "Token otentikasi header Bearer / Authorization untuk memvalidasi request masuk." }},
+    {{ key: "listener_base: 'http://...'", desc: "Base URL host listener untuk keperluan callback internal." }}
+  ],
+  whatsapp: [
+    {{ key: "enabled: true / false", desc: "Status aktif bridge WhatsApp." }},
+    {{ key: "bridge_url: 'http://127.0.0.1:3000'", desc: "URL REST endpoint service bridge WhatsApp HTTP (Baileys/WppConnect)." }},
+    {{ key: "session: 'default'", desc: "Nama sesi WhatsApp Multi-Device yang aktif." }},
+    {{ key: "phone_number: '+628...'", desc: "Nomor WhatsApp akun pengirim (jika bridge berbasis cloud API)." }}
+  ],
+  slack: [
+    {{ key: "enabled: true / false", desc: "Status aktif Slack Bot." }},
+    {{ key: "token: 'xoxb-...'", desc: "Bot User OAuth Token dari Slack App Management." }},
+    {{ key: "app_token: 'xapp-...'", desc: "App-Level Token untuk koneksi WebSocket Socket Mode (tanpa port publik)." }},
+    {{ key: "allowed_channels: 'C123456'", desc: "Daftar Channel ID Slack yang diizinkan untuk direspons bot." }},
+    {{ key: "signing_secret: '...'", desc: "Slack Signing Secret untuk verifikasi webhook HTTP (jika non-Socket Mode)." }}
+  ],
+  matrix: [
+    {{ key: "enabled: true / false", desc: "Status aktif Matrix adapter." }},
+    {{ key: "homeserver: 'https://matrix.org'", desc: "URL server Matrix (Synapse / Dendrite / Conduit)." }},
+    {{ key: "user_id: '@bot:matrix.org'", desc: "Matrix User ID akun bot." }},
+    {{ key: "access_token: 'syt_...'", desc: "Access token Matrix akun bot." }},
+    {{ key: "allowed_rooms: '!roomid:matrix.org'", desc: "Whitelist Room ID agar bot hanya memproses room tertentu." }}
+  ],
+  mattermost: [
+    {{ key: "enabled: true / false", desc: "Status aktif Mattermost adapter." }},
+    {{ key: "url: 'https://mattermost.domain.com'", desc: "URL instance server Mattermost." }},
+    {{ key: "token: 'bot-access-token'", desc: "Personal Access Token atau Bot Token Mattermost." }},
+    {{ key: "team: 'team-name'", desc: "Nama tim Mattermost tempat bot beroperasi." }}
+  ],
+  signal: [
+    {{ key: "enabled: true / false", desc: "Status aktif Signal adapter." }},
+    {{ key: "phone_number: '+628...'", desc: "Nomor telepon akun Signal yang didaftarkan di signal-cli." }},
+    {{ key: "http_host: '127.0.0.1'", desc: "Host REST API signal-cli-rest-api." }},
+    {{ key: "http_port: 8080", desc: "Port REST API signal-cli-rest-api." }}
+  ],
+  teams: [
+    {{ key: "enabled: true / false", desc: "Status aktif Microsoft Teams." }},
+    {{ key: "app_id: 'AZURE_BOT_APP_ID'", desc: "Microsoft App ID dari Azure Bot Framework registration." }},
+    {{ key: "app_password: 'AZURE_PASSWORD'", desc: "Client Secret / App Password Azure Bot." }}
+  ],
+  feishu: [
+    {{ key: "enabled: true / false", desc: "Status aktif Feishu / Lark." }},
+    {{ key: "app_id: 'cli_...'", desc: "App ID dari platform Feishu Open Platform." }},
+    {{ key: "app_secret: '...'", desc: "App Secret aplikasi Feishu." }},
+    {{ key: "verification_token: '...'", desc: "Verification token event callback Feishu." }}
+  ],
+  google_chat: [
+    {{ key: "enabled: true / false", desc: "Status aktif Google Chat." }},
+    {{ key: "service_account_file: 'creds.json'", desc: "Path berkas kunci JSON Service Account Google Cloud." }}
+  ],
+  dingtalk: [
+    {{ key: "enabled: true / false", desc: "Status aktif DingTalk." }},
+    {{ key: "client_id: '...'", desc: "DingTalk Application Client ID." }},
+    {{ key: "client_secret: '...'", desc: "DingTalk Application Client Secret." }}
+  ],
+  wecom: [
+    {{ key: "enabled: true / false", desc: "Status aktif WeCom / WeChat Work." }},
+    {{ key: "corp_id: '...'", desc: "Enterprise Corp ID WeCom." }},
+    {{ key: "corp_secret: '...'", desc: "Application Secret WeCom." }}
+  ],
+  line: [
+    {{ key: "enabled: true / false", desc: "Status aktif LINE Messaging API." }},
+    {{ key: "channel_secret: '...'", desc: "Channel Secret dari LINE Developers Console." }},
+    {{ key: "channel_access_token: '...'", desc: "Channel Access Token (long-lived) LINE Bot." }}
+  ],
+  ntfy: [
+    {{ key: "enabled: true / false", desc: "Status aktif ntfy push notification." }},
+    {{ key: "topic: 'hermes-alerts'", desc: "Nama topic ntfy untuk subscribe / publish notifikasi." }},
+    {{ key: "server: 'https://ntfy.sh'", desc: "URL server ntfy (default publik ntfy.sh atau self-hosted)." }},
+    {{ key: "token: 'tk_...'", desc: "Auth token jika topic ntfy dilindungi autentikasi." }}
+  ],
+  email: [
+    {{ key: "enabled: true / false", desc: "Status aktif Email Gateway." }},
+    {{ key: "imap_server: 'imap.gmail.com'", desc: "Host IMAP server untuk menerima/polling email masuk." }},
+    {{ key: "imap_port: 993", desc: "Port IMAP server (SSL port 993)." }},
+    {{ key: "smtp_server: 'smtp.gmail.com'", desc: "Host SMTP server untuk membalas email keluar." }},
+    {{ key: "smtp_port: 587", desc: "Port SMTP server (STARTTLS port 587 atau SSL 465)." }},
+    {{ key: "username: 'bot@domain.com'", desc: "Alamat email login akun bot." }},
+    {{ key: "password: 'app-password'", desc: "Password akun atau Google App Password." }}
+  ],
+  homeassistant: [
+    {{ key: "enabled: true / false", desc: "Status aktif Home Assistant adapter." }},
+    {{ key: "url: 'http://homeassistant.local:8123'", desc: "URL instance server Home Assistant lokal." }},
+    {{ key: "token: 'LONG_LIVED_TOKEN'", desc: "Long-Lived Access Token yang dibuat di profil user Home Assistant." }}
+  ],
+  simplex: [
+    {{ key: "enabled: true / false", desc: "Status aktif SimpleX Chat." }},
+    {{ key: "agent_address: '/tmp/simplex.sock'", desc: "Socket path atau WebSocket address daemon SimpleX CLI." }}
+  ],
+  sms: [
+    {{ key: "enabled: true / false", desc: "Status aktif SMS Gateway via Twilio." }},
+    {{ key: "account_sid: 'AC...'", desc: "Twilio Account SID." }},
+    {{ key: "auth_token: '...'", desc: "Twilio Auth Token." }},
+    {{ key: "from_number: '+1234567890'", desc: "Nomor telepon aktif Twilio yang digunakan mengirim SMS." }}
+  ],
+  irc: [
+    {{ key: "enabled: true / false", desc: "Status aktif IRC adapter." }},
+    {{ key: "server: 'irc.libera.chat'", desc: "Hostname server IRC." }},
+    {{ key: "port: 6697", desc: "Port koneksi IRC (SSL 6697 atau plain 6667)." }},
+    {{ key: "nickname: 'hermes_bot'", desc: "Nickname bot di server IRC." }},
+    {{ key: "channels: ['#hermes']", desc: "Daftar nama channel IRC yang otomatis di-join bot." }}
+  ],
+  bluebubbles: [
+    {{ key: "enabled: true / false", desc: "Status aktif BlueBubbles (iMessage) adapter." }},
+    {{ key: "server_url: 'http://127.0.0.1:1234'", desc: "URL endpoint server BlueBubbles macOS." }},
+    {{ key: "password: '...' ", desc: "Password API BlueBubbles server." }}
+  ]
+}};
+
+function escGw(s){{
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}}
+
+function updateGwGuide(plat){{
+  var titleEl = document.getElementById('gw-config-guide-title');
+  var contentEl = document.getElementById('gw-config-guide-content');
+  if(!contentEl) return;
+
+  var normPlat = (plat || '').toLowerCase().trim();
+  var name = GW_PLATFORM_NAMES[normPlat] || (normPlat ? normPlat.toUpperCase() : 'Platform');
+  if(titleEl) titleEl.textContent = '💡 Panduan Kunci: ' + name;
+
+  var guides = GW_PLATFORM_GUIDES[normPlat];
+  if(!guides || !guides.length){{
+    guides = [
+      {{ key: "enabled: true / false", desc: "Status aktif platform gateway saat runtime Hermes berjalan." }},
+      {{ key: "token: '...'", desc: "Token autentikasi platform (jika didukung adapter)." }},
+      {{ key: "home_channel:", desc: "Kanal default notifikasi & interaksi (chat_id, name, platform)." }},
+      {{ key: "extra:", desc: "Parameter kustom tambahan untuk adapter atau plugin ini." }}
+    ];
+  }}
+
+  var html = '';
+  for(var i = 0; i < guides.length; i++){{
+    var g = guides[i];
+    html += '<div style="margin-bottom:0.28rem">• <code style="color:var(--accent-light);font-weight:600;font-size:0.75rem">' +
+            escGw(g.key) + '</code> — <span style="color:#cbd5e1">' + escGw(g.desc) + '</span></div>';
+  }}
+  contentEl.innerHTML = html;
+}}
+
 var GW_TEMPLATES = {{
   telegram: [
     "# Konfigurasi Platform Telegram",
@@ -1477,6 +1633,7 @@ function applyGwSelectedTemplate(key){{
   }}
   yamlEl.value = GW_TEMPLATES[key];
   document.getElementById('gw-template-picker').value = '';
+  updateGwGuide(key);
 }}
 
 function selectCatalogPlatform(plat){{
@@ -1500,6 +1657,7 @@ function selectCatalogPlatform(plat){{
 
   var name = GW_PLATFORM_NAMES[plat] || plat.toUpperCase();
   if(titleEl) titleEl.textContent = 'Tambah Gateway: ' + name;
+  updateGwGuide(plat);
 
   if(GW_TEMPLATES[plat]){{
     if(yamlEl) yamlEl.value = GW_TEMPLATES[plat];
@@ -1536,10 +1694,12 @@ function openGwConfig(platform, title){{
     if(titleEl) titleEl.textContent = 'Tambah Gateway: Telegram Bot';
     if(yamlEl) yamlEl.value = GW_TEMPLATES['telegram'] || ('enabled: true' + String.fromCharCode(10));
     if(enabledChk) enabledChk.checked = true;
+    updateGwGuide('telegram');
     if(modal) modal.classList.add('show');
   }} else {{
     if(selectWrap) selectWrap.style.display = 'none';
     if(yamlEl) yamlEl.value = 'Memuat konfigurasi…';
+    updateGwGuide(platform);
     if(modal) modal.classList.add('show');
 
     fetch('/api/gateway-config?platform=' + encodeURIComponent(platform))
