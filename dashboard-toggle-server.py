@@ -1905,9 +1905,14 @@ function deleteGwPlatform(plat, name){{
 }}
 
 function scrollAllLogsToBottom(){{
-  document.querySelectorAll('.logbox').forEach(function(b){{
-    b.scrollTop = b.scrollHeight;
-  }});
+  var doScroll = function(){{
+    document.querySelectorAll('.logbox').forEach(function(b){{
+      b.scrollTop = b.scrollHeight;
+    }});
+  }};
+  doScroll();
+  setTimeout(doScroll, 40);
+  setTimeout(doScroll, 180);
 }}
 function patchPage(boxId, page){{
   var box = document.getElementById(boxId);
@@ -2469,11 +2474,16 @@ def render_gateway_log_card(n: int = 60) -> str:
         f'<div id="gateway-log-card" style="margin-top:0.85rem;border-top:1px solid var(--border);padding-top:0.75rem">'
         f'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:0.45rem">'
         f'<div style="font-size:0.8rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px">{ICON_TERMINAL} Log Gateway Hermes {badge}</div>'
+        f'<div style="display:flex;gap:4px;align-items:center">'
+        f'<button type="button" class="btn" style="width:auto;padding:0.2rem 0.6rem;font-size:0.72rem;margin:0" '
+        f"onclick=\"var b=document.getElementById('gateway-logbox');if(b){{b.scrollTop=b.scrollHeight;}}\">"
+        f'Ke Log Terbaru</button>'
         f'<button type="button" class="btn" style="width:auto;padding:0.2rem 0.6rem;font-size:0.72rem;margin:0" '
         f"onclick=\"safeStore('setItem','gatewayLogDismissed','1');document.getElementById('gateway-log-card').remove();if(window.syncLogUI)syncLogUI()\">"
         f'Sembunyikan Log</button>'
         f'</div>'
-        f'<div class="logbox" id="gateway-logbox" style="max-height:240px">{body}</div>'
+        f'</div>'
+        f'<div class="logbox" id="gateway-logbox" style="max-height:260px">{body}</div>'
         f'</div>'
     )
 
@@ -2804,18 +2814,46 @@ SSE_SCRIPT = """<script>
   }
   function stickySet(id,v){
     var el=document.getElementById(id); if(!el||v==null) return;
-    // Capture stickiness on the OLD box before innerHTML replaces it —
-    // a fresh element always reports scrollTop=0 and would never scroll.
+    if(el.innerHTML === v) return;
     var force = window._forceBottom === true;
+    var curBox = el.querySelector('.logbox');
+    if(curBox){
+      var t = document.createElement('div');
+      t.innerHTML = v;
+      var newBox = t.querySelector('.logbox');
+      if(newBox){
+        if(curBox.innerHTML !== newBox.innerHTML){
+          var isNearBottom = force || (curBox.scrollHeight <= curBox.clientHeight) ||
+                             (curBox.scrollHeight - curBox.scrollTop - curBox.clientHeight < 80) ||
+                             (curBox.clientHeight === 0);
+          curBox.innerHTML = newBox.innerHTML;
+          if(isNearBottom){
+            curBox.scrollTop = curBox.scrollHeight;
+            setTimeout(function(){ curBox.scrollTop = curBox.scrollHeight; }, 30);
+          }
+        }
+        var curHeader = el.querySelector('[style*="justify-content:space-between"]') || el.querySelector('.card-title');
+        var newHeader = t.querySelector('[style*="justify-content:space-between"]') || t.querySelector('.card-title');
+        if(curHeader && newHeader && curHeader.innerHTML !== newHeader.innerHTML){
+          curHeader.innerHTML = newHeader.innerHTML;
+        }
+        if(force) window._forceBottom = false;
+        return;
+      }
+    }
     var boxes=el.querySelectorAll('.logbox'), sticky=[];
     for(var i=0;i<boxes.length;i++){
       var b=boxes[i];
-      if(force || b.scrollHeight-b.scrollTop-b.clientHeight < 48) sticky.push(i);
+      if(force || (b.scrollHeight <= b.clientHeight) || (b.scrollHeight - b.scrollTop - b.clientHeight < 80) || (b.clientHeight === 0)) sticky.push(i);
     }
     el.innerHTML=v;
     var nb=el.querySelectorAll('.logbox');
     for(var j=0;j<nb.length;j++){
-      if(sticky.indexOf(j)!==-1) nb[j].scrollTop=nb[j].scrollHeight;
+      if(sticky.indexOf(j)!==-1){
+        nb[j].scrollTop=nb[j].scrollHeight;
+        var tb = nb[j];
+        setTimeout(function(){ tb.scrollTop = tb.scrollHeight; }, 30);
+      }
     }
     if(force) window._forceBottom = false;
   }
