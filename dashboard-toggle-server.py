@@ -972,6 +972,12 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div id="gateway-list-slot">
       {gateway_list_block}
     </div>
+    <div id="gateway-log-slot">
+      {gateway_log_card}
+    </div>
+    <div id="gateway-log-show" style="display:none;margin-top:.6rem">
+      <button type="button" class="btn btn-action-sm" onclick="toggleLog('gatewayLogDismissed','gateway-log-show')">Tampilkan Log Gateway</button>
+    </div>
   </div>
   <div class="card card-info" style="margin-bottom:1.25rem">
     <div class="aux-header">
@@ -1951,6 +1957,10 @@ function toggleLog(flag, wrapId){{
     var cls = document.getElementById('clean-log-slot');
     if(cls) cls.innerHTML = window._lastCleanJunkCard;
   }}
+  if(flag === 'gatewayLogDismissed' && window._lastGatewayLogCard){{
+    var gls = document.getElementById('gateway-log-slot');
+    if(gls) gls.innerHTML = window._lastGatewayLogCard;
+  }}
 }}
 function syncLogUI(){{
   var routerDismissed = safeStore('getItem','logDismissed');
@@ -1976,12 +1986,26 @@ function syncLogUI(){{
     window._hasCleanLog = true;
     cc.remove();
   }}
+  var gatewayDismissed = safeStore('getItem','gatewayLogDismissed');
+  var gwShow = document.getElementById('gateway-log-show');
+  var gc = document.getElementById('gateway-log-card');
+  var hasGateway = !!(gc || window._hasGatewayLog);
+  if(gwShow) gwShow.style.display = (gatewayDismissed && hasGateway) ? '' : 'none';
+  if(gatewayDismissed && gc){{
+    window._hasGatewayLog = true;
+    gc.remove();
+  }}
 }}
 syncLogUI();
 if(document.getElementById('clean-log-card')){{
   window._hasCleanLog = true;
   var clsInit = document.getElementById('clean-log-slot');
   if(clsInit) window._lastCleanJunkCard = clsInit.innerHTML;
+}}
+if(document.getElementById('gateway-log-card')){{
+  window._hasGatewayLog = true;
+  var glsInit = document.getElementById('gateway-log-slot');
+  if(glsInit) window._lastGatewayLogCard = glsInit.innerHTML;
 }}
 // Initial load: scroll all existing log boxes to the bottom once
 document.addEventListener('DOMContentLoaded', scrollAllLogsToBottom);
@@ -2393,6 +2417,67 @@ def render_gateway_platforms_html() -> str:
     return "".join(rows)
 
 
+GATEWAY_LOG_PATHS = [
+    "/root/.hermes/logs/gateway.log",
+    "/opt/AppData/hermes-native/hermes-data/logs/gateway.log",
+]
+
+
+def redact_sensitive_tokens(text: str) -> str:
+    if not text:
+        return ""
+    text = re.sub(r'\b\d{8,12}:[A-Za-z0-9_-]{25,}\b', '[REDACTED_TOKEN]', text)
+    text = re.sub(r'\b[A-Za-z0-9_-]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}\b', '[REDACTED_DISCORD_TOKEN]', text)
+    text = re.sub(r'\bxox[baprs]-[A-Za-z0-9-]+\b', '[REDACTED_SLACK_TOKEN]', text)
+    text = re.sub(r'(bearer\s+)[A-Za-z0-9_.-]{16,}', r'\1[REDACTED]', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bsk-[A-Za-z0-9_-]{20,}\b', '[REDACTED_KEY]', text)
+    return text
+
+
+def tail_gateway_log(n: int = 60) -> str:
+    for p in GATEWAY_LOG_PATHS:
+        if os.path.exists(p) and os.path.getsize(p) > 0:
+            try:
+                with open(p, "rb") as f:
+                    f.seek(0, os.SEEK_END)
+                    size = f.tell()
+                    f.seek(max(0, size - 40000))
+                    raw = f.read().decode("utf-8", errors="replace")
+                    lines = raw.splitlines()
+                    return "\n".join(lines[-n:]) if lines else ""
+            except Exception:
+                pass
+    try:
+        r = subprocess.run(
+            ["journalctl", "_SYSTEMD_USER_UNIT=hermes-gateway.service", f"-n{n}", "--no-pager"],
+            capture_output=True, text=True, timeout=2
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def render_gateway_log_card(n: int = 60) -> str:
+    log_text = tail_gateway_log(n=n)
+    log_text = redact_sensitive_tokens(log_text)
+    gw_active = service_active("hermes-gateway", user=True)
+    badge = f'<span class="up">{ICON_CHECK}Aktif (Live)</span>' if gw_active else f'<span class="down">{ICON_ALERT_TRIANGLE}Mati</span>'
+    body = html.escape(log_text) if log_text.strip() else "(belum ada catatan log aktivitas gateway)"
+    return (
+        f'<div id="gateway-log-card" style="margin-top:0.85rem;border-top:1px solid var(--border);padding-top:0.75rem">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:0.45rem">'
+        f'<div style="font-size:0.8rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px">{ICON_TERMINAL} Log Gateway Hermes {badge}</div>'
+        f'<button type="button" class="btn" style="width:auto;padding:0.2rem 0.6rem;font-size:0.72rem;margin:0" '
+        f"onclick=\"safeStore('setItem','gatewayLogDismissed','1');document.getElementById('gateway-log-card').remove();if(window.syncLogUI)syncLogUI()\">"
+        f'Sembunyikan Log</button>'
+        f'</div>'
+        f'<div class="logbox" id="gateway-logbox" style="max-height:240px">{body}</div>'
+        f'</div>'
+    )
+
+
 def get_gateway_platform_config(plat: str) -> dict:
     """Retrieve raw YAML config for a specific platform from config.yaml."""
     cfg = get_parsed_config()
@@ -2799,6 +2884,16 @@ SSE_SCRIPT = """<script>
       window._lastCleanJunkCard = d.clean_junk_card;
       window._hasCleanLog = true;
     }}
+    if(!safeStore('getItem','gatewayLogDismissed')) {
+      if(d.gateway_log_card) stickySet('gateway-log-slot', d.gateway_log_card);
+    } else {
+      var gc = document.getElementById('gateway-log-card');
+      if(gc) { window._hasGatewayLog = true; gc.remove(); }
+    }
+    if(d.gateway_log_card) {
+      window._lastGatewayLogCard = d.gateway_log_card;
+      window._hasGatewayLog = true;
+    }
     syncLogUI();
     restorePatchPages();
   }
@@ -5217,6 +5312,7 @@ def build_fragments() -> dict:
     gw_info = get_gateway_info()
     gw_summary_text, gw_summary_badge_class, cell_gw_platforms = get_gateway_platforms_summary()
     gateway_list_block = render_gateway_platforms_html()
+    gateway_log_card = render_gateway_log_card()
     updating = _router_updating
     all_models = get_available_models_cached() if router_up else {}
     all_flat_models = [m for m_list in all_models.values() for m in m_list]
@@ -5480,6 +5576,7 @@ def build_fragments() -> dict:
         "backup_models_block": render_backup_models_block(),
         "processes_table": render_processes_table(),
         "gateway_list_block": gateway_list_block,
+        "gateway_log_card": gateway_log_card,
         "gw_summary_text": gw_summary_text,
         "gw_summary_badge_class": gw_summary_badge_class,
         "cpu_pct": cpu_pct,
@@ -5586,6 +5683,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         available_models_json=available_models_json,
         active_tab=active_tab,
         gateway_list_block=frag["gateway_list_block"],
+        gateway_log_card=frag.get("gateway_log_card", ""),
         gw_summary_text=frag["gw_summary_text"],
         gw_summary_badge_class=frag["gw_summary_badge_class"],
         cell_gw_platforms=frag["cells"]["gw_platforms"],
@@ -5866,6 +5964,22 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/status":
             body = json.dumps(build_fragments()).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/api/gateway-log":
+            n = 100
+            try:
+                n = int((qs.get("n") or ["100"])[0])
+            except Exception:
+                n = 100
+            raw_log = tail_gateway_log(n=n)
+            body = json.dumps({"ok": True, "log": redact_sensitive_tokens(raw_log)}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))

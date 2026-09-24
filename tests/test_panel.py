@@ -381,6 +381,7 @@ class TestHermesControlPanel(unittest.TestCase):
                 page = panel.build_status_page()
 
         self.assertIn('id="gateway-list-slot"', page)
+        self.assertIn('id="gateway-log-slot"', page)
         self.assertIn('id="cell-gw-platforms"', page)
         self.assertIn('id="gw-summary-badge"', page)
         self.assertIn("Platform Gateway", page)
@@ -490,6 +491,30 @@ class TestHermesControlPanel(unittest.TestCase):
             )
             self.assertEqual(code, 200)
             mock_restart.assert_called_once()
+
+    def test_24_gateway_log_card_and_endpoint(self):
+        """Gateway live log retrieval, token redaction, and HTML card rendering."""
+        # 1. Token redaction
+        raw = "telegram token 123456789:AAEKXJqwertYuiopasdfghjklzxcvbnm123 and bearer supersecrettoken12345"
+        clean = panel.redact_sensitive_tokens(raw)
+        self.assertNotIn("123456789:AAEKXJ", clean)
+        self.assertIn("[REDACTED_TOKEN]", clean)
+        self.assertIn("[REDACTED]", clean)
+
+        # 2. Card rendering
+        card_html = panel.render_gateway_log_card(n=10)
+        self.assertIn('id="gateway-log-card"', card_html)
+        self.assertIn('id="gateway-logbox"', card_html)
+        self.assertIn("Log Gateway Hermes", card_html)
+        self.assertIn("gatewayLogDismissed", card_html)
+
+        # 3. GET /api/gateway-log
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        code, _, body = self._request("/api/gateway-log?n=20", method="GET", headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        data = json.loads(body if isinstance(body, str) else body.decode("utf-8"))
+        self.assertTrue(data.get("ok"))
+        self.assertIn("log", data)
 
 
 if __name__ == "__main__":

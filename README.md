@@ -28,6 +28,7 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
   - **Live Status & Badges**: Menampilkan daftar platform messaging terkonfigurasi di `config.yaml` (Telegram, Webhook, Discord, WhatsApp, Slack, dll.) dengan status live realtime: badge terhubung (`Terhubung`), belum konek (`Menghubungkan…` / `Terputus`), atau badge error (`Error`) beserta detail kode/pesan error.
   - **Kustomisasi Penuh UI (YAML Editor)**: Konfigurasi platform perpesanan langsung dari web UI layaknya mengedit langsung `config.yaml` (mendukung kunci kustom: token, port, allowed chats, channel overrides, hooks). Validasi sintaks YAML otomatis mencegah file rusak.
   - **Kontrol Cepat**: Tombol Nyalakan / Matikan (`enabled: true/false`), Tambah Platform Baru dengan template bawaan, serta Hapus Platform dengan pembaruan atomik dan opsi auto-restart gateway.
+  - **Log Gateway Realtime**: Log aktivitas gateway Hermes (`gateway.log` & journalctl) ditampilkan langsung di Tab Layanan secara live via SSE dengan auto-scroll, tombol sembunyikan/tampilkan, dan proteksi sensor token otomatis (`[REDACTED]`). Dilengkapi endpoint `GET /api/gateway-log`.
 - 📊 **Tampilan Manajer Proses**:
   - **Tab Proses**: Monitoring daftar proses sistem & container (`hermes-gateway`, `9router`, `cloudflared`, `hermes-dashboard`, dll.) dengan status, PID, memori, dan aksi End Task / Restart / Start langsung dari web.
   - **Tab Performa**: Grafik riwayat pemakaian CPU dan Memori (DDR4 + ZRAM) real-time menggunakan SVG sparkline tanpa dependensi chart JS eksternal.
