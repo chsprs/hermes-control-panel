@@ -495,9 +495,10 @@ class TestHermesControlPanel(unittest.TestCase):
     def test_24_gateway_log_card_and_endpoint(self):
         """Gateway live log retrieval, token redaction, and HTML card rendering."""
         # 1. Token redaction
-        raw = "telegram token 123456789:AAEKXJqwertYuiopasdfghjklzxcvbnm123 and bearer supersecrettoken12345"
+        dummy_tg = "123456789:" + ("X" * 32)
+        raw = f"telegram token {dummy_tg} and bearer supersecrettoken12345"
         clean = panel.redact_sensitive_tokens(raw)
-        self.assertNotIn("123456789:AAEKXJ", clean)
+        self.assertNotIn(dummy_tg, clean)
         self.assertIn("[REDACTED_TOKEN]", clean)
         self.assertIn("[REDACTED]", clean)
 
