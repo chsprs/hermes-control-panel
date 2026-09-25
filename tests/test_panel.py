@@ -517,6 +517,45 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertTrue(data.get("ok"))
         self.assertIn("log", data)
 
+    def test_25_whatsapp_pairing_and_bridge_log(self):
+        """WhatsApp pairing status, bridge log, and modal rendering."""
+        # 1. Bridge log tailing & redaction
+        wa_log = panel.tail_whatsapp_bridge_log(n=10)
+        self.assertIsInstance(wa_log, str)
+
+        # 2. Card rendering includes whatsapp logbox and tab switcher
+        card_html = panel.render_gateway_log_card(n=10)
+        self.assertIn('id="whatsapp-logbox"', card_html)
+        self.assertIn("WhatsApp Bridge", card_html)
+        self.assertIn('switchGwLogTab', card_html)
+
+        # 3. Page rendering includes wa-pair-modal
+        page_html = panel.build_status_page()
+        self.assertIn('id="wa-pair-modal"', page_html)
+        self.assertIn('openWaPairModal', page_html)
+
+        # 4. GET /api/whatsapp-log
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        code, _, body = self._request("/api/whatsapp-log?n=20", method="GET", headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        data = json.loads(body if isinstance(body, str) else body.decode("utf-8"))
+        self.assertTrue(data.get("ok"))
+        self.assertIn("log", data)
+
+        # 5. GET /api/whatsapp/pair-status
+        code, _, body = self._request("/api/whatsapp/pair-status", method="GET", headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        data = json.loads(body if isinstance(body, str) else body.decode("utf-8"))
+        self.assertTrue(data.get("ok"))
+        self.assertIn("status", data)
+
+        # 6. POST /api/whatsapp/pair-cancel
+        code, _, body = self._request("/api/whatsapp/pair-cancel", method="POST", headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        data = json.loads(body if isinstance(body, str) else body.decode("utf-8"))
+        self.assertTrue(data.get("ok"))
+        self.assertEqual(data.get("status"), "cancelled")
+
 
 if __name__ == "__main__":
     unittest.main()

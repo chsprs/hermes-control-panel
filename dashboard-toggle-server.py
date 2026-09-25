@@ -83,6 +83,7 @@ MUTATING_PATHS = frozenset({
     "/set-fallback-model", "/remove-fallback-model",
     "/process-action",
     "/save-gateway-platform", "/toggle-gateway-platform", "/remove-gateway-platform",
+    "/api/whatsapp/pair-start", "/api/whatsapp/pair-cancel", "/api/whatsapp/pair-apply",
 })
 LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off"})
 ROUTER_URL = "http://{host}:20128/"
@@ -478,9 +479,9 @@ opacity:0;pointer-events:none;transition:opacity .15s var(--ease);z-index:200}}
 border-top-color:var(--accent-light);border-radius:50%;animation:spin .7s linear infinite}}
 #navloader span{{color:var(--text-muted);font-size:.82rem;font-family:var(--font-mono)}}
 /* Confirm modal */
-#confirm-modal, #aux-picker-modal, #gw-config-modal{{position:fixed;inset:0;background:rgba(7,9,14,0.85);backdrop-filter:blur(8px);
+#confirm-modal, #aux-picker-modal, #gw-config-modal, #wa-pair-modal{{position:fixed;inset:0;background:rgba(7,9,14,0.85);backdrop-filter:blur(8px);
 display:none;align-items:center;justify-content:center;z-index:300;padding:1.5rem}}
-#confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show{{display:flex}}
+#confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show, #wa-pair-modal.show{{display:flex}}
 .confirm-box{{background:rgba(22,27,38,0.95);border:1px solid var(--border-hover);
 border-radius:var(--radius-xl);padding:1.6rem 1.5rem;max-width:360px;width:100%;
 box-shadow:0 12px 48px rgba(0,0,0,0.7);backdrop-filter:blur(20px)}}
@@ -754,6 +755,58 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <div style="display:flex;gap:0.5rem">
         <button type="button" class="btn" style="width:auto;margin:0" onclick="closeGwConfig()">Batal</button>
         <button type="button" class="btn btn-action-primary" id="btn-save-gw-config" style="width:auto;margin:0;font-weight:600" onclick="saveGwConfig()">Simpan</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="wa-pair-modal">
+  <div class="confirm-box" style="max-width:540px;width:95%;max-height:90vh;display:flex;flex-direction:column;padding:1.4rem;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="cc-icon-box bg-emerald" style="width:28px;height:28px;border-radius:8px">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+        </div>
+        <h3 style="margin:0;font-size:1.05rem">Pairing WhatsApp QR Code</h3>
+      </div>
+      <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeWaPairModal()">✕</button>
+    </div>
+
+    <div id="wa-pair-status-bar" style="display:flex;align-items:center;justify-content:space-between;padding:0.45rem 0.75rem;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;font-size:0.78rem;margin-bottom:0.75rem">
+      <span id="wa-pair-status-text">Status: Siap untuk pairing</span>
+      <span class="badge" id="wa-pair-status-badge">Idle</span>
+    </div>
+
+    <!-- QR Code display area -->
+    <div id="wa-pair-qr-area" style="text-align:center;padding:0.75rem;background:rgba(0,0,0,0.25);border-radius:8px;border:1px solid var(--border);min-height:230px;display:flex;flex-direction:column;align-items:center;justify-content:center;margin-bottom:0.75rem">
+      <div id="wa-pair-qr-container" style="display:flex;justify-content:center;align-items:center">
+        <div style="color:var(--text-dim);font-size:0.82rem;padding:2rem 1rem">
+          Tekan tombol <strong>"Mulai Pairing QR"</strong> di bawah untuk menginisialisasi jembatan Baileys dan membuat QR code.
+        </div>
+      </div>
+      <div id="wa-pair-hint" style="font-size:0.74rem;color:var(--text-dim);margin-top:0.6rem;line-height:1.4">
+        📱 Buka WhatsApp di HP → Menu (titik tiga) / Pengaturan → <strong>Perangkat Tertaut</strong> → <strong>Tautkan Perangkat</strong>.
+      </div>
+    </div>
+
+    <!-- Live Pairing Logs -->
+    <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:0.75rem">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:0.74rem;font-weight:600;color:var(--text-dim)">Log Aktivitas Pairing (Live)</span>
+        <span id="wa-pair-timer" style="font-size:0.72rem;color:var(--text-dim);font-family:var(--font-mono)"></span>
+      </div>
+      <div class="logbox" id="wa-pair-logbox" style="height:110px;max-height:130px;font-size:0.72rem;background:#0d1117">(siap memulai)</div>
+    </div>
+
+    <!-- Modal Actions -->
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button type="button" class="btn btn-action-sm btn-action-primary" id="btn-start-wa-pair" onclick="startWaPair(false)">Mulai Pairing QR</button>
+        <button type="button" class="btn btn-action-sm" id="btn-reset-wa-pair" onclick="startWaPair(true)" style="display:none">Pair Ulang (Hapus Sesi)</button>
+        <button type="button" class="btn btn-action-sm btn-action-danger" id="btn-cancel-wa-pair" onclick="cancelWaPair()" style="display:none">Batalkan</button>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button type="button" class="btn btn-action-sm btn-action-primary" id="btn-apply-wa-pair" onclick="applyWaPair()" style="display:none;background:#10b981;border-color:#10b981">Aktifkan &amp; Restart Gateway</button>
+        <button type="button" class="btn btn-action-sm" onclick="closeWaPairModal()">Tutup</button>
       </div>
     </div>
   </div>
@@ -1275,6 +1328,7 @@ function switchTab(name, tab){{
   safeStore('setItem', 'activeTab', name);
   scrollAllLogsToBottom();
   restorePatchPages();
+  syncGwLogTabUI();
 }}
 
 // Tab restore from URL or safeStore
@@ -1290,6 +1344,7 @@ if(activeTabFromUrl){{
   }}
 }}
 restorePatchPages();
+syncGwLogTabUI();
 
 var currentGwPlatform = '';
 var isNewGwPlatform = false;
@@ -1904,6 +1959,171 @@ function deleteGwPlatform(plat, name){{
   }});
 }}
 
+function switchGwLogTab(tab){{
+  safeStore('setItem', 'gw_log_active_tab', tab);
+  var boxGw = document.getElementById('gateway-logbox');
+  var boxWa = document.getElementById('whatsapp-logbox');
+  var btnGw = document.getElementById('tab-log-gw');
+  var btnWa = document.getElementById('tab-log-wa');
+  if(tab === 'wa'){{
+    if(boxGw) boxGw.style.display = 'none';
+    if(boxWa){{
+      boxWa.style.display = 'block';
+      boxWa.scrollTop = boxWa.scrollHeight;
+    }}
+    if(btnGw) btnGw.classList.remove('active');
+    if(btnWa) btnWa.classList.add('active');
+  }} else {{
+    if(boxWa) boxWa.style.display = 'none';
+    if(boxGw){{
+      boxGw.style.display = 'block';
+      boxGw.scrollTop = boxGw.scrollHeight;
+    }}
+    if(btnWa) btnWa.classList.remove('active');
+    if(btnGw) btnGw.classList.add('active');
+  }}
+}}
+
+function syncGwLogTabUI(){{
+  var active = safeStore('getItem', 'gw_log_active_tab') || 'gw';
+  switchGwLogTab(active);
+}}
+
+var _waPairPollTimer = null;
+function openWaPairModal(){{
+  var m = document.getElementById('wa-pair-modal');
+  if(m){{
+    m.classList.add('show');
+    m.style.display = 'flex';
+  }}
+  pollWaPairStatus();
+}}
+
+function closeWaPairModal(){{
+  var m = document.getElementById('wa-pair-modal');
+  if(m){{
+    m.classList.remove('show');
+    m.style.display = 'none';
+  }}
+  if(_waPairPollTimer){{
+    clearTimeout(_waPairPollTimer);
+    _waPairPollTimer = null;
+  }}
+}}
+
+function setWaPairStatusUI(data){{
+  var bText = document.getElementById('wa-pair-status-text');
+  var badge = document.getElementById('wa-pair-status-badge');
+  var qrBox = document.getElementById('wa-pair-qr-container');
+  var logBox = document.getElementById('wa-pair-logbox');
+  var btnStart = document.getElementById('btn-start-wa-pair');
+  var btnReset = document.getElementById('btn-reset-wa-pair');
+  var btnCancel = document.getElementById('btn-cancel-wa-pair');
+  var btnApply = document.getElementById('btn-apply-wa-pair');
+
+  if(logBox && data.logs && data.logs.length > 0){{
+    logBox.textContent = data.logs.join(String.fromCharCode(10));
+    logBox.scrollTop = logBox.scrollHeight;
+  }}
+
+  if(data.status === 'waiting_scan'){{
+    if(bText) bText.textContent = 'Menunggu scan dari WhatsApp HP...';
+    if(badge){{ badge.className = 'badge badge-warn'; badge.textContent = 'Scan QR'; }}
+    if(qrBox && data.qr_svg){{ qrBox.innerHTML = data.qr_svg; }}
+    if(btnStart) btnStart.style.display = 'none';
+    if(btnCancel) btnCancel.style.display = 'inline-block';
+    if(btnReset) btnReset.style.display = 'none';
+    if(btnApply) btnApply.style.display = 'none';
+  }} else if(data.status === 'starting'){{
+    if(bText) bText.textContent = 'Memulai bridge WhatsApp...';
+    if(badge){{ badge.className = 'badge badge-warn'; badge.textContent = 'Starting'; }}
+    if(btnStart) btnStart.style.display = 'none';
+    if(btnCancel) btnCancel.style.display = 'inline-block';
+    if(btnReset) btnReset.style.display = 'none';
+    if(btnApply) btnApply.style.display = 'none';
+  }} else if(data.status === 'connected'){{
+    var uName = (data.user && (data.user.name || data.user.id)) || 'Akun WhatsApp';
+    if(bText) bText.textContent = 'Terhubung sebagai: ' + uName;
+    if(badge){{ badge.className = 'badge badge-up'; badge.textContent = 'Terhubung'; }}
+    if(qrBox){{
+      qrBox.innerHTML = '<div style="color:#10b981;padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:0.5rem">✓</div><div style="font-weight:600">WhatsApp Berhasil Tertaut!</div><div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.3rem">Kredensial tersimpan di sesi lokal.</div></div>';
+    }}
+    if(btnStart) btnStart.style.display = 'none';
+    if(btnCancel) btnCancel.style.display = 'none';
+    if(btnReset) btnReset.style.display = 'inline-block';
+    if(btnApply) btnApply.style.display = 'inline-block';
+  }} else if(data.status === 'error'){{
+    if(bText) bText.textContent = 'Error: ' + (data.error || 'Terjadi kesalahan');
+    if(badge){{ badge.className = 'badge badge-danger'; badge.textContent = 'Gagal'; }}
+    if(btnStart) btnStart.style.display = 'inline-block';
+    if(btnCancel) btnCancel.style.display = 'none';
+    if(btnReset) btnReset.style.display = 'inline-block';
+    if(btnApply) btnApply.style.display = 'none';
+  }} else {{
+    if(bText) bText.textContent = 'Status: Siap untuk pairing';
+    if(badge){{ badge.className = 'badge'; badge.textContent = 'Idle'; }}
+    if(btnStart) btnStart.style.display = 'inline-block';
+    if(btnCancel) btnCancel.style.display = 'none';
+    if(btnReset) btnReset.style.display = 'inline-block';
+    if(btnApply) btnApply.style.display = 'none';
+  }}
+}}
+
+function pollWaPairStatus(){{
+  fetch('/api/whatsapp/pair-status')
+    .then(function(r){{ return r.json(); }})
+    .then(function(d){{
+      setWaPairStatusUI(d);
+      var m = document.getElementById('wa-pair-modal');
+      if(m && m.style.display !== 'none' && (d.status === 'starting' || d.status === 'waiting_scan')){{
+        _waPairPollTimer = setTimeout(pollWaPairStatus, 1500);
+      }}
+    }})
+    .catch(function(){{}});
+}}
+
+function startWaPair(clearSession){{
+  var bText = document.getElementById('wa-pair-status-text');
+  if(bText) bText.textContent = 'Mengirim instruksi mulai pairing...';
+  fetch('/api/whatsapp/pair-start', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json', 'Accept': 'application/json'}},
+    body: JSON.stringify({{force_new: clearSession}})
+  }}).then(function(r){{ return r.json(); }})
+    .then(function(d){{
+      setWaPairStatusUI(d);
+      pollWaPairStatus();
+    }})
+    .catch(function(){{
+      pollWaPairStatus();
+    }});
+}}
+
+function cancelWaPair(){{
+  fetch('/api/whatsapp/pair-cancel', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json', 'Accept': 'application/json'}},
+    body: JSON.stringify({{}})
+  }}).then(function(r){{ return r.json(); }})
+    .then(function(d){{
+      setWaPairStatusUI(d);
+    }});
+}}
+
+function applyWaPair(){{
+  var btn = document.getElementById('btn-apply-wa-pair');
+  if(btn){{ btn.disabled = true; btn.textContent = 'Mengaktifkan...'; }}
+  fetch('/api/whatsapp/pair-apply', {{
+    method: 'POST',
+    headers: {{'Content-Type': 'application/json', 'Accept': 'application/json'}},
+    body: JSON.stringify({{restart_gw: true}})
+  }}).then(function(r){{ return r.json(); }})
+    .then(function(d){{
+      closeWaPairModal();
+      window.location.reload();
+    }});
+}}
+
 function scrollAllLogsToBottom(){{
   var doScroll = function(){{
     document.querySelectorAll('.logbox').forEach(function(b){{
@@ -2383,6 +2603,12 @@ def render_gateway_platforms_html() -> str:
 
         safe_p = p["platform"].replace("'", "\'")
         safe_name = name.replace("'", "\'")
+        pair_btn = (
+            f'<button type="button" class="btn-action-sm btn-action-primary" '
+            f'style="background:rgba(16,185,129,0.15);color:#10b981;border-color:rgba(16,185,129,0.3)" '
+            f'onclick="openWaPairModal()">Pairing QR</button>'
+            if p["platform"] == "whatsapp" else ""
+        )
         toggle_btn = (
             f'<button type="button" class="btn-action-sm" onclick="toggleGwPlatform(\'{safe_p}\', false)">Matikan</button>'
             if p["enabled"] else
@@ -2413,6 +2639,7 @@ def render_gateway_platforms_html() -> str:
             f'  </div>'
             f'  <div class="gw-card-bottom">'
             f'    {toggle_btn}'
+            f'    {pair_btn}'
             f'    {edit_btn}'
             f'    {del_btn}'
             f'  </div>'
@@ -2426,6 +2653,245 @@ GATEWAY_LOG_PATHS = [
     "/root/.hermes/logs/gateway.log",
     "/opt/AppData/hermes-native/hermes-data/logs/gateway.log",
 ]
+WHATSAPP_LOG_PATHS = [
+    "/root/.hermes/whatsapp/bridge.log",
+    "/opt/AppData/hermes-native/hermes-data/whatsapp/bridge.log",
+]
+
+
+def tail_whatsapp_bridge_log(n: int = 60) -> str:
+    for p in WHATSAPP_LOG_PATHS:
+        if os.path.exists(p) and os.path.getsize(p) > 0:
+            try:
+                with open(p, "rb") as f:
+                    f.seek(0, os.SEEK_END)
+                    size = f.tell()
+                    f.seek(max(0, size - 40000))
+                    raw = f.read().decode("utf-8", errors="replace")
+                    lines = raw.splitlines()
+                    return "\n".join(lines[-n:]) if lines else ""
+            except Exception:
+                pass
+    return ""
+
+
+def qr_to_svg(qr_text: str) -> str:
+    """Generate compact SVG from QR text using node and qrcode-terminal vendor library."""
+    if not qr_text:
+        return ""
+    node_code = """
+    try {
+      const QRCode = require('/opt/AppData/hermes-native/hermes-lib/scripts/whatsapp-bridge/node_modules/qrcode-terminal/vendor/QRCode');
+      const QRErrorCorrectLevel = require('/opt/AppData/hermes-native/hermes-lib/scripts/whatsapp-bridge/node_modules/qrcode-terminal/vendor/QRCode/QRErrorCorrectLevel');
+      const qr = new QRCode(-1, QRErrorCorrectLevel.L);
+      qr.addData(process.argv[1]);
+      qr.make();
+      const count = qr.getModuleCount();
+      let d = '';
+      for (let r = 0; r < count; r++) {
+        for (let c = 0; c < count; c++) {
+          if (qr.isDark(r, c)) {
+            d += `M${c + 4},${r + 4}h1v1h-1z`;
+          }
+        }
+      }
+      const size = count + 8;
+      process.stdout.write(`<svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="width:220px;height:220px;background:#ffffff;padding:8px;border-radius:10px;"><rect width="100%" height="100%" fill="#ffffff"/><path d="${d}" fill="#111827"/></svg>`);
+    } catch (e) {
+      process.stderr.write(String(e));
+    }
+    """
+    try:
+        r = subprocess.run(["node", "-e", node_code, qr_text], capture_output=True, text=True, timeout=5)
+        if r.returncode == 0 and r.stdout.startswith("<svg"):
+            return r.stdout
+    except Exception:
+        pass
+    return ""
+
+
+_wa_pair_lock = threading.Lock()
+_wa_pair_proc = None
+_wa_pair_state = {
+    "status": "idle",
+    "qr_raw": "",
+    "qr_svg": "",
+    "user": None,
+    "error": None,
+    "logs": [],
+    "started_at": 0,
+    "expires_at": 0,
+}
+
+
+def _append_wa_pair_log(msg: str):
+    with _wa_pair_lock:
+        ts = datetime.now().strftime("%H:%M:%S")
+        _wa_pair_state["logs"].append(f"[{ts}] {msg}")
+        if len(_wa_pair_state["logs"]) > 80:
+            _wa_pair_state["logs"] = _wa_pair_state["logs"][-80:]
+
+
+def get_wa_pair_status() -> dict:
+    with _wa_pair_lock:
+        global _wa_pair_proc
+        if _wa_pair_proc is not None and _wa_pair_proc.poll() is not None:
+            code = _wa_pair_proc.poll()
+            if _wa_pair_state["status"] not in ("connected", "error", "cancelled"):
+                creds_p = Path("/root/.hermes/whatsapp/session/creds.json")
+                if creds_p.exists():
+                    try:
+                        with open(creds_p, "r", encoding="utf-8") as f:
+                            cdata = json.load(f)
+                            if cdata.get("registered") or cdata.get("me"):
+                                _wa_pair_state["status"] = "connected"
+                                _wa_pair_state["user"] = cdata.get("me")
+                    except Exception:
+                        pass
+                if _wa_pair_state["status"] != "connected":
+                    _wa_pair_state["status"] = "idle" if code == 0 else "error"
+                    if code != 0 and not _wa_pair_state.get("error"):
+                        _wa_pair_state["error"] = f"Proses bridge keluar dengan kode {code}"
+            _wa_pair_proc = None
+        return dict(_wa_pair_state)
+
+
+def _wa_pair_watcher(proc, session_dir: Path):
+    global _wa_pair_proc
+    try:
+        for line in proc.stdout or ():
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                payload = json.loads(raw)
+            except Exception:
+                _append_wa_pair_log(raw)
+                continue
+
+            evt = payload.get("event")
+            if evt == "started":
+                _append_wa_pair_log(f"Bridge aktif. Session: {session_dir.name}")
+            elif evt == "qr":
+                qr_str = str(payload.get("qr") or "").strip()
+                svg = qr_to_svg(qr_str)
+                with _wa_pair_lock:
+                    _wa_pair_state["status"] = "waiting_scan"
+                    _wa_pair_state["qr_raw"] = qr_str
+                    _wa_pair_state["qr_svg"] = svg
+                    _wa_pair_state["expires_at"] = time.time() + 60
+                _append_wa_pair_log("QR Code dibuat. Silakan scan dengan WhatsApp di HP.")
+            elif evt == "connected":
+                user = payload.get("user") or {}
+                with _wa_pair_lock:
+                    _wa_pair_state["status"] = "connected"
+                    _wa_pair_state["user"] = user
+                    _wa_pair_state["qr_svg"] = ""
+                acc_name = user.get("name") or user.get("id") or "WhatsApp User"
+                _append_wa_pair_log(f"WhatsApp berhasil terhubung! Akun: {acc_name}")
+            elif evt == "error":
+                err = str(payload.get("error") or "Unknown error")
+                with _wa_pair_lock:
+                    _wa_pair_state["status"] = "error"
+                    _wa_pair_state["error"] = err
+                _append_wa_pair_log(f"Error: {err}")
+            elif evt == "disconnected":
+                reason = payload.get("reason")
+                _append_wa_pair_log(f"Koneksi terputus (reason: {reason}).")
+    except Exception as ex:
+        _append_wa_pair_log(f"Exception watcher: {ex}")
+    finally:
+        with _wa_pair_lock:
+            _wa_pair_proc = None
+
+
+def start_wa_pair(clear_session: bool = False) -> tuple[bool, str]:
+    global _wa_pair_proc
+    with _wa_pair_lock:
+        if _wa_pair_proc is not None and _wa_pair_proc.poll() is None:
+            return True, "Pairing sudah berjalan."
+
+        session_dir = Path("/root/.hermes/whatsapp/session")
+        session_dir.mkdir(parents=True, exist_ok=True)
+        if clear_session:
+            import shutil
+            for item in session_dir.glob("*"):
+                try:
+                    if item.is_file():
+                        item.unlink()
+                    elif item.is_dir():
+                        shutil.rmtree(item)
+                except Exception:
+                    pass
+
+        bridge_script = Path("/opt/AppData/hermes-native/hermes-lib/scripts/whatsapp-bridge/bridge.js")
+        if not bridge_script.exists():
+            return False, f"Script bridge.js tidak ditemukan di {bridge_script}"
+
+        env = os.environ.copy()
+        env["WHATSAPP_MODE"] = "bot"
+        env["WHATSAPP_DM_POLICY"] = "open"
+
+        cmd = [
+            "node",
+            str(bridge_script),
+            "--pair-only",
+            "--pair-json",
+            "--session",
+            str(session_dir)
+        ]
+        try:
+            _wa_pair_proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                env=env,
+                cwd=str(bridge_script.parent),
+            )
+        except Exception as ex:
+            return False, f"Gagal menjalankan node bridge: {ex}"
+
+        _wa_pair_state["status"] = "starting"
+        _wa_pair_state["qr_raw"] = ""
+        _wa_pair_state["qr_svg"] = ""
+        _wa_pair_state["user"] = None
+        _wa_pair_state["error"] = None
+        _wa_pair_state["logs"] = []
+        _wa_pair_state["started_at"] = time.time()
+
+    _append_wa_pair_log("Memulai proses pairing WhatsApp Baileys...")
+    t = threading.Thread(target=_wa_pair_watcher, args=(_wa_pair_proc, session_dir), daemon=True)
+    t.start()
+    return True, "Pairing dimulai."
+
+
+def cancel_wa_pair() -> None:
+    global _wa_pair_proc
+    with _wa_pair_lock:
+        if _wa_pair_proc is not None:
+            try:
+                _wa_pair_proc.terminate()
+                _wa_pair_proc.wait(timeout=2)
+            except Exception:
+                try:
+                    _wa_pair_proc.kill()
+                except Exception:
+                    pass
+            _wa_pair_proc = None
+        _wa_pair_state["status"] = "cancelled"
+        _wa_pair_state["qr_svg"] = ""
+    _append_wa_pair_log("Proses pairing dibatalkan oleh pengguna.")
+
+
+def apply_wa_pair(restart_gw: bool = True) -> tuple[bool, str]:
+    ok, err = toggle_gateway_platform_config("whatsapp", True)
+    if not ok:
+        return False, f"Gagal mengaktifkan WhatsApp di config: {err}"
+    if restart_gw:
+        restart_bot()
+    return True, "WhatsApp berhasil diaktifkan dan gateway direstart!"
 
 
 def redact_sensitive_tokens(text: str) -> str:
@@ -2470,13 +2936,24 @@ def render_gateway_log_card(n: int = 60) -> str:
     gw_active = service_active("hermes-gateway", user=True)
     badge = f'<span class="up">{ICON_CHECK}Aktif (Live)</span>' if gw_active else f'<span class="down">{ICON_ALERT_TRIANGLE}Mati</span>'
     body = html.escape(log_text) if log_text.strip() else "(belum ada catatan log aktivitas gateway)"
+
+    wa_log = tail_whatsapp_bridge_log(n=n)
+    wa_log = redact_sensitive_tokens(wa_log)
+    wa_body = html.escape(wa_log) if wa_log.strip() else "(belum ada catatan log aktivitas bridge whatsapp)"
+
     return (
         f'<div id="gateway-log-card" style="margin-top:0.85rem;border-top:1px solid var(--border);padding-top:0.75rem">'
         f'<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:0.45rem">'
+        f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
         f'<div style="font-size:0.8rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px">{ICON_TERMINAL} Log Gateway Hermes {badge}</div>'
+        f'<div style="display:inline-flex;gap:3px;background:rgba(255,255,255,0.05);padding:2px;border-radius:6px;border:1px solid var(--border)">'
+        f'<button type="button" class="btn-action-sm active" id="tab-log-gw" onclick="switchGwLogTab(\'gw\')" style="padding:0.15rem 0.5rem;font-size:0.7rem;margin:0">Gateway Core</button>'
+        f'<button type="button" class="btn-action-sm" id="tab-log-wa" onclick="switchGwLogTab(\'wa\')" style="padding:0.15rem 0.5rem;font-size:0.7rem;margin:0">WhatsApp Bridge</button>'
+        f'</div>'
+        f'</div>'
         f'<div style="display:flex;gap:4px;align-items:center">'
         f'<button type="button" class="btn" style="width:auto;padding:0.2rem 0.6rem;font-size:0.72rem;margin:0" '
-        f"onclick=\"var b=document.getElementById('gateway-logbox');if(b){{b.scrollTop=b.scrollHeight;}}\">"
+        f"onclick=\"var bg=document.getElementById('gateway-logbox'), bw=document.getElementById('whatsapp-logbox'); if(bg&&bg.style.display!=='none')bg.scrollTop=bg.scrollHeight; if(bw&&bw.style.display!=='none')bw.scrollTop=bw.scrollHeight;\">"
         f'Ke Log Terbaru</button>'
         f'<button type="button" class="btn" style="width:auto;padding:0.2rem 0.6rem;font-size:0.72rem;margin:0" '
         f"onclick=\"safeStore('setItem','gatewayLogDismissed','1');document.getElementById('gateway-log-card').remove();if(window.syncLogUI)syncLogUI()\">"
@@ -2484,6 +2961,7 @@ def render_gateway_log_card(n: int = 60) -> str:
         f'</div>'
         f'</div>'
         f'<div class="logbox" id="gateway-logbox" style="max-height:260px">{body}</div>'
+        f'<div class="logbox" id="whatsapp-logbox" style="max-height:260px;display:none">{wa_body}</div>'
         f'</div>'
     )
 
@@ -2816,26 +3294,30 @@ SSE_SCRIPT = """<script>
     var el=document.getElementById(id); if(!el||v==null) return;
     if(el.innerHTML === v) return;
     var force = window._forceBottom === true;
-    var curBox = el.querySelector('.logbox');
-    if(curBox){
+    var curBoxes = el.querySelectorAll('.logbox');
+    if(curBoxes.length > 0){
       var t = document.createElement('div');
       t.innerHTML = v;
-      var newBox = t.querySelector('.logbox');
-      if(newBox){
-        if(curBox.innerHTML !== newBox.innerHTML){
-          var isNearBottom = force || (curBox.scrollHeight <= curBox.clientHeight) ||
-                             (curBox.scrollHeight - curBox.scrollTop - curBox.clientHeight < 80) ||
-                             (curBox.clientHeight === 0);
-          curBox.innerHTML = newBox.innerHTML;
-          if(isNearBottom){
-            curBox.scrollTop = curBox.scrollHeight;
-            setTimeout(function(){ curBox.scrollTop = curBox.scrollHeight; }, 30);
+      var newBoxes = t.querySelectorAll('.logbox');
+      if(newBoxes.length === curBoxes.length){
+        for(var k=0; k<curBoxes.length; k++){
+          var cb = curBoxes[k], nb = newBoxes[k];
+          if(cb.innerHTML !== nb.innerHTML){
+            var isNearBottom = force || (cb.scrollHeight <= cb.clientHeight) ||
+                               (cb.scrollHeight - cb.scrollTop - cb.clientHeight < 80) ||
+                               (cb.clientHeight === 0);
+            cb.innerHTML = nb.innerHTML;
+            if(isNearBottom){
+              cb.scrollTop = cb.scrollHeight;
+              (function(box){ setTimeout(function(){ box.scrollTop = box.scrollHeight; }, 30); })(cb);
+            }
           }
         }
         var curHeader = el.querySelector('[style*="justify-content:space-between"]') || el.querySelector('.card-title');
         var newHeader = t.querySelector('[style*="justify-content:space-between"]') || t.querySelector('.card-title');
         if(curHeader && newHeader && curHeader.innerHTML !== newHeader.innerHTML){
           curHeader.innerHTML = newHeader.innerHTML;
+          if(window.syncGwLogTabUI) window.syncGwLogTabUI();
         }
         if(force) window._forceBottom = false;
         return;
@@ -6026,6 +6508,33 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
+        if parsed.path == "/api/whatsapp-log":
+            n = 100
+            try:
+                n = int((qs.get("n") or ["100"])[0])
+            except Exception:
+                n = 100
+            raw_log = tail_whatsapp_bridge_log(n=n)
+            body = json.dumps({"ok": True, "log": redact_sensitive_tokens(raw_log)}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/api/whatsapp/pair-status":
+            st = get_wa_pair_status()
+            body = json.dumps({"ok": True, **st}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if parsed.path == "/api/gateway-config":
             plat = (qs.get("platform") or [""])[0].strip().lower()
             data = get_gateway_platform_config(plat)
@@ -6154,6 +6663,23 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(f"<h1>400 — {html.escape(err)}</h1>", 400)
                 return
             self._redirect_to_status(tab="control")
+            return
+
+        if parsed.path == "/api/whatsapp/pair-start":
+            force_new = bool(json_data.get("force_new") or ((qs.get("force_new") or ["0"])[0] in ("1", "true", "True")))
+            ok, msg = start_wa_pair(clear_session=force_new)
+            self._send_json({"ok": ok, "message": msg, **get_wa_pair_status()})
+            return
+
+        if parsed.path == "/api/whatsapp/pair-cancel":
+            cancel_wa_pair()
+            self._send_json({"ok": True, "message": "Pairing dibatalkan", **get_wa_pair_status()})
+            return
+
+        if parsed.path == "/api/whatsapp/pair-apply":
+            restart_gw = bool(json_data.get("restart_gw") if "restart_gw" in json_data else ((qs.get("restart_gw") or ["1"])[0] in ("1", "true", "True")))
+            ok, msg = apply_wa_pair(restart_gw=restart_gw)
+            self._send_json({"ok": ok, "message": msg, **get_wa_pair_status()})
             return
         """Execute an already-authenticated action route, then redirect."""
         global _last_action_at, _last_model_switch_at, _last_aux_model_at
