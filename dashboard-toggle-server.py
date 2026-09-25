@@ -3405,6 +3405,41 @@ def get_gateway_platform_config(plat: str) -> dict:
         }
 
 
+def _sync_env_platform_flag(platform: str, enabled: bool, extra_vars: dict = None) -> None:
+    try:
+        env_file = Path(CONFIG_PATH).parent / ".env"
+        if not env_file.exists():
+            return
+        lines = env_file.read_text(encoding="utf-8").splitlines()
+        prefix = f"{platform.upper()}_ENABLED="
+        found = False
+        new_lines = []
+        for line in lines:
+            if line.strip().startswith(prefix):
+                new_lines.append(f"{prefix}{'true' if enabled else 'false'}")
+                found = True
+            else:
+                new_lines.append(line)
+        if not found and platform == "whatsapp":
+            new_lines.append(f"{prefix}{'true' if enabled else 'false'}")
+
+        if extra_vars:
+            for k, v in extra_vars.items():
+                k_prefix = f"{k}="
+                k_found = False
+                for idx, line in enumerate(new_lines):
+                    if line.strip().startswith(k_prefix):
+                        new_lines[idx] = f"{k}={v}"
+                        k_found = True
+                        break
+                if not k_found:
+                    new_lines.append(f"{k}={v}")
+
+        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+    except Exception as e:
+        pass
+
+
 def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override: bool | None = None) -> tuple[bool, str]:
     """Validate and atomically update platforms.<platform> in config.yaml."""
     platform = platform.strip().lower()
@@ -3453,6 +3488,13 @@ def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override:
             yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
         os.replace(tmp_path, CONFIG_PATH)
+        if platform == "whatsapp":
+            extra_vars = {}
+            if "mode" in parsed_data:
+                extra_vars["WHATSAPP_MODE"] = parsed_data["mode"]
+            if "allow_from" in parsed_data and isinstance(parsed_data["allow_from"], list):
+                extra_vars["WHATSAPP_ALLOWED_USERS"] = ",".join(str(x) for x in parsed_data["allow_from"])
+            _sync_env_platform_flag("whatsapp", parsed_data.get("enabled", True), extra_vars)
         invalidate_config_cache()
         _invalidate_status_cache("gateway_platforms")
         return True, ""
@@ -3485,6 +3527,8 @@ def toggle_gateway_platform_config(platform: str, enabled: bool) -> tuple[bool, 
             yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
         os.replace(tmp_path, CONFIG_PATH)
+        if platform == "whatsapp":
+            _sync_env_platform_flag("whatsapp", enabled)
         invalidate_config_cache()
         _invalidate_status_cache("gateway_platforms")
         return True, ""
