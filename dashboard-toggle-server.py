@@ -3127,6 +3127,13 @@ def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override:
 
         cfg["platforms"][platform] = parsed_data
 
+        # If duplicate legacy top-level platform key exists, remove it so platforms.<name> is authoritative
+        if platform in cfg and isinstance(cfg[platform], dict):
+            try:
+                del cfg[platform]
+            except Exception:
+                pass
+
         tmp_path = CONFIG_PATH + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
