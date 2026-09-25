@@ -693,11 +693,123 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       </div>
     </div>
 
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem;flex-wrap:wrap;gap:0.4rem">
-      <div style="display:flex;align-items:center;gap:0.45rem">
-        <label style="font-size:0.75rem;color:var(--text-muted);font-weight:600">Pengaturan YAML (<code>platforms.&lt;nama&gt;</code>)</label>
+    <!-- Mode Switcher: Form UI (Default) vs Raw YAML -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.4rem">
+      <div style="display:flex;gap:0.35rem;background:rgba(255,255,255,0.04);padding:3px;border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <button type="button" class="btn-action-sm active" id="gw-btn-mode-ui" onclick="switchGwConfigMode('ui')" style="min-height:28px;font-size:0.74rem">🎛 Form Setting (Full UI)</button>
+        <button type="button" class="btn-action-sm" id="gw-btn-mode-yaml" onclick="switchGwConfigMode('yaml')" style="min-height:28px;font-size:0.74rem">📝 Raw YAML (Manual)</button>
       </div>
-      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+      <label style="font-size:0.75rem;display:inline-flex;align-items:center;gap:0.35rem;cursor:pointer;background:rgba(255,255,255,0.04);padding:0.25rem 0.55rem;border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <input type="checkbox" id="gw-config-enabled-chk" checked style="accent-color:var(--accent)">
+        <span style="font-weight:600">Aktifkan Platform</span>
+      </label>
+    </div>
+
+    <!-- FORM UI VIEW (No coding, visual settings) -->
+    <div id="gw-config-form-view" style="display:flex;flex-direction:column;gap:0.6rem;max-height:52vh;overflow-y:auto;padding-right:4px">
+      <!-- WhatsApp Specific Banner / Quick Pair -->
+      <div id="gw-form-wa-banner" style="display:none;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.3);border-radius:var(--radius-sm);padding:0.6rem 0.8rem;align-items:center;justify-content:space-between;gap:0.6rem;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:600;font-size:0.8rem;color:#10b981;display:flex;align-items:center;gap:5px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+            Jembatan WhatsApp Baileys
+          </div>
+          <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px">Tautkan sesi WhatsApp web menggunakan kamera HP tanpa token API.</div>
+        </div>
+        <button type="button" class="btn btn-action-sm btn-action-primary" style="background:rgba(16,185,129,0.2);color:#10b981;border-color:rgba(16,185,129,0.4)" onclick="closeGwConfig();openWaPairModal();">📱 Buka Pairing QR</button>
+      </div>
+
+      <!-- Mode & Port (WhatsApp only) -->
+      <div id="gw-form-wa-fields" style="display:none;display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <label style="font-size:0.72rem;color:var(--text-muted);font-weight:600">Mode Operasi</label>
+          <select id="gw-f-wa-mode" class="search-input" style="margin:0;font-size:0.75rem;padding:0.35rem 0.5rem">
+            <option value="bot">Bot Dedicated (Akun Bot Terpisah)</option>
+            <option value="self-chat">Self-Chat (Akun Pribadi/Catatan Sendiri)</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <label style="font-size:0.72rem;color:var(--text-muted);font-weight:600">Port Jembatan Bridge</label>
+          <input type="number" id="gw-f-wa-port" class="search-input" value="3000" style="margin:0;font-size:0.75rem;padding:0.35rem 0.5rem">
+        </div>
+      </div>
+
+      <!-- DM Policy & Allowlist -->
+      <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.6rem;display:flex;flex-direction:column;gap:0.45rem">
+        <div style="font-size:0.75rem;font-weight:600;color:var(--accent-light)">🔒 Hak Akses Obrolan Pribadi (DM)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <label style="font-size:0.7rem;color:var(--text-dim)">Kebijakan DM (<code>dm_policy</code>)</label>
+            <select id="gw-f-dm-policy" class="search-input" style="margin:0;font-size:0.75rem;padding:0.3rem 0.5rem">
+              <option value="open">open (Siapa saja boleh chat)</option>
+              <option value="allowlist">allowlist (Hanya nomor/user terdaftar)</option>
+              <option value="pairing">pairing (Wajib kode verifikasi)</option>
+              <option value="disabled">disabled (Nonaktifkan chat pribadi)</option>
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <label style="font-size:0.7rem;color:var(--text-dim)">Penyampaian Notifikasi</label>
+            <select id="gw-f-notice-del" class="search-input" style="margin:0;font-size:0.75rem;padding:0.3rem 0.5rem">
+              <option value="public">public (Tampilkan di obrolan)</option>
+              <option value="private">private (Kirim khusus ke admin)</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <label style="font-size:0.7rem;color:var(--text-dim)">Nomor / User yang Diizinkan (<code>allow_from</code>)</label>
+          <input type="text" id="gw-f-allow-from" class="search-input" placeholder="contoh: 6283197961899, 6282258948478" style="margin:0;font-size:0.75rem;padding:0.35rem 0.5rem">
+          <div style="font-size:0.68rem;color:var(--text-dim)">* Pisahkan beberapa nomor/ID dengan koma. Untuk WhatsApp gunakan kode negara (contoh 62).</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <label style="font-size:0.7rem;color:var(--text-dim)">Nomor Admin Penuh (<code>allow_admin_from</code>)</label>
+          <input type="text" id="gw-f-allow-admin" class="search-input" placeholder="contoh: 6283197961899" style="margin:0;font-size:0.75rem;padding:0.35rem 0.5rem">
+          <div style="font-size:0.68rem;color:var(--text-dim)">* Admin memiliki akses eksekusi perintah sistem dan modifikasi agent.</div>
+        </div>
+      </div>
+
+      <!-- Group Settings -->
+      <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.6rem;display:flex;flex-direction:column;gap:0.45rem">
+        <div style="font-size:0.75rem;font-weight:600;color:var(--accent-light)">👥 Pengaturan Grup (Group Chat)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <label style="font-size:0.7rem;color:var(--text-dim)">Kebijakan Grup (<code>group_policy</code>)</label>
+            <select id="gw-f-group-policy" class="search-input" style="margin:0;font-size:0.75rem;padding:0.3rem 0.5rem">
+              <option value="open">open (Aktif di semua grup)</option>
+              <option value="allowlist">allowlist (Hanya grup terdaftar)</option>
+              <option value="disabled">disabled (Abaikan pesan grup)</option>
+            </select>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <label style="font-size:0.7rem;color:var(--text-dim)">Grup Diizinkan (<code>group_allow_from</code>)</label>
+            <input type="text" id="gw-f-group-allow" class="search-input" placeholder="contoh: 12036302...@g.us" style="margin:0;font-size:0.75rem;padding:0.35rem 0.5rem">
+          </div>
+        </div>
+      </div>
+
+      <!-- Toggles & Interaction -->
+      <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.6rem;display:flex;flex-direction:column;gap:0.4rem">
+        <div style="font-size:0.75rem;font-weight:600;color:var(--accent-light)">⚙ Perilaku Pesan &amp; Respon</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem">
+          <label style="font-size:0.72rem;display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer">
+            <input type="checkbox" id="gw-f-req-mention" style="accent-color:var(--accent)">
+            <span>Wajib mention / tag bot</span>
+          </label>
+          <label style="font-size:0.72rem;display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer">
+            <input type="checkbox" id="gw-f-reply-thread" style="accent-color:var(--accent)">
+            <span>Balas dalam thread / quote</span>
+          </label>
+          <label style="font-size:0.72rem;display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer">
+            <input type="checkbox" id="gw-f-read-receipts" style="accent-color:var(--accent)">
+            <span>Kirim centang biru (read)</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- RAW YAML VIEW (Advanced / Manual) -->
+    <div id="gw-config-yaml-view" style="display:none;flex-direction:column;gap:0.4rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.2rem;flex-wrap:wrap;gap:0.4rem">
+        <label style="font-size:0.75rem;color:var(--text-muted);font-weight:600">Editor YAML (<code>platforms.&lt;nama&gt;</code>)</label>
         <select id="gw-template-picker" onchange="applyGwSelectedTemplate(this.value)" class="search-input" style="width:auto;margin:0;padding:0.2rem 0.5rem;font-size:0.72rem;background:rgba(255,255,255,0.06);color:var(--accent-light);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-sm);cursor:pointer">
           <option value="">📋 Muat Template...</option>
           <optgroup label="Populer">
@@ -732,20 +844,16 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
             <option value="bluebubbles">BlueBubbles</option>
           </optgroup>
         </select>
-        <label style="font-size:0.75rem;display:inline-flex;align-items:center;gap:0.35rem;cursor:pointer">
-          <input type="checkbox" id="gw-config-enabled-chk" checked style="accent-color:var(--accent)">
-          <span>Aktifkan</span>
-        </label>
       </div>
+
+      <textarea id="gw-config-yaml" spellcheck="false" style="width:100%;height:190px;max-height:30vh;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:var(--radius-sm);color:#e2e8f0;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;outline:none;box-sizing:border-box" placeholder="enabled: true..."></textarea>
+
+      <details id="gw-config-guide-details" open style="margin-top:0.4rem;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.4rem 0.6rem;font-size:0.71rem">
+        <summary id="gw-config-guide-title" style="cursor:pointer;color:var(--accent-light);font-weight:600;user-select:none">💡 Panduan Kunci &amp; Format Platform</summary>
+        <div id="gw-config-guide-content" style="margin-top:0.35rem;color:var(--text-muted);line-height:1.5;display:flex;flex-direction:column;gap:0.25rem">
+        </div>
+      </details>
     </div>
-
-    <textarea id="gw-config-yaml" spellcheck="false" style="width:100%;height:200px;max-height:32vh;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:var(--radius-sm);color:#e2e8f0;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;outline:none;box-sizing:border-box" placeholder="enabled: true..."></textarea>
-
-    <details id="gw-config-guide-details" open style="margin-top:0.4rem;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.4rem 0.6rem;font-size:0.71rem">
-      <summary id="gw-config-guide-title" style="cursor:pointer;color:var(--accent-light);font-weight:600;user-select:none">💡 Panduan Kunci &amp; Format Platform</summary>
-      <div id="gw-config-guide-content" style="margin-top:0.35rem;color:var(--text-muted);line-height:1.5;display:flex;flex-direction:column;gap:0.25rem">
-      </div>
-    </details>
 
     <div id="gw-config-error" style="display:none;color:var(--danger);font-size:0.75rem;margin-top:0.4rem;padding:0.35rem 0.5rem;background:var(--danger-dim);border-radius:var(--radius-sm);border:1px solid rgba(239,68,68,0.3)"></div>
 
@@ -1350,6 +1458,208 @@ syncGwLogTabUI();
 
 var currentGwPlatform = '';
 var isNewGwPlatform = false;
+var currentGwMode = 'ui';
+
+function switchGwConfigMode(mode){{
+  currentGwMode = mode;
+  var btnUi = document.getElementById('gw-btn-mode-ui');
+  var btnYaml = document.getElementById('gw-btn-mode-yaml');
+  var formView = document.getElementById('gw-config-form-view');
+  var yamlView = document.getElementById('gw-config-yaml-view');
+  var yamlEl = document.getElementById('gw-config-yaml');
+
+  if(mode === 'ui'){{
+    if(btnUi) btnUi.classList.add('active');
+    if(btnYaml) btnYaml.classList.remove('active');
+    if(formView) formView.style.display = 'flex';
+    if(yamlView) yamlView.style.display = 'none';
+    if(yamlEl && yamlEl.value.trim()){{
+      populateGwFormFromYaml(yamlEl.value, currentGwPlatform);
+    }}
+  }} else {{
+    if(btnYaml) btnYaml.classList.add('active');
+    if(btnUi) btnUi.classList.remove('active');
+    if(yamlView) yamlView.style.display = 'flex';
+    if(formView) formView.style.display = 'none';
+    if(yamlEl){{
+      yamlEl.value = serializeGwFormToYaml(currentGwPlatform);
+    }}
+  }}
+}}
+
+function populateGwFormFromYaml(yamlText, platform){{
+  var d = {{
+    enabled: true,
+    mode: 'bot',
+    dm_policy: 'open',
+    allow_from: [],
+    allow_admin_from: [],
+    group_policy: 'open',
+    group_allow_from: [],
+    require_mention: false,
+    reply_in_thread: false,
+    send_read_receipts: false,
+    notice_delivery: 'public',
+    port: 3000
+  }};
+  var currentList = null;
+  var lines = (yamlText || '').split(String.fromCharCode(10)).map(function(s){{ return s.replace(new RegExp(String.fromCharCode(13), 'g'), ''); }});
+  for(var i=0; i<lines.length; i++){{
+    var line = lines[i];
+    var trimmed = line.trim();
+    if(!trimmed || trimmed.startsWith('#')) continue;
+    if(trimmed.startsWith('- ') && currentList){{
+      var val = trimmed.substring(2).trim().replace(/^['"]|['"]$/g, '');
+      currentList.push(val);
+      continue;
+    }}
+    var colonIdx = trimmed.indexOf(':');
+    if(colonIdx > 0){{
+      var k = trimmed.substring(0, colonIdx).trim();
+      var v = trimmed.substring(colonIdx + 1).trim().replace(/^['"]|['"]$/g, '');
+      if(k === 'allow_from'){{ d.allow_from = []; currentList = d.allow_from; continue; }}
+      if(k === 'allow_admin_from'){{ d.allow_admin_from = []; currentList = d.allow_admin_from; continue; }}
+      if(k === 'group_allow_from'){{ d.group_allow_from = []; currentList = d.group_allow_from; continue; }}
+      currentList = null;
+      if(k === 'enabled') d.enabled = (v === 'true');
+      else if(k === 'mode') d.mode = v;
+      else if(k === 'dm_policy') d.dm_policy = v;
+      else if(k === 'group_policy') d.group_policy = v;
+      else if(k === 'require_mention') d.require_mention = (v === 'true');
+      else if(k === 'reply_in_thread') d.reply_in_thread = (v === 'true');
+      else if(k === 'send_read_receipts') d.send_read_receipts = (v === 'true');
+      else if(k === 'notice_delivery') d.notice_delivery = v;
+      else if(k === 'bridge_port') d.port = parseInt(v, 10) || 3000;
+    }}
+  }}
+
+  var chkEnabled = document.getElementById('gw-config-enabled-chk');
+  if(chkEnabled) chkEnabled.checked = d.enabled;
+  var selMode = document.getElementById('gw-f-wa-mode');
+  if(selMode) selMode.value = d.mode;
+  var selDm = document.getElementById('gw-f-dm-policy');
+  if(selDm) selDm.value = d.dm_policy;
+  var inpAllow = document.getElementById('gw-f-allow-from');
+  if(inpAllow) inpAllow.value = d.allow_from.join(', ');
+  var inpAdmin = document.getElementById('gw-f-allow-admin');
+  if(inpAdmin) inpAdmin.value = d.allow_admin_from.join(', ');
+  var selGp = document.getElementById('gw-f-group-policy');
+  if(selGp) selGp.value = d.group_policy;
+  var inpGAllow = document.getElementById('gw-f-group-allow');
+  if(inpGAllow) inpGAllow.value = d.group_allow_from.join(', ');
+  var chkReq = document.getElementById('gw-f-req-mention');
+  if(chkReq) chkReq.checked = d.require_mention;
+  var chkTh = document.getElementById('gw-f-reply-thread');
+  if(chkTh) chkTh.checked = d.reply_in_thread;
+  var chkRr = document.getElementById('gw-f-read-receipts');
+  if(chkRr) chkRr.checked = d.send_read_receipts;
+  var selNot = document.getElementById('gw-f-notice-del');
+  if(selNot) selNot.value = d.notice_delivery;
+  var inpPort = document.getElementById('gw-f-wa-port');
+  if(inpPort) inpPort.value = d.port || 3000;
+
+  var waBanner = document.getElementById('gw-form-wa-banner');
+  var waFields = document.getElementById('gw-form-wa-fields');
+  var isWa = (platform === 'whatsapp');
+  if(waBanner) waBanner.style.display = isWa ? 'flex' : 'none';
+  if(waFields) waFields.style.display = isWa ? 'grid' : 'none';
+}}
+
+function serializeGwFormToYaml(platform){{
+  var lines = [];
+  var chkEnabled = document.getElementById('gw-config-enabled-chk');
+  var enabled = chkEnabled ? chkEnabled.checked : true;
+  lines.push('enabled: ' + (enabled ? 'true' : 'false'));
+
+  if(platform === 'whatsapp'){{
+    var selMode = document.getElementById('gw-f-wa-mode');
+    var mode = selMode ? selMode.value : 'bot';
+    if(mode) lines.push('mode: ' + mode);
+
+    var selDm = document.getElementById('gw-f-dm-policy');
+    var dm = selDm ? selDm.value : 'open';
+    if(dm) lines.push('dm_policy: ' + dm);
+
+    var inpAllow = document.getElementById('gw-f-allow-from');
+    var allow = inpAllow ? inpAllow.value.trim() : '';
+    if(allow){{
+      var items = allow.split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
+      if(items.length > 0){{
+        lines.push('allow_from:');
+        items.forEach(function(it){{ lines.push('  - ' + (it.indexOf("'") >= 0 ? '"' + it + '"' : "'" + it + "'")); }});
+      }}
+    }}
+
+    var inpAdmin = document.getElementById('gw-f-allow-admin');
+    var admin = inpAdmin ? inpAdmin.value.trim() : '';
+    if(admin){{
+      var items = admin.split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
+      if(items.length > 0){{
+        lines.push('allow_admin_from:');
+        items.forEach(function(it){{ lines.push('  - ' + (it.indexOf("'") >= 0 ? '"' + it + '"' : "'" + it + "'")); }});
+      }}
+    }}
+
+    var selGp = document.getElementById('gw-f-group-policy');
+    var gp = selGp ? selGp.value : 'open';
+    if(gp) lines.push('group_policy: ' + gp);
+
+    var inpGAllow = document.getElementById('gw-f-group-allow');
+    var gallow = inpGAllow ? inpGAllow.value.trim() : '';
+    if(gallow){{
+      var items = gallow.split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
+      if(items.length > 0){{
+        lines.push('group_allow_from:');
+        items.forEach(function(it){{ lines.push('  - ' + (it.indexOf("'") >= 0 ? '"' + it + '"' : "'" + it + "'")); }});
+      }}
+    }}
+
+    var chkReq = document.getElementById('gw-f-req-mention');
+    lines.push('require_mention: ' + (chkReq && chkReq.checked ? 'true' : 'false'));
+
+    var chkTh = document.getElementById('gw-f-reply-thread');
+    lines.push('reply_in_thread: ' + (chkTh && chkTh.checked ? 'true' : 'false'));
+
+    var chkRr = document.getElementById('gw-f-read-receipts');
+    lines.push('send_read_receipts: ' + (chkRr && chkRr.checked ? 'true' : 'false'));
+
+    var selNot = document.getElementById('gw-f-notice-del');
+    var notice = selNot ? selNot.value : 'public';
+    if(notice) lines.push('notice_delivery: ' + notice);
+
+    var inpPort = document.getElementById('gw-f-wa-port');
+    var port = inpPort ? parseInt(inpPort.value, 10) : 3000;
+    if(port && port !== 3000){{
+      lines.push('extra:');
+      lines.push('  bridge_port: ' + port);
+    }}
+  }} else {{
+    var selDm = document.getElementById('gw-f-dm-policy');
+    if(selDm && selDm.value) lines.push('dm_policy: ' + selDm.value);
+
+    var inpAllow = document.getElementById('gw-f-allow-from');
+    var allow = inpAllow ? inpAllow.value.trim() : '';
+    if(allow){{
+      var items = allow.split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
+      if(items.length > 0){{
+        lines.push('allow_from:');
+        items.forEach(function(it){{ lines.push('  - ' + (it.indexOf("'") >= 0 ? '"' + it + '"' : "'" + it + "'")); }});
+      }}
+    }}
+
+    var selGp = document.getElementById('gw-f-group-policy');
+    if(selGp && selGp.value) lines.push('group_policy: ' + selGp.value);
+
+    var chkReq = document.getElementById('gw-f-req-mention');
+    lines.push('require_mention: ' + (chkReq && chkReq.checked ? 'true' : 'false'));
+
+    var chkTh = document.getElementById('gw-f-reply-thread');
+    lines.push('reply_in_thread: ' + (chkTh && chkTh.checked ? 'true' : 'false'));
+  }}
+
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+}}
+
 
 var GW_PLATFORM_NAMES = {{
   telegram: "Telegram Bot",
@@ -1841,6 +2151,7 @@ function openGwConfig(platform, title){{
   if(titleEl) titleEl.textContent = title ? 'Konfigurasi: ' + title : 'Tambah Platform Gateway';
   if(saveBtn){{ saveBtn.textContent = 'Simpan'; saveBtn.disabled = false; }}
 
+  switchGwConfigMode('ui');
   if(isNewGwPlatform){{
     if(selectWrap) selectWrap.style.display = 'block';
     if(catalogSelect) catalogSelect.value = 'telegram';
@@ -1849,6 +2160,7 @@ function openGwConfig(platform, title){{
     if(yamlEl) yamlEl.value = GW_TEMPLATES['telegram'] || ('enabled: true' + String.fromCharCode(10));
     if(enabledChk) enabledChk.checked = true;
     updateGwGuide('telegram');
+    populateGwFormFromYaml(yamlEl.value, 'telegram');
     if(modal) modal.classList.add('show');
   }} else {{
     if(selectWrap) selectWrap.style.display = 'none';
@@ -1860,8 +2172,10 @@ function openGwConfig(platform, title){{
       .then(function(r){{ return r.json(); }})
       .then(function(d){{
         if(d.ok){{
-          if(yamlEl) yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
+          var yText = d.yaml || ('enabled: true' + String.fromCharCode(10));
+          if(yamlEl) yamlEl.value = yText;
           if(enabledChk) enabledChk.checked = !!d.enabled;
+          populateGwFormFromYaml(yText, platform);
         }} else {{
           if(errEl){{ errEl.textContent = d.error || 'Gagal memuat konfigurasi'; errEl.style.display = 'block'; }}
         }}
@@ -1892,8 +2206,8 @@ function saveGwConfig(){{
     return;
   }}
 
-  var yamlContent = yamlEl ? yamlEl.value : '';
   var isEnabled = enabledChk ? enabledChk.checked : true;
+  var yamlContent = (currentGwMode === 'ui') ? serializeGwFormToYaml(plat) : (yamlEl ? yamlEl.value : '');
   var restartGw = restartChk ? restartChk.checked : true;
 
   if(saveBtn){{ saveBtn.textContent = 'Menyimpan…'; saveBtn.disabled = true; }}
@@ -2656,7 +2970,7 @@ def render_gateway_platforms_html() -> str:
             f'<button type="button" class="btn-action-sm btn-action-primary" onclick="toggleGwPlatform(\'{safe_p}\', true)">Nyalakan</button>'
         )
         del_btn = f'<button type="button" class="btn-action-sm btn-action-danger" onclick="deleteGwPlatform(\'{safe_p}\', \'{safe_name}\')">Hapus</button>'
-        edit_btn = f'<button type="button" class="btn-action-sm" onclick="openGwConfig(\'{safe_p}\', \'{safe_name}\')">Atur</button>'
+        edit_btn = f'<button type="button" class="btn-action-sm" onclick="openGwConfig(\'{safe_p}\', \'{safe_name}\')">⚙ Setting</button>'
 
         rows.append(
             f'<div class="gw-card-row">'
