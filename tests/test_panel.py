@@ -556,6 +556,256 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertTrue(data.get("ok"))
         self.assertEqual(data.get("status"), "cancelled")
 
+    def test_40_post_mutations_require_auth(self):
+        """POST without session cookie/token must be refused before any handler runs."""
+        with mock.patch.object(panel, "save_gateway_platform_config", return_value=(True, "")) as save, \
+             mock.patch.object(panel, "restart_bot") as restart:
+            code, _, _ = self._request(
+                "/save-gateway-platform",
+                method="POST",
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                data=json.dumps({"platform": "whatsapp", "yaml": "dm_policy: open\n"}).encode("utf-8"),
+            )
+            self.assertEqual(code, 403)
+            save.assert_not_called()
+            restart.assert_not_called()
+
+
+class TestGatewayConfigSync(unittest.TestCase):
+    """Panel edits must land where Hermes' gateway loader actually reads them.
+
+    Hermes (gateway/config_loader.py::platform_section) gives a root-level ``<platform>:`` block
+    precedence over ``platforms.<platform>`` for every adapter key, so the panel has to show and
+    write the merged view — without dropping the root block's settings.
+    """
+
+    def setUp(self):
+        import tempfile
+        self.tmpdir = tempfile.mkdtemp(prefix="panel-gw-")
+        self.cfg_path = os.path.join(self.tmpdir, "config.yaml")
+        self.env_path = os.path.join(self.tmpdir, ".env")
+        with open(self.env_path, "w", encoding="utf-8") as f:
+            f.write("TELEGRAM_BOT_TOKEN=x\n")
+        os.chmod(self.env_path, 0o600)
+        patcher = mock.patch.object(panel, "CONFIG_PATH", self.cfg_path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _write_cfg(self, cfg, mode=0o600):
+        with open(self.cfg_path, "w", encoding="utf-8") as f:
+            panel.yaml.safe_dump(cfg, f, sort_keys=False)
+        os.chmod(self.cfg_path, mode)
+        panel.invalidate_config_cache()
+
+    def _read_cfg(self):
+        with open(self.cfg_path, encoding="utf-8") as f:
+            return panel.yaml.safe_load(f)
+
+    def _split_cfg(self):
+        return {
+            "telegram": {
+                "reactions": False,
+                "allowed_chats": "",
+                "extra": {"rich_messages": True, "reply_keyboard_welcome": "Hai"},
+            },
+            "platforms": {
+                "telegram": {
+                    "enabled": True,
+                    "reactions": True,  # shadowed by the root block in Hermes
+                    "home_channel": {"chat_id": "123", "name": "vitooo", "platform": "telegram"},
+                },
+            },
+        }
+
+    def test_26_editor_shows_effective_config_root_block_wins(self):
+        self._write_cfg(self._split_cfg())
+        res = panel.get_gateway_platform_config("telegram")
+        shown = panel.yaml.safe_load(res["yaml"])
+        self.assertFalse(shown["reactions"], "root telegram.reactions is what Hermes uses")
+        self.assertTrue(shown["extra"]["rich_messages"])
+        self.assertEqual(shown["home_channel"]["chat_id"], "123")
+        self.assertTrue(res["enabled"])
+
+    def test_27_save_roundtrip_keeps_root_block_settings(self):
+        self._write_cfg(self._split_cfg())
+        shown = panel.get_gateway_platform_config("telegram")["yaml"]
+        edited = shown.replace("reactions: false", "reactions: true")
+        ok, err = panel.save_gateway_platform_config("telegram", edited)
+        self.assertTrue(ok, err)
+        cfg = self._read_cfg()
+        self.assertNotIn("telegram", cfg, "root block folded into platforms.telegram")
+        tg = cfg["platforms"]["telegram"]
+        self.assertTrue(tg["reactions"])
+        self.assertTrue(tg["extra"]["rich_messages"], "root-only settings must survive a save")
+        self.assertEqual(tg["extra"]["reply_keyboard_welcome"], "Hai")
+        self.assertEqual(tg["home_channel"]["chat_id"], "123")
+
+    def test_28_toggle_preserves_root_block_and_overrides_root_enabled(self):
+        cfg = self._split_cfg()
+        cfg["discord"] = {"enabled": True, "require_mention": True, "voice_fx": {"enabled": False}}
+        cfg["platforms"]["discord"] = {"enabled": True}
+        self._write_cfg(cfg)
+        ok, err = panel.toggle_gateway_platform_config("discord", False)
+        self.assertTrue(ok, err)
+        saved = self._read_cfg()
+        self.assertNotIn("discord", saved)
+        dc = saved["platforms"]["discord"]
+        self.assertFalse(dc["enabled"])
+        self.assertTrue(dc["require_mention"])
+        self.assertEqual(dc["voice_fx"], {"enabled": False})
+        # Untouched platforms keep their root block.
+        self.assertIn("telegram", saved)
+
+    def test_29_form_save_merges_instead_of_replacing(self):
+        self._write_cfg(self._split_cfg())
+        ok, err = panel.save_gateway_platform_config(
+            "telegram", "require_mention: true\nallowed_chats: null\n", merge=True)
+        self.assertTrue(ok, err)
+        tg = self._read_cfg()["platforms"]["telegram"]
+        self.assertTrue(tg["require_mention"])
+        self.assertNotIn("allowed_chats", tg, "null in form payload removes the key")
+        self.assertEqual(tg["home_channel"]["chat_id"], "123")
+        self.assertTrue(tg["extra"]["rich_messages"])
+        self.assertFalse(tg["reactions"])
+
+    def test_30_open_policy_without_allow_all_is_rejected(self):
+        self._write_cfg({"platforms": {"whatsapp": {"enabled": True}}})
+        ok, err = panel.save_gateway_platform_config(
+            "whatsapp", "enabled: true\ndm_policy: open\ngroup_policy: disabled\n")
+        self.assertFalse(ok)
+        self.assertIn("WHATSAPP_ALLOW_ALL_USERS", err)
+        self.assertNotIn("dm_policy", self._read_cfg()["platforms"]["whatsapp"], "config untouched on reject")
+
+        # Enabling a platform that already carries an open policy is rejected too.
+        self._write_cfg({"platforms": {"whatsapp": {"enabled": False, "dm_policy": "open"}}})
+        ok, err = panel.toggle_gateway_platform_config("whatsapp", True)
+        self.assertFalse(ok)
+        self.assertIn("WHATSAPP_ALLOW_ALL_USERS", err)
+
+        # Explicit opt-in in .env makes it valid, as in Hermes.
+        with open(self.env_path, "a", encoding="utf-8") as f:
+            f.write("WHATSAPP_ALLOW_ALL_USERS=true\n")
+        ok, err = panel.save_gateway_platform_config(
+            "whatsapp", "enabled: true\ndm_policy: open\ngroup_policy: disabled\n")
+        self.assertTrue(ok, err)
+
+    def test_31_writes_keep_config_file_private(self):
+        self._write_cfg(self._split_cfg(), mode=0o600)
+        self.assertTrue(panel.save_gateway_platform_config("telegram", "enabled: true\n")[0])
+        self.assertEqual(os.stat(self.cfg_path).st_mode & 0o777, 0o600)
+        self.assertTrue(panel.toggle_gateway_platform_config("telegram", False)[0])
+        self.assertEqual(os.stat(self.cfg_path).st_mode & 0o777, 0o600)
+        self._write_cfg(self._split_cfg(), mode=0o600)
+        self.assertTrue(panel.remove_gateway_platform_config("telegram")[0])
+        self.assertEqual(os.stat(self.cfg_path).st_mode & 0o777, 0o600)
+        saved = self._read_cfg()
+        self.assertNotIn("telegram", saved, "Hapus removes the root block Hermes would still load")
+        self.assertNotIn("telegram", saved["platforms"])
+
+    def test_32_whatsapp_env_mirror_follows_saved_config(self):
+        self._write_cfg({"platforms": {"whatsapp": {"enabled": True, "mode": "bot", "allow_from": ["62811"]}}})
+        ok, err = panel.save_gateway_platform_config("whatsapp", "allow_from:\n  - '62822'\n", merge=True)
+        self.assertTrue(ok, err)
+        with open(self.env_path, encoding="utf-8") as f:
+            env = f.read()
+        self.assertIn("WHATSAPP_ALLOWED_USERS=62822", env)
+        self.assertIn("WHATSAPP_MODE=bot", env, "mode kept from existing config is mirrored")
+        self.assertEqual(os.stat(self.env_path).st_mode & 0o777, 0o600)
+
+    def test_38_form_patch_merges_onto_editor_base_yaml(self):
+        self._write_cfg(self._split_cfg())
+        base = "enabled: true\nreactions: false\nextra:\n  rich_messages: true\n  bridge_port: 3000\n"
+        ok, text = panel.preview_gateway_platform_config(
+            "telegram", "require_mention: true\nextra:\n  bridge_port: 3001\n", base)
+        self.assertTrue(ok, text)
+        merged = panel.yaml.safe_load(text)
+        self.assertTrue(merged["require_mention"])
+        self.assertEqual(merged["extra"], {"rich_messages": True, "bridge_port": 3001})
+        self.assertFalse(merged["reactions"])
+
+        # Saving the same patch with the editor's base writes exactly the previewed block.
+        ok, err = panel.save_gateway_platform_config(
+            "telegram", "require_mention: true\nextra:\n  bridge_port: 3001\n", merge=True, base_yaml=base)
+        self.assertTrue(ok, err)
+        self.assertEqual(self._read_cfg()["platforms"]["telegram"], merged)
+
+
+def _gw_form_js() -> str:
+    """Form UI helpers + populate/serialize exactly as rendered (PAGE uses str.format)."""
+    start = panel.PAGE.index("var GW_FORM_KEYS_COMMON")
+    end = panel.PAGE.index("var GW_PLATFORM_NAMES")
+    return panel.PAGE[start:end].replace("{{", "{").replace("}}", "}")
+
+
+_FAKE_DOM_JS = r"""
+var els = {};
+function el(id, kind, opts){ els[id] = {id: id, value: '', checked: false, style: {}, options: opts || null}; }
+el('gw-config-enabled-chk'); el('gw-f-wa-mode'); el('gw-f-dm-policy'); el('gw-f-allow-from');
+el('gw-f-allow-admin'); el('gw-f-group-policy'); el('gw-f-group-allow'); el('gw-f-req-mention');
+el('gw-f-reply-thread'); el('gw-f-read-receipts'); el('gw-f-notice-del'); el('gw-f-wa-port');
+el('gw-form-wa-banner'); el('gw-form-wa-fields');
+var document = { getElementById: function(id){ return els[id] || null; } };
+"""
+
+
+@unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
+class TestGatewayFormJs(unittest.TestCase):
+    """The Form UI must only send fields the user has or changed, never invent an open policy."""
+
+    def _run(self, body: str) -> str:
+        script = _FAKE_DOM_JS + _gw_form_js() + body
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_33_untouched_form_does_not_add_policies(self):
+        out = self._run(r"""
+populateGwFormFromYaml("enabled: true\nhome_channel:\n  chat_id: '1'\n", 'telegram');
+process.stdout.write(serializeGwFormToYaml('telegram'));
+""")
+        self.assertNotIn("dm_policy", out)
+        self.assertNotIn("group_policy", out)
+        self.assertNotIn("require_mention", out)
+        self.assertIn("enabled: true", out)
+
+    def test_34_whatsapp_without_policy_never_serializes_open(self):
+        out = self._run(r"""
+populateGwFormFromYaml("enabled: true\n", 'whatsapp');
+process.stdout.write(serializeGwFormToYaml('whatsapp'));
+""")
+        self.assertNotIn("open", out)
+
+    def test_35_changed_and_cleared_fields_are_sent(self):
+        out = self._run(r"""
+populateGwFormFromYaml("enabled: true\ndm_policy: pairing\nallow_from:\n  - '62811'\n", 'whatsapp');
+els['gw-f-dm-policy'].value = 'allowlist';
+els['gw-f-allow-from'].value = '';
+els['gw-f-req-mention'].checked = true;
+process.stdout.write(serializeGwFormToYaml('whatsapp'));
+""")
+        self.assertIn("dm_policy: allowlist", out)
+        self.assertIn("allow_from: []", out)
+        self.assertIn("require_mention: true", out)
+        self.assertNotIn("reply_in_thread", out)
+
+    def test_37_nested_enabled_keys_do_not_flip_platform_enabled(self):
+        out = self._run(r"""
+populateGwFormFromYaml("enabled: true\nvoice_fx:\n  enabled: false\nmissed_message_backfill:\n  enabled: false\n", 'discord');
+process.stdout.write(serializeGwFormToYaml('discord'));
+""")
+        self.assertIn("enabled: true", out)
+        self.assertNotIn("enabled: false", out)
+
+    def test_36_group_policy_offers_pairing(self):
+        idx = panel.PAGE.index('id="gw-f-group-policy"')
+        block = panel.PAGE[idx:panel.PAGE.index("</select>", idx)]
+        self.assertIn('value="pairing"', block)
+        self.assertIn('value=""', block, "a 'Hermes default' choice that removes the key")
+
 
 if __name__ == "__main__":
     unittest.main()

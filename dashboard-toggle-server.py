@@ -33,6 +33,7 @@ a loading spinner. All rendering stays server-side — /api/status returns the
 same HTML fragments the initial page uses, so the client never re-implements it.
 """
 
+import copy
 import glob
 import hmac
 import html
@@ -83,6 +84,7 @@ MUTATING_PATHS = frozenset({
     "/set-fallback-model", "/remove-fallback-model",
     "/process-action",
     "/save-gateway-platform", "/toggle-gateway-platform", "/remove-gateway-platform",
+    "/api/gateway-config-preview",
     "/api/whatsapp/pair-start", "/api/whatsapp/pair-cancel", "/api/whatsapp/pair-apply",
 })
 LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off"})
@@ -741,6 +743,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
           <div style="display:flex;flex-direction:column;gap:3px">
             <label style="font-size:0.7rem;color:var(--text-dim)">Kebijakan DM (<code>dm_policy</code>)</label>
             <select id="gw-f-dm-policy" class="search-input" style="margin:0;font-size:0.75rem;padding:0.3rem 0.5rem">
+              <option value="">default Hermes (pairing)</option>
               <option value="open">open (Siapa saja boleh chat)</option>
               <option value="allowlist">allowlist (Hanya nomor/user terdaftar)</option>
               <option value="pairing">pairing (Wajib kode verifikasi)</option>
@@ -774,8 +777,10 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
           <div style="display:flex;flex-direction:column;gap:3px">
             <label style="font-size:0.7rem;color:var(--text-dim)">Kebijakan Grup (<code>group_policy</code>)</label>
             <select id="gw-f-group-policy" class="search-input" style="margin:0;font-size:0.75rem;padding:0.3rem 0.5rem">
+              <option value="">default Hermes (pairing)</option>
               <option value="open">open (Aktif di semua grup)</option>
               <option value="allowlist">allowlist (Hanya grup terdaftar)</option>
+              <option value="pairing">pairing (Wajib kode verifikasi)</option>
               <option value="disabled">disabled (Abaikan pesan grup)</option>
             </select>
           </div>
@@ -1482,54 +1487,117 @@ function switchGwConfigMode(mode){{
     if(yamlView) yamlView.style.display = 'flex';
     if(formView) formView.style.display = 'none';
     if(yamlEl){{
-      yamlEl.value = serializeGwFormToYaml(currentGwPlatform);
+      // Apply the form's patch onto the full YAML server-side, so keys the form doesn't
+      // know about (home_channel, extra, ...) stay in the editor.
+      var errEl = document.getElementById('gw-config-error');
+      var plat = gwActivePlatform();
+      fetch('/api/gateway-config-preview', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
+        body: JSON.stringify({{ platform: plat, base_yaml: yamlEl.value, yaml: serializeGwFormToYaml(plat) }})
+      }})
+      .then(function(r){{ return r.json(); }})
+      .then(function(res){{
+        if(res.ok) yamlEl.value = res.yaml;
+        else if(errEl){{ errEl.textContent = res.error || 'Gagal menyusun YAML'; errEl.style.display = 'block'; }}
+      }});
     }}
   }}
 }}
+
+function gwActivePlatform(){{
+  if(!isNewGwPlatform) return currentGwPlatform;
+  var inputEl = document.getElementById('gw-platform-input');
+  return inputEl ? inputEl.value.trim().toLowerCase() : '';
+}}
+
+// Form UI sends a PATCH over the editor's full YAML (base_yaml): only fields that exist in the
+// config or that the user changed. Untouched defaults are never written, so opening "Setting" and
+// saving can't silently change access policy (e.g. turn dm_policy into 'open').
+var GW_FORM_KEYS_COMMON = ['dm_policy', 'allow_from', 'group_policy', 'require_mention', 'reply_in_thread'];
+var GW_FORM_KEYS_WA = ['mode', 'dm_policy', 'allow_from', 'allow_admin_from', 'group_policy', 'group_allow_from',
+  'require_mention', 'reply_in_thread', 'send_read_receipts', 'notice_delivery', 'bridge_port'];
+var GW_FORM_LIST_KEYS = ['allow_from', 'allow_admin_from', 'group_allow_from'];
+var gwFormInitial = {{}};
+var gwFormPresent = {{}};
+
+function gwFormFieldValues(){{
+  function val(id){{ var e = document.getElementById(id); return e ? String(e.value || '').trim() : ''; }}
+  function chk(id){{ var e = document.getElementById(id); return !!(e && e.checked); }}
+  function list(id){{ return val(id).split(',').map(function(s){{ return s.trim(); }}).filter(Boolean); }}
+  var port = parseInt(val('gw-f-wa-port'), 10);
+  return {{
+    mode: val('gw-f-wa-mode'),
+    dm_policy: val('gw-f-dm-policy'),
+    allow_from: list('gw-f-allow-from'),
+    allow_admin_from: list('gw-f-allow-admin'),
+    group_policy: val('gw-f-group-policy'),
+    group_allow_from: list('gw-f-group-allow'),
+    require_mention: chk('gw-f-req-mention'),
+    reply_in_thread: chk('gw-f-reply-thread'),
+    send_read_receipts: chk('gw-f-read-receipts'),
+    notice_delivery: val('gw-f-notice-del'),
+    bridge_port: isNaN(port) ? 3000 : port
+  }};
+}}
+
+function gwUnquote(s){{ return String(s).trim().replace(/^['"]|['"]$/g, ''); }}
 
 function populateGwFormFromYaml(yamlText, platform){{
   var d = {{
     enabled: true,
     mode: 'bot',
-    dm_policy: 'open',
+    dm_policy: '',
     allow_from: [],
     allow_admin_from: [],
-    group_policy: 'open',
+    group_policy: '',
     group_allow_from: [],
     require_mention: false,
     reply_in_thread: false,
     send_read_receipts: false,
     notice_delivery: 'public',
-    port: 3000
+    bridge_port: 3000
   }};
+  var present = {{}};
   var currentList = null;
+  var parent = '';
   var lines = (yamlText || '').split(String.fromCharCode(10)).map(function(s){{ return s.replace(new RegExp(String.fromCharCode(13), 'g'), ''); }});
   for(var i=0; i<lines.length; i++){{
     var line = lines[i];
     var trimmed = line.trim();
     if(!trimmed || trimmed.startsWith('#')) continue;
-    if(trimmed.startsWith('- ') && currentList){{
-      var val = trimmed.substring(2).trim().replace(/^['"]|['"]$/g, '');
-      currentList.push(val);
+    if(trimmed.startsWith('- ')){{
+      if(currentList) currentList.push(gwUnquote(trimmed.substring(2)));
       continue;
     }}
     var colonIdx = trimmed.indexOf(':');
-    if(colonIdx > 0){{
-      var k = trimmed.substring(0, colonIdx).trim();
-      var v = trimmed.substring(colonIdx + 1).trim().replace(/^['"]|['"]$/g, '');
-      if(k === 'allow_from'){{ d.allow_from = []; currentList = d.allow_from; continue; }}
-      if(k === 'allow_admin_from'){{ d.allow_admin_from = []; currentList = d.allow_admin_from; continue; }}
-      if(k === 'group_allow_from'){{ d.group_allow_from = []; currentList = d.group_allow_from; continue; }}
-      currentList = null;
-      if(k === 'enabled') d.enabled = (v === 'true');
-      else if(k === 'mode') d.mode = v;
-      else if(k === 'dm_policy') d.dm_policy = v;
-      else if(k === 'group_policy') d.group_policy = v;
-      else if(k === 'require_mention') d.require_mention = (v === 'true');
-      else if(k === 'reply_in_thread') d.reply_in_thread = (v === 'true');
-      else if(k === 'send_read_receipts') d.send_read_receipts = (v === 'true');
-      else if(k === 'notice_delivery') d.notice_delivery = v;
-      else if(k === 'bridge_port') d.port = parseInt(v, 10) || 3000;
+    if(colonIdx <= 0) continue;
+    var k = trimmed.substring(0, colonIdx).trim();
+    var v = gwUnquote(trimmed.substring(colonIdx + 1).replace(/ #.*$/, ''));
+    currentList = null;
+    var indented = line.charAt(0) === ' ' || line.charCodeAt(0) === 9;
+    if(indented){{
+      // Nested mapping (voice_fx.enabled, home_channel.chat_id, ...) is not a form field,
+      // except the WhatsApp bridge port which lives under extra.
+      if(parent === 'extra' && k === 'bridge_port'){{ d.bridge_port = parseInt(v, 10) || 3000; present.bridge_port = true; }}
+      continue;
+    }}
+    parent = k;
+    if(GW_FORM_LIST_KEYS.indexOf(k) >= 0){{
+      present[k] = true;
+      if(v.charAt(0) === '[' && v.charAt(v.length - 1) === ']'){{
+        d[k] = v.slice(1, -1).split(',').map(gwUnquote).filter(Boolean);
+      }} else {{
+        d[k] = [];
+        currentList = d[k];
+      }}
+      continue;
+    }}
+    if(k === 'enabled') d.enabled = (v === 'true');
+    else if(k === 'bridge_port'){{ d.bridge_port = parseInt(v, 10) || 3000; present.bridge_port = true; }}
+    else if(d.hasOwnProperty(k)){{
+      present[k] = true;
+      d[k] = (typeof d[k] === 'boolean') ? (v === 'true') : (v === 'null' || v === '~' ? '' : v);
     }}
   }}
 
@@ -1556,7 +1624,10 @@ function populateGwFormFromYaml(yamlText, platform){{
   var selNot = document.getElementById('gw-f-notice-del');
   if(selNot) selNot.value = d.notice_delivery;
   var inpPort = document.getElementById('gw-f-wa-port');
-  if(inpPort) inpPort.value = d.port || 3000;
+  if(inpPort) inpPort.value = d.bridge_port || 3000;
+
+  gwFormPresent = present;
+  gwFormInitial = gwFormFieldValues();
 
   var waBanner = document.getElementById('gw-form-wa-banner');
   var waFields = document.getElementById('gw-form-wa-fields');
@@ -1571,91 +1642,27 @@ function serializeGwFormToYaml(platform){{
   var enabled = chkEnabled ? chkEnabled.checked : true;
   lines.push('enabled: ' + (enabled ? 'true' : 'false'));
 
-  if(platform === 'whatsapp'){{
-    var selMode = document.getElementById('gw-f-wa-mode');
-    var mode = selMode ? selMode.value : 'bot';
-    if(mode) lines.push('mode: ' + mode);
-
-    var selDm = document.getElementById('gw-f-dm-policy');
-    var dm = selDm ? selDm.value : 'open';
-    if(dm) lines.push('dm_policy: ' + dm);
-
-    var inpAllow = document.getElementById('gw-f-allow-from');
-    var allow = inpAllow ? inpAllow.value.trim() : '';
-    if(allow){{
-      var items = allow.split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
-      if(items.length > 0){{
-        lines.push('allow_from:');
-        items.forEach(function(it){{ lines.push('  - ' + (it.indexOf("'") >= 0 ? '"' + it + '"' : "'" + it + "'")); }});
-      }}
-    }}
-
-    var inpAdmin = document.getElementById('gw-f-allow-admin');
-    var admin = inpAdmin ? inpAdmin.value.trim() : '';
-    if(admin){{
-      var items = admin.split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
-      if(items.length > 0){{
-        lines.push('allow_admin_from:');
-        items.forEach(function(it){{ lines.push('  - ' + (it.indexOf("'") >= 0 ? '"' + it + '"' : "'" + it + "'")); }});
-      }}
-    }}
-
-    var selGp = document.getElementById('gw-f-group-policy');
-    var gp = selGp ? selGp.value : 'open';
-    if(gp) lines.push('group_policy: ' + gp);
-
-    var inpGAllow = document.getElementById('gw-f-group-allow');
-    var gallow = inpGAllow ? inpGAllow.value.trim() : '';
-    if(gallow){{
-      var items = gallow.split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
-      if(items.length > 0){{
-        lines.push('group_allow_from:');
-        items.forEach(function(it){{ lines.push('  - ' + (it.indexOf("'") >= 0 ? '"' + it + '"' : "'" + it + "'")); }});
-      }}
-    }}
-
-    var chkReq = document.getElementById('gw-f-req-mention');
-    lines.push('require_mention: ' + (chkReq && chkReq.checked ? 'true' : 'false'));
-
-    var chkTh = document.getElementById('gw-f-reply-thread');
-    lines.push('reply_in_thread: ' + (chkTh && chkTh.checked ? 'true' : 'false'));
-
-    var chkRr = document.getElementById('gw-f-read-receipts');
-    lines.push('send_read_receipts: ' + (chkRr && chkRr.checked ? 'true' : 'false'));
-
-    var selNot = document.getElementById('gw-f-notice-del');
-    var notice = selNot ? selNot.value : 'public';
-    if(notice) lines.push('notice_delivery: ' + notice);
-
-    var inpPort = document.getElementById('gw-f-wa-port');
-    var port = inpPort ? parseInt(inpPort.value, 10) : 3000;
-    if(port && port !== 3000){{
+  var cur = gwFormFieldValues();
+  var keys = (platform === 'whatsapp') ? GW_FORM_KEYS_WA : GW_FORM_KEYS_COMMON;
+  keys.forEach(function(k){{
+    var v = cur[k];
+    var changed = JSON.stringify(v) !== JSON.stringify(gwFormInitial[k]);
+    if(!gwFormPresent[k] && !changed) return;
+    if(k === 'bridge_port'){{
       lines.push('extra:');
-      lines.push('  bridge_port: ' + port);
+      lines.push('  bridge_port: ' + v);
+    }} else if(Array.isArray(v)){{
+      if(!v.length){{ lines.push(k + ': []'); return; }}
+      lines.push(k + ':');
+      v.forEach(function(it){{ lines.push('  - ' + (it.indexOf("'") >= 0 ? '"' + it + '"' : "'" + it + "'")); }});
+    }} else if(v === ''){{
+      lines.push(k + ': null');  // "default Hermes" choice: remove the key
+    }} else if(typeof v === 'boolean'){{
+      lines.push(k + ': ' + (v ? 'true' : 'false'));
+    }} else {{
+      lines.push(k + ': ' + v);
     }}
-  }} else {{
-    var selDm = document.getElementById('gw-f-dm-policy');
-    if(selDm && selDm.value) lines.push('dm_policy: ' + selDm.value);
-
-    var inpAllow = document.getElementById('gw-f-allow-from');
-    var allow = inpAllow ? inpAllow.value.trim() : '';
-    if(allow){{
-      var items = allow.split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
-      if(items.length > 0){{
-        lines.push('allow_from:');
-        items.forEach(function(it){{ lines.push('  - ' + (it.indexOf("'") >= 0 ? '"' + it + '"' : "'" + it + "'")); }});
-      }}
-    }}
-
-    var selGp = document.getElementById('gw-f-group-policy');
-    if(selGp && selGp.value) lines.push('group_policy: ' + selGp.value);
-
-    var chkReq = document.getElementById('gw-f-req-mention');
-    lines.push('require_mention: ' + (chkReq && chkReq.checked ? 'true' : 'false'));
-
-    var chkTh = document.getElementById('gw-f-reply-thread');
-    lines.push('reply_in_thread: ' + (chkTh && chkTh.checked ? 'true' : 'false'));
-  }}
+  }});
 
   return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
 }}
@@ -2207,7 +2214,8 @@ function saveGwConfig(){{
   }}
 
   var isEnabled = enabledChk ? enabledChk.checked : true;
-  var yamlContent = (currentGwMode === 'ui') ? serializeGwFormToYaml(plat) : (yamlEl ? yamlEl.value : '');
+  var isUi = (currentGwMode === 'ui');
+  var yamlContent = isUi ? serializeGwFormToYaml(plat) : (yamlEl ? yamlEl.value : '');
   var restartGw = restartChk ? restartChk.checked : true;
 
   if(saveBtn){{ saveBtn.textContent = 'Menyimpan…'; saveBtn.disabled = true; }}
@@ -2217,8 +2225,10 @@ function saveGwConfig(){{
     platform: plat,
     yaml: yamlContent,
     enabled: isEnabled,
-    restart_gw: restartGw
+    restart_gw: restartGw,
+    merge: isUi
   }};
+  if(isUi && yamlEl) payload.base_yaml = yamlEl.value;
 
   fetch('/save-gateway-platform', {{
     method: 'POST',
@@ -2778,9 +2788,7 @@ def _probe_gateway_platforms() -> list[dict]:
 
     results = []
     for p in candidate_platforms:
-        p_cfg = cfg_platforms.get(p)
-        if not isinstance(p_cfg, dict):
-            p_cfg = cfg.get(p) if isinstance(cfg.get(p), dict) else {}
+        p_cfg = _effective_platform_block(cfg, p)
 
         enabled = bool(p_cfg.get("enabled", False))
         rt = rt_platforms.get(p) if isinstance(rt_platforms.get(p), dict) else {}
@@ -3344,8 +3352,131 @@ def render_gateway_log_card(n: int = 60) -> str:
     )
 
 
+# Hermes' gateway loader (gateway/config_loader.py::platform_section) reads a platform from both
+# ``platforms.<name>`` and a root-level ``<name>:`` block; the root block wins for every adapter key.
+# The panel therefore edits the merged view and folds it into ``platforms.<name>`` on write, so what
+# the editor shows is exactly what the gateway loads and no root-only setting is dropped.
+# Hermes only reads these from ``platforms.<name>``, so a root copy never overrides them.
+_NESTED_ONLY_PLATFORM_KEYS = frozenset({"token", "api_key", "home_channel", "reply_to_mode"})
+
+# gateway/run.py::_OWN_POLICY_OPEN_ENV — platforms whose 'open' policy aborts gateway startup unless
+# an allow-all flag is set. (dm policy env, group policy env, allow-all env)
+_OPEN_POLICY_GUARD = {
+    "whatsapp": ("WHATSAPP_DM_POLICY", "WHATSAPP_GROUP_POLICY", "WHATSAPP_ALLOW_ALL_USERS"),
+    "wecom": ("WECOM_DM_POLICY", "WECOM_GROUP_POLICY", "WECOM_ALLOW_ALL_USERS"),
+    "weixin": ("WEIXIN_DM_POLICY", "WEIXIN_GROUP_POLICY", "WEIXIN_ALLOW_ALL_USERS"),
+    "yuanbao": ("YUANBAO_DM_POLICY", "YUANBAO_GROUP_POLICY", "YUANBAO_ALLOW_ALL_USERS"),
+    "qqbot": (None, None, "QQ_ALLOW_ALL_USERS"),
+}
+_TRUTHY = {"true", "1", "yes"}
+
+
+def _effective_platform_block(cfg: dict, platform: str) -> dict:
+    """``platforms.<platform>`` overlaid with the root ``<platform>:`` block, as Hermes merges them."""
+    cfg_platforms = cfg.get("platforms") if isinstance(cfg.get("platforms"), dict) else {}
+    nested = cfg_platforms.get(platform) if isinstance(cfg_platforms.get(platform), dict) else {}
+    root = cfg.get(platform) if isinstance(cfg.get(platform), dict) else {}
+    merged = copy.deepcopy(nested)
+    for key, value in root.items():
+        if key in _NESTED_ONLY_PLATFORM_KEYS and key in merged:
+            continue
+        if key == "extra" and isinstance(value, dict) and isinstance(merged.get("extra"), dict):
+            merged["extra"] = {**merged["extra"], **copy.deepcopy(value)}
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
+def _set_platform_block(cfg: dict, platform: str, block: dict) -> None:
+    """Make ``platforms.<platform>`` the single source of truth for this platform."""
+    if not isinstance(cfg.get("platforms"), dict):
+        cfg["platforms"] = {}
+    cfg["platforms"][platform] = block
+    if isinstance(cfg.get(platform), dict):
+        del cfg[platform]
+
+
+def _merge_platform_patch(base: dict, patch: dict) -> dict:
+    """Apply a Form UI patch: ``null`` removes a key, ``extra`` is merged one level deep."""
+    merged = copy.deepcopy(base)
+    for key, value in patch.items():
+        if value is None:
+            merged.pop(key, None)
+        elif key == "extra" and isinstance(value, dict) and isinstance(merged.get("extra"), dict):
+            for extra_key, extra_value in value.items():
+                if extra_value is None:
+                    merged["extra"].pop(extra_key, None)
+                else:
+                    merged["extra"][extra_key] = extra_value
+        else:
+            merged[key] = value
+    return merged
+
+
+def _read_hermes_env() -> dict:
+    env = {}
+    try:
+        lines = (Path(CONFIG_PATH).parent / ".env").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return env
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        env[key.strip()] = value.strip().strip('"').strip("'")
+    return env
+
+
+def _open_policy_violation(cfg: dict, platform: str, block: dict) -> str:
+    """Mirror gateway/run.py::_own_policy_open_startup_violation for one platform block."""
+    guard = _OPEN_POLICY_GUARD.get(platform)
+    if not guard or not block.get("enabled"):
+        return ""
+    dm_env, group_env, allow_all_env = guard
+    env = _read_hermes_env()
+    dm_policy = str(block.get("dm_policy") or (env.get(dm_env) if dm_env else "") or "pairing").strip().lower()
+    group_policy = str(block.get("group_policy") or (env.get(group_env) if group_env else "") or "pairing").strip().lower()
+    if dm_policy != "open" and group_policy != "open":
+        return ""
+    gateway_section = cfg.get("gateway") if isinstance(cfg.get("gateway"), dict) else {}
+    yaml_allow_all = cfg.get("allow_all_users", gateway_section.get("allow_all_users"))
+    opt_ins = (env.get("GATEWAY_ALLOW_ALL_USERS"), env.get(allow_all_env), yaml_allow_all)
+    if any(str(v).strip().lower() in _TRUTHY for v in opt_ins if v is not None):
+        return ""
+    return (
+        f"Kebijakan 'open' pada {platform} ditolak: Hermes Gateway akan menolak start "
+        f"(\"open policy without allow-all opt-in\"). Pakai 'allowlist' + allow_from, atau set "
+        f"{allow_all_env}=true di .env jika memang semua orang boleh chat."
+    )
+
+
+def _read_config_for_write() -> dict:
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("Format config.yaml tidak valid (bukan dictionary root).")
+    return cfg
+
+
+def _write_config_atomic(cfg: dict) -> None:
+    """Atomic config.yaml write that keeps the file mode (Hermes keeps it 0600: it holds API keys)."""
+    try:
+        mode = os.stat(CONFIG_PATH).st_mode & 0o777
+    except OSError:
+        mode = 0o600
+    tmp_path = CONFIG_PATH + ".tmp"
+    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    os.chmod(tmp_path, mode)  # O_CREAT's mode is umask-filtered and ignored for a leftover tmp file
+    os.replace(tmp_path, CONFIG_PATH)
+    invalidate_config_cache()
+    _invalidate_status_cache("gateway_platforms")
+
+
 def get_gateway_platform_config(plat: str) -> dict:
-    """Retrieve raw YAML config for a specific platform from config.yaml."""
+    """Retrieve the effective YAML config (platforms.<plat> + root <plat>: block) for a platform."""
     cfg = get_parsed_config()
     cfg_platforms = cfg.get("platforms")
     if not isinstance(cfg_platforms, dict):
@@ -3375,8 +3506,8 @@ def get_gateway_platform_config(plat: str) -> dict:
         "bluebubbles": {"enabled": True, "server_url": "http://127.0.0.1:1234", "password": ""},
     }
 
-    if plat and plat in cfg_platforms and isinstance(cfg_platforms[plat], dict):
-        plat_data = cfg_platforms[plat]
+    if plat and (isinstance(cfg_platforms.get(plat), dict) or isinstance(cfg.get(plat), dict)):
+        plat_data = _effective_platform_block(cfg, plat)
         yaml_text = yaml.safe_dump(plat_data, default_flow_style=False, sort_keys=False, allow_unicode=True)
         return {
             "ok": True,
@@ -3440,8 +3571,52 @@ def _sync_env_platform_flag(platform: str, enabled: bool, extra_vars: dict = Non
         pass
 
 
-def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override: bool | None = None) -> tuple[bool, str]:
-    """Validate and atomically update platforms.<platform> in config.yaml."""
+def _parse_platform_yaml(yaml_str: str | None, label: str = "YAML") -> tuple[dict | None, str]:
+    try:
+        parsed = yaml.safe_load(yaml_str) if (yaml_str or "").strip() else {}
+    except Exception as e:
+        return None, f"Sintaks {label} tidak valid: {e}"
+    if parsed is None:
+        return {}, ""
+    if not isinstance(parsed, dict):
+        return None, f"Format {label} harus berupa mapping/dictionary (key: value)."
+    return parsed, ""
+
+
+def _resolve_platform_block(cfg: dict, platform: str, yaml_str: str, merge: bool,
+                            base_yaml: str | None) -> tuple[dict | None, str]:
+    """Raw YAML mode replaces the block; Form UI mode (``merge``) patches the editor's base YAML
+    (or, without one, the effective block on disk)."""
+    parsed, err = _parse_platform_yaml(yaml_str)
+    if parsed is None:
+        return None, err
+    if not merge:
+        return parsed, ""
+    if base_yaml is None:
+        base = _effective_platform_block(cfg, platform)
+    else:
+        base, err = _parse_platform_yaml(base_yaml, "YAML dasar")
+        if base is None:
+            return None, err
+    return _merge_platform_patch(base, parsed), ""
+
+
+def preview_gateway_platform_config(platform: str, yaml_str: str, base_yaml: str | None = None) -> tuple[bool, str]:
+    """Merged YAML for a Form UI patch without writing (Form → Raw YAML view switch)."""
+    platform = platform.strip().lower()
+    try:
+        cfg = _read_config_for_write()
+    except Exception as e:
+        return False, f"Gagal membaca config.yaml: {e}"
+    block, err = _resolve_platform_block(cfg, platform, yaml_str, True, base_yaml)
+    if block is None:
+        return False, err
+    return True, yaml.safe_dump(block, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+
+def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override: bool | None = None,
+                                 merge: bool = False, base_yaml: str | None = None) -> tuple[bool, str]:
+    """Validate and atomically write platforms.<platform> (folding any root <platform>: block)."""
     platform = platform.strip().lower()
     if not platform:
         return False, "Nama platform tidak boleh kosong."
@@ -3450,53 +3625,33 @@ def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override:
         return False, "Nama platform hanya boleh berisi huruf kecil, angka, garis bawah (_), dan tanda hubung (-)."
 
     try:
-        parsed_data = yaml.safe_load(yaml_str) if yaml_str.strip() else {}
+        cfg = _read_config_for_write()
     except Exception as e:
-        return False, f"Sintaks YAML tidak valid: {e}"
+        return False, f"Gagal membaca config.yaml: {e}"
 
-    if parsed_data is None:
-        parsed_data = {}
-    elif not isinstance(parsed_data, dict):
-        return False, "Format YAML harus berupa mapping/dictionary (key: value)."
+    block, err = _resolve_platform_block(cfg, platform, yaml_str, merge, base_yaml)
+    if block is None:
+        return False, err
 
     if enabled_override is not None:
-        parsed_data["enabled"] = bool(enabled_override)
-    elif "enabled" not in parsed_data:
-        parsed_data["enabled"] = True
+        block["enabled"] = bool(enabled_override)
+    elif "enabled" not in block:
+        block["enabled"] = True
+
+    violation = _open_policy_violation(cfg, platform, block)
+    if violation:
+        return False, violation
 
     try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-
-        if not isinstance(cfg, dict):
-            return False, "Format config.yaml tidak valid (bukan dictionary root)."
-
-        if "platforms" not in cfg or not isinstance(cfg["platforms"], dict):
-            cfg["platforms"] = {}
-
-        cfg["platforms"][platform] = parsed_data
-
-        # If duplicate legacy top-level platform key exists, remove it so platforms.<name> is authoritative
-        if platform in cfg and isinstance(cfg[platform], dict):
-            try:
-                del cfg[platform]
-            except Exception:
-                pass
-
-        tmp_path = CONFIG_PATH + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-
-        os.replace(tmp_path, CONFIG_PATH)
+        _set_platform_block(cfg, platform, block)
+        _write_config_atomic(cfg)
         if platform == "whatsapp":
             extra_vars = {}
-            if "mode" in parsed_data:
-                extra_vars["WHATSAPP_MODE"] = parsed_data["mode"]
-            if "allow_from" in parsed_data and isinstance(parsed_data["allow_from"], list):
-                extra_vars["WHATSAPP_ALLOWED_USERS"] = ",".join(str(x) for x in parsed_data["allow_from"])
-            _sync_env_platform_flag("whatsapp", parsed_data.get("enabled", True), extra_vars)
-        invalidate_config_cache()
-        _invalidate_status_cache("gateway_platforms")
+            if "mode" in block:
+                extra_vars["WHATSAPP_MODE"] = block["mode"]
+            if isinstance(block.get("allow_from"), list):
+                extra_vars["WHATSAPP_ALLOWED_USERS"] = ",".join(str(x) for x in block["allow_from"])
+            _sync_env_platform_flag("whatsapp", block.get("enabled", True), extra_vars)
         return True, ""
     except Exception as e:
         return False, f"Gagal menyimpan ke config.yaml: {e}"
@@ -3508,54 +3663,40 @@ def toggle_gateway_platform_config(platform: str, enabled: bool) -> tuple[bool, 
     if not platform:
         return False, "Nama platform tidak valid."
     try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-
-        if not isinstance(cfg, dict):
-            return False, "Format config.yaml tidak valid."
-
-        if "platforms" not in cfg or not isinstance(cfg["platforms"], dict):
-            cfg["platforms"] = {}
-
-        if platform not in cfg["platforms"] or not isinstance(cfg["platforms"][platform], dict):
-            cfg["platforms"][platform] = {"enabled": enabled}
-        else:
-            cfg["platforms"][platform]["enabled"] = enabled
-
-        tmp_path = CONFIG_PATH + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-
-        os.replace(tmp_path, CONFIG_PATH)
+        cfg = _read_config_for_write()
+        block = _effective_platform_block(cfg, platform)
+        block["enabled"] = enabled
+        violation = _open_policy_violation(cfg, platform, block)
+        if violation:
+            return False, violation
+        _set_platform_block(cfg, platform, block)
+        _write_config_atomic(cfg)
         if platform == "whatsapp":
             _sync_env_platform_flag("whatsapp", enabled)
-        invalidate_config_cache()
-        _invalidate_status_cache("gateway_platforms")
         return True, ""
     except Exception as e:
         return False, f"Gagal mengubah status: {e}"
 
 
 def remove_gateway_platform_config(platform: str) -> tuple[bool, str]:
-    """Atomically remove a platform from config.yaml."""
+    """Atomically remove a platform (platforms.<name> and any root <name>: block) from config.yaml."""
     platform = platform.strip().lower()
     if not platform:
         return False, "Nama platform tidak valid."
     try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-
-        if isinstance(cfg, dict) and isinstance(cfg.get("platforms"), dict):
-            if platform in cfg["platforms"]:
-                del cfg["platforms"][platform]
-                tmp_path = CONFIG_PATH + ".tmp"
-                with open(tmp_path, "w", encoding="utf-8") as f:
-                    yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-                os.replace(tmp_path, CONFIG_PATH)
-                invalidate_config_cache()
-                _invalidate_status_cache("gateway_platforms")
-                return True, ""
-        return False, f"Platform '{platform}' tidak ditemukan di config.yaml."
+        cfg = _read_config_for_write()
+        platforms = cfg.get("platforms") if isinstance(cfg.get("platforms"), dict) else {}
+        found = False
+        if platform in platforms:
+            del platforms[platform]
+            found = True
+        if isinstance(cfg.get(platform), dict):
+            del cfg[platform]
+            found = True
+        if not found:
+            return False, f"Platform '{platform}' tidak ditemukan di config.yaml."
+        _write_config_atomic(cfg)
+        return True, ""
     except Exception as e:
         return False, f"Gagal menghapus platform: {e}"
 
@@ -6872,6 +7013,10 @@ class Handler(BaseHTTPRequestHandler):
             body_qs = parse_qs(body)
             for k, v in body_qs.items():
                 qs.setdefault(k, v)
+        authed, _ = self._authenticate(qs)
+        if not authed:
+            self._send_html("<h1>403 — token salah</h1>", 403)
+            return
         self._handle_mutation(parsed, qs, json_data=json_data)
 
     def do_GET(self):
@@ -7036,14 +7181,23 @@ class Handler(BaseHTTPRequestHandler):
             json_data = {}
         is_ajax = bool(json_data) or bool((qs.get("ajax") or [""])[0]) or "application/json" in self.headers.get("Accept", "")
 
+        if parsed.path == "/api/gateway-config-preview":
+            plat = str(json_data.get("platform") or "").strip().lower()
+            base_yaml = json_data.get("base_yaml") if isinstance(json_data.get("base_yaml"), str) else None
+            ok, text = preview_gateway_platform_config(plat, str(json_data.get("yaml") or ""), base_yaml)
+            self._send_json({"ok": ok, "yaml": text if ok else "", "error": "" if ok else text}, code=200 if ok else 400)
+            return
+
         if parsed.path == "/save-gateway-platform":
             plat = str(json_data.get("platform") or (qs.get("platform") or [""])[0]).strip().lower()
             yaml_content = str(json_data.get("yaml") if "yaml" in json_data else (qs.get("yaml") or [""])[0])
             enabled_raw = json_data.get("enabled") if "enabled" in json_data else (qs.get("enabled") or [None])[0]
             enabled = bool(enabled_raw) if enabled_raw is not None else None
             restart_gw = bool(json_data.get("restart_gw") if "restart_gw" in json_data else ((qs.get("restart_gw") or ["1"])[0] in ("1", "true", "True")))
+            merge = bool(json_data.get("merge"))
+            base_yaml = json_data.get("base_yaml") if isinstance(json_data.get("base_yaml"), str) else None
 
-            ok, err = save_gateway_platform_config(plat, yaml_content, enabled)
+            ok, err = save_gateway_platform_config(plat, yaml_content, enabled, merge=merge, base_yaml=base_yaml)
             if ok and restart_gw:
                 restart_bot()
 
