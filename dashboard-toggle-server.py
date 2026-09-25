@@ -120,7 +120,9 @@ UPDATE_LOG_TAIL = 40  # lines of the remote docker-compose log shown live
 UPDATE_TIMEOUT = 300  # hard cap for one remote pull/recreate operation
 HERMES_BIN = "/usr/local/bin/hermes"
 HERMES_UPDATE_LOG_PATH = "/root/.hermes/logs/update.log"
-HERMES_UPDATE_TIMEOUT = 900  # dependency install can take several minutes
+# `hermes update` waits for the gateway to drain (restart_after_turn_timeout + restart_drain_timeout,
+# ~1995s here) on top of dependency install + UI build; killing it earlier leaves a half-done update.
+HERMES_UPDATE_TIMEOUT = int(os.environ.get("HERMES_UPDATE_TIMEOUT", "3600"))
 
 _last_action_lock = threading.Lock()
 _last_action_at = 0.0
@@ -3384,6 +3386,8 @@ def _effective_platform_block(cfg: dict, platform: str) -> dict:
             merged["extra"] = {**merged["extra"], **copy.deepcopy(value)}
         else:
             merged[key] = copy.deepcopy(value)
+    if platform == "whatsapp":
+        _overlay_whatsapp_env(merged)
     return merged
 
 
@@ -3536,39 +3540,85 @@ def get_gateway_platform_config(plat: str) -> dict:
         }
 
 
-def _sync_env_platform_flag(platform: str, enabled: bool, extra_vars: dict = None) -> None:
-    try:
-        env_file = Path(CONFIG_PATH).parent / ".env"
-        if not env_file.exists():
+def _sync_env_platform_flag(platform: str, enabled: bool, extra_vars: dict = None,
+                            remove_vars: list = None) -> None:
+    """Set <PLATFORM>_ENABLED (+ extra_vars) and drop remove_vars in Hermes' .env.
+
+    Raises on I/O errors: callers write .env before config.yaml, so a failure must abort the
+    save rather than drop keys from config that never reached .env.
+    """
+    env_file = Path(CONFIG_PATH).parent / ".env"
+    if not env_file.exists():
+        if platform != "whatsapp":
             return
-        lines = env_file.read_text(encoding="utf-8").splitlines()
-        prefix = f"{platform.upper()}_ENABLED="
-        found = False
-        new_lines = []
-        for line in lines:
-            if line.strip().startswith(prefix):
-                new_lines.append(f"{prefix}{'true' if enabled else 'false'}")
-                found = True
-            else:
-                new_lines.append(line)
-        if not found and platform == "whatsapp":
+        env_file.touch(mode=0o600)
+    drop_prefixes = tuple(f"{name}=" for name in (remove_vars or ()))
+    lines = [line for line in env_file.read_text(encoding="utf-8").splitlines()
+             if not (drop_prefixes and line.strip().startswith(drop_prefixes))]
+
+    prefix = f"{platform.upper()}_ENABLED="
+    found = False
+    new_lines = []
+    for line in lines:
+        if line.strip().startswith(prefix):
             new_lines.append(f"{prefix}{'true' if enabled else 'false'}")
+            found = True
+        else:
+            new_lines.append(line)
+    if not found and platform == "whatsapp":
+        new_lines.append(f"{prefix}{'true' if enabled else 'false'}")
 
-        if extra_vars:
-            for k, v in extra_vars.items():
-                k_prefix = f"{k}="
-                k_found = False
-                for idx, line in enumerate(new_lines):
-                    if line.strip().startswith(k_prefix):
-                        new_lines[idx] = f"{k}={v}"
-                        k_found = True
-                        break
-                if not k_found:
-                    new_lines.append(f"{k}={v}")
+    for k, v in (extra_vars or {}).items():
+        k_prefix = f"{k}="
+        for idx, line in enumerate(new_lines):
+            if line.strip().startswith(k_prefix):
+                new_lines[idx] = f"{k}={v}"
+                break
+        else:
+            new_lines.append(f"{k}={v}")
 
-        env_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-    except Exception as e:
-        pass
+    mode = os.stat(env_file).st_mode & 0o777
+    tmp_path = str(env_file) + ".tmp"
+    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write("\n".join(new_lines) + "\n")
+    os.chmod(tmp_path, mode)
+    os.replace(tmp_path, env_file)
+
+
+# Hermes' dashboard Channels page stores these WhatsApp settings in .env, while the adapter prefers a
+# config.yaml value when one exists (``mode`` is read from .env only). Keeping them in config would
+# silently shadow every Channels edit, so the panel shows and writes them in .env only.
+# (config key, .env var, is_list)
+_WHATSAPP_ENV_KEYS = (
+    ("allow_from", "WHATSAPP_ALLOWED_USERS", True),
+    ("dm_policy", "WHATSAPP_DM_POLICY", False),
+    ("mode", "WHATSAPP_MODE", False),
+)
+
+
+def _overlay_whatsapp_env(block: dict) -> None:
+    """Show what the WhatsApp adapter uses: config value if present, else the .env value."""
+    env = _read_hermes_env()
+    for key, env_name, is_list in _WHATSAPP_ENV_KEYS:
+        value = env.get(env_name, "").strip()
+        if not value or (key in block and key != "mode"):
+            continue
+        block[key] = [x.strip() for x in value.split(",") if x.strip()] if is_list else value
+
+
+def _sync_whatsapp_env(block: dict) -> None:
+    """Move the Channels-managed keys out of ``block`` into .env (unset/empty ones are removed)."""
+    set_vars, remove_vars = {}, []
+    for key, env_name, is_list in _WHATSAPP_ENV_KEYS:
+        value = block.pop(key, None)
+        if is_list and isinstance(value, list):
+            value = ",".join(str(x).strip() for x in value if str(x).strip())
+        if value is None or str(value).strip() == "":
+            remove_vars.append(env_name)
+        else:
+            set_vars[env_name] = str(value).strip()
+    _sync_env_platform_flag("whatsapp", bool(block.get("enabled", True)), set_vars, remove_vars)
 
 
 def _parse_platform_yaml(yaml_str: str | None, label: str = "YAML") -> tuple[dict | None, str]:
@@ -3643,15 +3693,10 @@ def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override:
         return False, violation
 
     try:
+        if platform == "whatsapp":
+            _sync_whatsapp_env(block)  # .env first: a failure here leaves config.yaml untouched
         _set_platform_block(cfg, platform, block)
         _write_config_atomic(cfg)
-        if platform == "whatsapp":
-            extra_vars = {}
-            if "mode" in block:
-                extra_vars["WHATSAPP_MODE"] = block["mode"]
-            if isinstance(block.get("allow_from"), list):
-                extra_vars["WHATSAPP_ALLOWED_USERS"] = ",".join(str(x) for x in block["allow_from"])
-            _sync_env_platform_flag("whatsapp", block.get("enabled", True), extra_vars)
         return True, ""
     except Exception as e:
         return False, f"Gagal menyimpan ke config.yaml: {e}"
@@ -3669,10 +3714,10 @@ def toggle_gateway_platform_config(platform: str, enabled: bool) -> tuple[bool, 
         violation = _open_policy_violation(cfg, platform, block)
         if violation:
             return False, violation
+        if platform == "whatsapp":
+            _sync_whatsapp_env(block)  # .env first: a failure here leaves config.yaml untouched
         _set_platform_block(cfg, platform, block)
         _write_config_atomic(cfg)
-        if platform == "whatsapp":
-            _sync_env_platform_flag("whatsapp", enabled)
         return True, ""
     except Exception as e:
         return False, f"Gagal mengubah status: {e}"
@@ -4410,7 +4455,7 @@ def run_hermes_update() -> None:
                     rc = proc.wait(timeout=HERMES_UPDATE_TIMEOUT)
                 except subprocess.TimeoutExpired:
                     os.killpg(proc.pid, signal.SIGTERM)
-                    log.write("\n[panel] ERROR: timeout 900 detik\n")
+                    log.write(f"\n[panel] ERROR: timeout {HERMES_UPDATE_TIMEOUT} detik\n")
                     rc = 124
             if rc == 0:
                 summary = "Hermes sukses diperbarui: dependency, validasi, dan mulai ulang selesai"

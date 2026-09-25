@@ -706,15 +706,76 @@ class TestGatewayConfigSync(unittest.TestCase):
         self.assertNotIn("telegram", saved, "Hapus removes the root block Hermes would still load")
         self.assertNotIn("telegram", saved["platforms"])
 
-    def test_32_whatsapp_env_mirror_follows_saved_config(self):
-        self._write_cfg({"platforms": {"whatsapp": {"enabled": True, "mode": "bot", "allow_from": ["62811"]}}})
+    def _read_env(self):
+        with open(self.env_path, encoding="utf-8") as f:
+            return dict(line.split("=", 1) for line in f.read().splitlines() if "=" in line)
+
+    def test_32_whatsapp_channels_keys_move_to_env(self):
+        """Hermes' Channels page edits WHATSAPP_* in .env; config values would shadow it."""
+        self._write_cfg({"platforms": {"whatsapp": {
+            "enabled": True, "mode": "bot", "dm_policy": "allowlist", "allow_from": ["62811"],
+            "group_policy": "disabled"}}})
         ok, err = panel.save_gateway_platform_config("whatsapp", "allow_from:\n  - '62822'\n", merge=True)
         self.assertTrue(ok, err)
-        with open(self.env_path, encoding="utf-8") as f:
-            env = f.read()
-        self.assertIn("WHATSAPP_ALLOWED_USERS=62822", env)
-        self.assertIn("WHATSAPP_MODE=bot", env, "mode kept from existing config is mirrored")
+        env = self._read_env()
+        self.assertEqual(env["WHATSAPP_ALLOWED_USERS"], "62822")
+        self.assertEqual(env["WHATSAPP_DM_POLICY"], "allowlist")
+        self.assertEqual(env["WHATSAPP_MODE"], "bot")
+        wa = self._read_cfg()["platforms"]["whatsapp"]
+        for key in ("allow_from", "dm_policy", "mode"):
+            self.assertNotIn(key, wa, f"{key} must live only in .env")
+        self.assertEqual(wa["group_policy"], "disabled", "non-Channels keys stay in config")
         self.assertEqual(os.stat(self.env_path).st_mode & 0o777, 0o600)
+
+    def test_41_whatsapp_view_shows_channels_env_values(self):
+        self._write_cfg({"platforms": {"whatsapp": {"enabled": True, "group_policy": "disabled"}}})
+        with open(self.env_path, "a", encoding="utf-8") as f:
+            f.write("WHATSAPP_ALLOWED_USERS=628a,628b\nWHATSAPP_DM_POLICY=allowlist\nWHATSAPP_MODE=self-chat\n")
+        shown = panel.yaml.safe_load(panel.get_gateway_platform_config("whatsapp")["yaml"])
+        self.assertEqual(shown["allow_from"], ["628a", "628b"])
+        self.assertEqual(shown["dm_policy"], "allowlist")
+        self.assertEqual(shown["mode"], "self-chat")
+
+    def test_42_whatsapp_config_value_wins_in_view_like_hermes(self):
+        """While both exist, Hermes uses the config value — the view must too."""
+        self._write_cfg({"platforms": {"whatsapp": {"enabled": True, "dm_policy": "allowlist", "allow_from": ["628c"]}}})
+        with open(self.env_path, "a", encoding="utf-8") as f:
+            f.write("WHATSAPP_ALLOWED_USERS=628z\nWHATSAPP_DM_POLICY=pairing\n")
+        shown = panel.yaml.safe_load(panel.get_gateway_platform_config("whatsapp")["yaml"])
+        self.assertEqual(shown["allow_from"], ["628c"])
+        self.assertEqual(shown["dm_policy"], "allowlist")
+
+    def test_43_whatsapp_removed_key_clears_env(self):
+        self._write_cfg({"platforms": {"whatsapp": {"enabled": True, "group_policy": "disabled"}}})
+        with open(self.env_path, "a", encoding="utf-8") as f:
+            f.write("WHATSAPP_ALLOWED_USERS=628a\nWHATSAPP_DM_POLICY=allowlist\n")
+        ok, err = panel.save_gateway_platform_config("whatsapp", "allow_from: []\ndm_policy: null\n", merge=True)
+        self.assertTrue(ok, err)
+        env = self._read_env()
+        self.assertNotIn("WHATSAPP_ALLOWED_USERS", env)
+        self.assertNotIn("WHATSAPP_DM_POLICY", env)
+        self.assertEqual(env["TELEGRAM_BOT_TOKEN"], "x", "unrelated .env lines untouched")
+
+    def test_44_whatsapp_toggle_migrates_and_guards_env_policy(self):
+        self._write_cfg({"platforms": {"whatsapp": {"enabled": False, "mode": "bot", "allow_from": ["628d"]}}})
+        ok, err = panel.toggle_gateway_platform_config("whatsapp", True)
+        self.assertTrue(ok, err)
+        self.assertNotIn("allow_from", self._read_cfg()["platforms"]["whatsapp"])
+        self.assertEqual(self._read_env()["WHATSAPP_ALLOWED_USERS"], "628d")
+        # An open policy set via Channels (.env) is still caught before Hermes refuses to start.
+        panel.toggle_gateway_platform_config("whatsapp", False)
+        with open(self.env_path, "a", encoding="utf-8") as f:
+            f.write("WHATSAPP_DM_POLICY=open\n")
+        ok, err = panel.toggle_gateway_platform_config("whatsapp", True)
+        self.assertFalse(ok)
+        self.assertIn("WHATSAPP_ALLOW_ALL_USERS", err)
+
+    def test_45_hermes_update_timeout_outlasts_gateway_drain(self):
+        # Hermes' update waits up to restart_after_turn_timeout + restart_drain_timeout
+        # (1995s on this host) for the gateway; killing earlier leaves a half-finished update.
+        self.assertGreaterEqual(panel.HERMES_UPDATE_TIMEOUT, 3600)
+        src = open(os.path.join(REPO_ROOT, "dashboard-toggle-server.py"), encoding="utf-8").read()
+        self.assertNotIn("timeout 900 detik", src, "timeout message must use the real value")
 
     def test_38_form_patch_merges_onto_editor_base_yaml(self):
         self._write_cfg(self._split_cfg())
