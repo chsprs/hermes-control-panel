@@ -795,6 +795,68 @@ class TestGatewayConfigSync(unittest.TestCase):
         self.assertEqual(self._read_cfg()["platforms"]["telegram"], merged)
 
 
+class TestMobileScrollPerf(unittest.TestCase):
+    """Phone scrolling stuttered: backdrop blur on every card/button + full DOM rebuild each SSE tick."""
+
+    def test_50_backdrop_blur_only_on_overlays(self):
+        import re
+        css = panel.PAGE[panel.PAGE.index("<style>"):panel.PAGE.index("</style>")]
+        offenders = []
+        for m in re.finditer(r"([^{}]+)\{\{([^{}]*)\}\}", css):
+            selector, body = m.group(1).strip(), m.group(2)
+            # .confirm-box is the dialog inside the four *-modal overlays.
+            if "backdrop-filter" in body and not re.search(r"modal|navloader|confirm-box", selector):
+                offenders.append(selector.splitlines()[-1][:60])
+        self.assertEqual(offenders, [], "blur on scrolling content is re-rendered every frame on phones")
+
+    def _run_sse_gate(self, body: str) -> str:
+        src = panel.SSE_SCRIPT
+        gate = src[src.index("// BEGIN sse-render-gate"):src.index("// END sse-render-gate")]
+        harness = r"""
+var timers = [], listeners = {}, applied = [], writes = 0;
+function setTimeout(fn, ms){ timers.push(fn); return timers.length; }
+function clearTimeout(t){ if(t) timers[t-1] = null; }
+function runTimers(){ var t = timers; timers = []; t.forEach(function(f){ if(f) f(); }); }
+var window = { addEventListener: function(n, f){ listeners[n] = f; } };
+function mkEl(){ var e = { firstChild: null }; Object.defineProperty(e, 'innerHTML', {
+  set: function(v){ writes++; this._h = v; this.firstChild = {v: v}; }, get: function(){ return this._h; } }); return e; }
+var els = { a: mkEl() };
+var document = { getElementById: function(id){ return els[id] || null; } };
+function apply(d){ applied.push(d); }
+"""
+        r = subprocess.run(["node", "-e", harness + gate + body], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout.strip()
+
+    def test_53_sse_payload_carries_only_what_the_page_reads(self):
+        import re
+        read_by_js = set(re.findall(r"\bd\.([a-z_]+)", panel.SSE_SCRIPT))
+        frag = {k: f"<{k}>" for k in read_by_js | {"model_chips", "aux_tasks_block", "hermes_update_block"}}
+        sent = set(json.loads(panel._sse_payload(frag)))
+        self.assertEqual(sent, read_by_js, "static slots (model_chips ~38 KB) were re-sent and parsed every second")
+
+    @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
+    def test_51_set_skips_unchanged_html(self):
+        out = self._run_sse_gate(r"""
+set('a', '<b>1</b>'); set('a', '<b>1</b>'); set('a', '<b>2</b>');
+els.a.innerHTML = 'changed by a user action'; writes--;   // external write must not be masked
+set('a', '<b>2</b>');
+process.stdout.write(String(writes));
+""")
+        self.assertEqual(out, "3", "identical payloads must not rebuild the DOM")
+
+    @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
+    def test_52_updates_held_while_scrolling(self):
+        out = self._run_sse_gate(r"""
+onUpdate('d1');
+listeners.scroll(); onUpdate('d2'); onUpdate('d3');
+var during = applied.length;
+runTimers();
+process.stdout.write(JSON.stringify({during: during, after: applied}));
+""")
+        self.assertEqual(json.loads(out), {"during": 1, "after": ["d1", "d3"]})
+
+
 def _gw_form_js() -> str:
     """Form UI helpers + populate/serialize exactly as rendered (PAGE uses str.format)."""
     start = panel.PAGE.index("var GW_FORM_KEYS_COMMON")

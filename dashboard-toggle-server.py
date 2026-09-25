@@ -274,7 +274,7 @@ h1{{font-size:1.22rem;font-weight:600;letter-spacing:-.025em;color:var(--text)}}
 .live-badge{{display:inline-flex;align-items:center;gap:.45rem;padding:.24rem .7rem;
 border-radius:999px;font-size:.68rem;font-weight:600;font-family:var(--font-mono);
 background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);color:var(--success);
-letter-spacing:.04em;text-transform:uppercase;backdrop-filter:blur(10px)}}
+letter-spacing:.04em;text-transform:uppercase}}
 .live-badge .dot{{width:6px;height:6px;border-radius:50%;background:var(--success);
 box-shadow:0 0 8px var(--success)}}
 .live-badge.connected{{color:var(--success);background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.25)}}
@@ -282,7 +282,7 @@ box-shadow:0 0 8px var(--success)}}
 
 /* Apple CC Segmented Nav */
 .tabs{{display:flex;gap:.3rem;margin:0 auto 1.35rem;width:100%;max-width:520px;
-background:rgba(20,25,35,0.75);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+background:rgba(20,25,35,0.75);
 padding:.3rem;border-radius:var(--radius-xl);border:1px solid var(--border)}}
 .tab{{flex:1 1 0;min-height:42px;display:flex;align-items:center;justify-content:center;
 border-radius:12px;text-align:center;gap:.35rem;
@@ -302,7 +302,9 @@ border:1px solid rgba(96,165,250,0.65);box-shadow:0 3px 14px rgba(37,99,235,0.40
 #tab-auxiliary{{max-width:880px}}
 
 /* Cards */
-.card{{background:var(--surface);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+/* No backdrop-filter on scrolling content: phones re-blur every card on every scroll frame, and the
+   backdrop here is a faint gradient, so the blur was invisible anyway. Overlays keep theirs. */
+.card{{background:var(--surface);
 border:1px solid var(--border);border-radius:var(--radius-xl);padding:1.35rem;width:100%;
 box-shadow:0 8px 32px rgba(0,0,0,0.37);transition:border-color .2s var(--ease),box-shadow .2s var(--ease)}}
 .card:hover{{border-color:var(--border-hover);box-shadow:0 12px 36px rgba(0,0,0,0.45)}}
@@ -361,7 +363,7 @@ a.toggle,.btn,a.open{{display:inline-flex;align-items:center;justify-content:cen
 text-align:center;padding:.65rem 1.05rem;min-height:44px;border-radius:var(--radius-md);
 text-decoration:none;font-weight:500;font-size:.84rem;color:var(--text);
 width:100%;background:rgba(255,255,255,0.035);border:1px solid var(--border);
-transition:all .18s var(--ease);cursor:pointer;backdrop-filter:blur(8px)}}
+transition:all .18s var(--ease);cursor:pointer}}
 a.toggle:hover,.btn:hover,a.open:hover{{border-color:var(--border-hover);background:rgba(255,255,255,0.07);transform:translateY(-1px)}}
 a.toggle:active,.btn:active,a.open:active{{transform:scale(.98)}}
 
@@ -3896,7 +3898,27 @@ SSE_SCRIPT = """<script>
     poly.setAttribute('points', pts.join(' '));
     fill.setAttribute('points', '0,' + h + ' ' + pts.join(' ') + ' ' + w + ',' + h);
   }
-  function set(id,v){ var el=document.getElementById(id); if(el&&v!=null) el.innerHTML=v; }
+  // BEGIN sse-render-gate
+  // SSE pushes every second. Rebuilding ~30 slots each tick (identical HTML included) kept the
+  // main thread busy and made phone scrolling stutter, so identical content is skipped, and
+  // updates that arrive mid-scroll are held until scrolling has been idle briefly.
+  function set(id,v){
+    var el=document.getElementById(id); if(!el||v==null) return;
+    // Skip only if it is still exactly our last write (a user action may have replaced it).
+    if(el._sseHtml===v && el._sseFirst===el.firstChild) return;
+    el.innerHTML=v; el._sseHtml=v; el._sseFirst=el.firstChild;
+  }
+  var _scrolling=false, _scrollTimer=null, _pendingUpdate=null;
+  function onUpdate(d){ if(_scrolling){ _pendingUpdate=d; return; } apply(d); }
+  window.addEventListener('scroll', function(){
+    _scrolling=true;
+    if(_scrollTimer) clearTimeout(_scrollTimer);
+    _scrollTimer=setTimeout(function(){
+      _scrolling=false; _scrollTimer=null;
+      if(_pendingUpdate){ var d=_pendingUpdate; _pendingUpdate=null; apply(d); }
+    }, 180);
+  }, {passive:true});
+  // END sse-render-gate
   function pulse(){
     if(!pbar) return;
     pbar.style.transition='none'; pbar.style.width='0%';
@@ -4043,7 +4065,7 @@ SSE_SCRIPT = """<script>
       if(live) live.classList.add('connected');
     };
     es.addEventListener('update', function(e){
-      try{ apply(JSON.parse(e.data)); }catch(ex){}
+      try{ onUpdate(JSON.parse(e.data)); }catch(ex){}
     });
     es.onerror=function(){
       if(spin) spin.classList.add('on');
@@ -6855,6 +6877,20 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
 # --- SSE (Server-Sent Events) infrastructure ---
 _sse_clients: list = []  # list of (queue.Queue, threading.Event) tuples
 _sse_clients_lock = threading.Lock()
+# Keys SSE_SCRIPT's apply() actually reads. build_fragments() also renders static slots
+# (model_chips alone is ~38 KB) that the page never replaces over SSE; sending them made every
+# phone download and JSON.parse ~93 KB per second for nothing. /api/status still returns everything.
+SSE_CLIENT_KEYS = (
+    "cells", "cell_load", "cpu_pct", "ram_pct", "processes_table", "gateway_list_block",
+    "gw_summary_text", "gw_summary_badge_class", "log_card", "hermes_log_card",
+    "clean_junk_card", "gateway_log_card",
+)
+
+
+def _sse_payload(frag: dict) -> str:
+    return json.dumps({k: frag[k] for k in SSE_CLIENT_KEYS if k in frag})
+
+
 _sse_last_data: str = ""  # last serialized fragments, for change detection
 _sse_last_data_lock = threading.Lock()
 
@@ -6879,7 +6915,7 @@ def _sse_push_loop():
         tick_count += 1
         try:
             frag = build_fragments()
-            data = json.dumps(frag)
+            data = _sse_payload(frag)
         except Exception:
             continue
 
@@ -7193,7 +7229,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 # Send current state immediately
                 frag = build_fragments()
-                data = json.dumps(frag)
+                data = _sse_payload(frag)
                 self.wfile.write(f"event: update\ndata: {data}\n\n".encode())
                 self.wfile.flush()
                 while True:
