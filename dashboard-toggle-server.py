@@ -387,6 +387,8 @@ a.open:hover{{background:linear-gradient(135deg,#2563eb,#3b82f6);box-shadow:0 6p
 .btn-action-danger:hover{{background:rgba(239,68,68,0.25);border-color:var(--danger);color:#fff}}
 .btn-action-primary{{background:rgba(59,130,246,0.18);color:var(--accent-light);border:1px solid rgba(59,130,246,0.4)}}
 .btn-action-primary:hover{{background:rgba(59,130,246,0.32);border-color:var(--accent);color:#fff}}
+.btn-action-sm.active{{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}}
+.badge-danger{{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(239,68,68,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
 
 /* Gateway Platform Card Responsive Elements */
 .gw-card-row{{display:flex;flex-direction:column;gap:.6rem;padding:.75rem .9rem;
@@ -1996,7 +1998,19 @@ function openWaPairModal(){{
     m.classList.add('show');
     m.style.display = 'flex';
   }}
-  pollWaPairStatus();
+  fetch('/api/whatsapp/pair-status')
+    .then(function(r){{ return r.json(); }})
+    .then(function(d){{
+      setWaPairStatusUI(d);
+      if(d.status === 'idle' || d.status === 'error' || d.status === 'cancelled'){{
+        startWaPair(true);
+      }} else if(d.status === 'starting' || d.status === 'waiting_scan'){{
+        pollWaPairStatus();
+      }}
+    }})
+    .catch(function(){{
+      startWaPair(true);
+    }});
 }}
 
 function closeWaPairModal(){{
@@ -2027,16 +2041,24 @@ function setWaPairStatusUI(data){{
   }}
 
   if(data.status === 'waiting_scan'){{
-    if(bText) bText.textContent = 'Menunggu scan dari WhatsApp HP...';
+    if(bText) bText.textContent = 'Menunggu scan dari WhatsApp di HP...';
     if(badge){{ badge.className = 'badge badge-warn'; badge.textContent = 'Scan QR'; }}
-    if(qrBox && data.qr_svg){{ qrBox.innerHTML = data.qr_svg; }}
+    if(qrBox && data.qr_svg){{
+      qrBox.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:8px">' +
+        data.qr_svg +
+        '<div style="font-size:0.75rem;color:var(--accent-light);font-weight:500;display:flex;align-items:center;gap:6px">' +
+        '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981"></span> QR Aktif (Auto-refresh)</div></div>';
+    }}
     if(btnStart) btnStart.style.display = 'none';
     if(btnCancel) btnCancel.style.display = 'inline-block';
-    if(btnReset) btnReset.style.display = 'none';
+    if(btnReset) btnReset.style.display = 'inline-block';
     if(btnApply) btnApply.style.display = 'none';
   }} else if(data.status === 'starting'){{
     if(bText) bText.textContent = 'Memulai bridge WhatsApp...';
     if(badge){{ badge.className = 'badge badge-warn'; badge.textContent = 'Starting'; }}
+    if(qrBox){{
+      qrBox.innerHTML = '<div style="padding:2.2rem 1rem;text-align:center;color:var(--text-muted)"><div class="spinner" style="margin:0 auto 0.75rem auto;width:24px;height:24px;border:2px solid rgba(255,255,255,0.1);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></div><div style="font-weight:600;color:var(--text);font-size:0.85rem">Menghubungkan ke WhatsApp Bridge...</div><div style="font-size:0.75rem;margin-top:0.3rem">Menyiapkan socket Baileys &amp; QR code</div></div>';
+    }}
     if(btnStart) btnStart.style.display = 'none';
     if(btnCancel) btnCancel.style.display = 'inline-block';
     if(btnReset) btnReset.style.display = 'none';
@@ -2046,25 +2068,29 @@ function setWaPairStatusUI(data){{
     if(bText) bText.textContent = 'Terhubung sebagai: ' + uName;
     if(badge){{ badge.className = 'badge badge-up'; badge.textContent = 'Terhubung'; }}
     if(qrBox){{
-      qrBox.innerHTML = '<div style="color:#10b981;padding:1.5rem;text-align:center"><div style="font-size:2.5rem;margin-bottom:0.5rem">✓</div><div style="font-weight:600">WhatsApp Berhasil Tertaut!</div><div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.3rem">Kredensial tersimpan di sesi lokal.</div></div>';
+      qrBox.innerHTML = '<div style="color:#10b981;padding:2rem 1rem;text-align:center"><div style="font-size:3rem;line-height:1;margin-bottom:0.5rem">✓</div><div style="font-weight:700;font-size:1.1rem">WhatsApp Berhasil Tertaut!</div><div style="font-size:0.82rem;color:var(--text);margin-top:0.4rem">Akun: <strong>' + uName + '</strong></div><div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.3rem">Kredensial tersimpan di sesi lokal server.</div></div>';
     }}
     if(btnStart) btnStart.style.display = 'none';
     if(btnCancel) btnCancel.style.display = 'none';
     if(btnReset) btnReset.style.display = 'inline-block';
     if(btnApply) btnApply.style.display = 'inline-block';
   }} else if(data.status === 'error'){{
-    if(bText) bText.textContent = 'Error: ' + (data.error || 'Terjadi kesalahan');
-    if(badge){{ badge.className = 'badge badge-danger'; badge.textContent = 'Gagal'; }}
-    if(btnStart) btnStart.style.display = 'inline-block';
+    var err = data.error || 'Terjadi kesalahan';
+    if(bText) bText.textContent = 'Status: ' + err;
+    if(badge){{ badge.className = 'badge badge-down'; badge.textContent = 'Gagal'; }}
+    if(qrBox){{
+      qrBox.innerHTML = '<div style="color:var(--danger);padding:2rem 1rem;text-align:center"><div style="font-size:2rem;margin-bottom:0.5rem">⚠</div><div style="font-weight:600">' + err + '</div><div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.4rem">Tekan tombol Coba Lagi untuk membuat sesi pairing baru.</div></div>';
+    }}
+    if(btnStart){{ btnStart.textContent = 'Coba Lagi (Generate QR)'; btnStart.style.display = 'inline-block'; }}
     if(btnCancel) btnCancel.style.display = 'none';
-    if(btnReset) btnReset.style.display = 'inline-block';
+    if(btnReset) btnReset.style.display = 'none';
     if(btnApply) btnApply.style.display = 'none';
   }} else {{
     if(bText) bText.textContent = 'Status: Siap untuk pairing';
     if(badge){{ badge.className = 'badge'; badge.textContent = 'Idle'; }}
-    if(btnStart) btnStart.style.display = 'inline-block';
+    if(btnStart){{ btnStart.textContent = 'Mulai Pairing QR'; btnStart.style.display = 'inline-block'; }}
     if(btnCancel) btnCancel.style.display = 'none';
-    if(btnReset) btnReset.style.display = 'inline-block';
+    if(btnReset) btnReset.style.display = 'none';
     if(btnApply) btnApply.style.display = 'none';
   }}
 }}
@@ -2075,7 +2101,8 @@ function pollWaPairStatus(){{
     .then(function(d){{
       setWaPairStatusUI(d);
       var m = document.getElementById('wa-pair-modal');
-      if(m && m.style.display !== 'none' && (d.status === 'starting' || d.status === 'waiting_scan')){{
+      var isOpen = m && (m.classList.contains('show') || m.style.display !== 'none');
+      if(isOpen && (d.status === 'starting' || d.status === 'waiting_scan')){{
         _waPairPollTimer = setTimeout(pollWaPairStatus, 1500);
       }}
     }})
@@ -2084,11 +2111,21 @@ function pollWaPairStatus(){{
 
 function startWaPair(clearSession){{
   var bText = document.getElementById('wa-pair-status-text');
-  if(bText) bText.textContent = 'Mengirim instruksi mulai pairing...';
+  var badge = document.getElementById('wa-pair-status-badge');
+  var qrBox = document.getElementById('wa-pair-qr-container');
+  var btnStart = document.getElementById('btn-start-wa-pair');
+  var btnCancel = document.getElementById('btn-cancel-wa-pair');
+  if(bText) bText.textContent = 'Menyiapkan jembatan WhatsApp...';
+  if(badge){{ badge.className = 'badge badge-warn'; badge.textContent = 'Starting'; }}
+  if(btnStart) btnStart.style.display = 'none';
+  if(btnCancel) btnCancel.style.display = 'inline-block';
+  if(qrBox){{
+    qrBox.innerHTML = '<div style="padding:2.2rem 1rem;text-align:center;color:var(--text-muted)"><div class="spinner" style="margin:0 auto 0.75rem auto;width:24px;height:24px;border:2px solid rgba(255,255,255,0.1);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></div><div style="font-weight:600;color:var(--text);font-size:0.85rem">Menghubungkan ke WhatsApp Bridge...</div><div style="font-size:0.75rem;margin-top:0.3rem">Menyiapkan socket Baileys &amp; QR code</div></div>';
+  }}
   fetch('/api/whatsapp/pair-start', {{
     method: 'POST',
     headers: {{'Content-Type': 'application/json', 'Accept': 'application/json'}},
-    body: JSON.stringify({{force_new: clearSession}})
+    body: JSON.stringify({{force_new: clearSession !== false}})
   }}).then(function(r){{ return r.json(); }})
     .then(function(d){{
       setWaPairStatusUI(d);
@@ -2107,6 +2144,10 @@ function cancelWaPair(){{
   }}).then(function(r){{ return r.json(); }})
     .then(function(d){{
       setWaPairStatusUI(d);
+      var qrBox = document.getElementById('wa-pair-qr-container');
+      if(qrBox){{
+        qrBox.innerHTML = '<div style="color:var(--text-dim);font-size:0.82rem;padding:2rem 1rem">Pairing dibatalkan. Tekan <strong>"Mulai Pairing QR"</strong> untuk memulai kembali.</div>';
+      }}
     }});
 }}
 
@@ -2696,7 +2737,7 @@ def qr_to_svg(qr_text: str) -> str:
         }
       }
       const size = count + 8;
-      process.stdout.write(`<svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="width:220px;height:220px;background:#ffffff;padding:8px;border-radius:10px;"><rect width="100%" height="100%" fill="#ffffff"/><path d="${d}" fill="#111827"/></svg>`);
+      process.stdout.write(`<svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="width:230px;height:230px;max-width:85vw;max-height:85vw;background:#ffffff;padding:10px;border-radius:12px;box-shadow:0 4px 18px rgba(0,0,0,0.35);display:block;margin:0 auto;"><rect width="100%" height="100%" fill="#ffffff"/><path d="${d}" fill="#111827"/></svg>`);
     } catch (e) {
       process.stderr.write(String(e));
     }
@@ -2805,15 +2846,36 @@ def _wa_pair_watcher(proc, session_dir: Path):
             _wa_pair_proc = None
 
 
-def start_wa_pair(clear_session: bool = False) -> tuple[bool, str]:
+def start_wa_pair(clear_session: bool = True) -> tuple[bool, str]:
     global _wa_pair_proc
     with _wa_pair_lock:
         if _wa_pair_proc is not None and _wa_pair_proc.poll() is None:
-            return True, "Pairing sudah berjalan."
+            if _wa_pair_state.get("status") == "waiting_scan" and not clear_session:
+                return True, "Pairing sudah berjalan."
+            try:
+                _wa_pair_proc.terminate()
+                _wa_pair_proc.wait(timeout=1.5)
+            except Exception:
+                try:
+                    _wa_pair_proc.kill()
+                except Exception:
+                    pass
+            _wa_pair_proc = None
 
         session_dir = Path("/root/.hermes/whatsapp/session")
         session_dir.mkdir(parents=True, exist_ok=True)
-        if clear_session:
+
+        creds_file = session_dir / "creds.json"
+        is_registered = False
+        if creds_file.exists():
+            try:
+                with open(creds_file, "r", encoding="utf-8") as f:
+                    cdata = json.load(f)
+                    is_registered = bool(cdata.get("registered"))
+            except Exception:
+                is_registered = False
+
+        if clear_session or not is_registered:
             import shutil
             for item in session_dir.glob("*"):
                 try:
@@ -2881,7 +2943,9 @@ def cancel_wa_pair() -> None:
                     pass
             _wa_pair_proc = None
         _wa_pair_state["status"] = "cancelled"
+        _wa_pair_state["qr_raw"] = ""
         _wa_pair_state["qr_svg"] = ""
+        _wa_pair_state["error"] = None
     _append_wa_pair_log("Proses pairing dibatalkan oleh pengguna.")
 
 
@@ -3338,6 +3402,7 @@ SSE_SCRIPT = """<script>
       }
     }
     if(force) window._forceBottom = false;
+    if(window.syncGwLogTabUI) window.syncGwLogTabUI();
   }
   function apply(d){
     if(d.cells){ set('cell-dash',d.cells.dash); set('cell-bot',d.cells.bot);
