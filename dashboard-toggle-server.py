@@ -732,16 +732,53 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       </div>
     </div>
 
-    <!-- Mode Switcher: Form UI (Default) vs Raw YAML -->
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.4rem">
-      <div style="display:flex;flex-wrap:wrap;gap:0.35rem;background:rgba(255,255,255,0.04);padding:3px;border-radius:var(--radius-sm);border:1px solid var(--border)">
-        <button type="button" class="btn-action-sm active" id="gw-btn-mode-ui" onclick="switchGwConfigMode('ui')" style="min-height:28px;font-size:0.74rem">🎛 Form Setting (Full UI)</button>
-        <button type="button" class="btn-action-sm" id="gw-btn-mode-yaml" onclick="switchGwConfigMode('yaml')" style="min-height:28px;font-size:0.74rem">📝 Raw YAML (Manual)</button>
+    <!-- Template & Mode Bar (Universal toolbar visible in both Form UI and YAML modes) -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.4rem;background:rgba(255,255,255,0.02);padding:0.4rem 0.6rem;border-radius:var(--radius-sm);border:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
+        <span style="font-size:0.72rem;color:var(--text-muted);font-weight:600">📋 Template:</span>
+        <select id="gw-template-picker" onchange="applyGwSelectedTemplate(this.value)" class="search-input" style="width:auto;margin:0;padding:0.2rem 0.5rem;font-size:0.72rem;background:rgba(255,255,255,0.06);color:var(--accent-light);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-sm);cursor:pointer">
+          <option value="">-- Muat Template Gateway --</option>
+          <optgroup label="Populer">
+            <option value="telegram">Telegram Bot</option>
+            <option value="discord">Discord Bot</option>
+            <option value="webhook">HTTP Webhook</option>
+            <option value="whatsapp">WhatsApp Bridge</option>
+            <option value="slack">Slack Bot</option>
+            <option value="line">LINE Messaging</option>
+          </optgroup>
+          <optgroup label="Kolaborasi &amp; Chat">
+            <option value="matrix">Matrix</option>
+            <option value="mattermost">Mattermost</option>
+            <option value="irc">IRC</option>
+          </optgroup>
+          <optgroup label="Enterprise">
+            <option value="teams">Microsoft Teams</option>
+            <option value="feishu">Feishu / Lark</option>
+            <option value="google_chat">Google Chat</option>
+            <option value="dingtalk">DingTalk</option>
+            <option value="wecom">WeCom</option>
+          </optgroup>
+          <optgroup label="Privasi &amp; Notifikasi">
+            <option value="signal">Signal</option>
+            <option value="simplex">SimpleX</option>
+            <option value="ntfy">ntfy</option>
+            <option value="email">Email Gateway</option>
+            <option value="homeassistant">Home Assistant</option>
+            <option value="sms">SMS Gateway</option>
+            <option value="bluebubbles">BlueBubbles</option>
+          </optgroup>
+        </select>
       </div>
-      <label style="font-size:0.75rem;display:inline-flex;align-items:center;gap:0.35rem;cursor:pointer;background:rgba(255,255,255,0.04);padding:0.25rem 0.55rem;border-radius:var(--radius-sm);border:1px solid var(--border)">
-        <input type="checkbox" id="gw-config-enabled-chk" checked style="accent-color:var(--accent)">
-        <span style="font-weight:600">Aktifkan Platform</span>
-      </label>
+      <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
+        <div style="display:flex;gap:0.25rem;background:rgba(255,255,255,0.04);padding:2px;border-radius:var(--radius-sm);border:1px solid var(--border)">
+          <button type="button" class="btn-action-sm active" id="gw-btn-mode-ui" onclick="switchGwConfigMode('ui')" style="min-height:26px;font-size:0.72rem;padding:0.2rem 0.5rem">🎛 Form Setting (Full UI)</button>
+          <button type="button" class="btn-action-sm" id="gw-btn-mode-yaml" onclick="switchGwConfigMode('yaml')" style="min-height:26px;font-size:0.72rem;padding:0.2rem 0.5rem">📝 Raw YAML (Manual)</button>
+        </div>
+        <label style="font-size:0.72rem;display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer;background:rgba(255,255,255,0.04);padding:0.2rem 0.45rem;border-radius:var(--radius-sm);border:1px solid var(--border);margin:0">
+          <input type="checkbox" id="gw-config-enabled-chk" checked style="accent-color:var(--accent)">
+          <span style="font-weight:600">Aktifkan</span>
+        </label>
+      </div>
     </div>
 
     <!-- FORM UI VIEW (No coding, visual settings) -->
@@ -771,6 +808,15 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
           <label style="font-size:0.72rem;color:var(--text-muted);font-weight:600">Port Jembatan Bridge</label>
           <input type="number" id="gw-f-wa-port" class="search-input" value="3000" style="margin:0;font-size:0.75rem;padding:0.35rem 0.5rem">
         </div>
+      </div>
+
+      <!-- Platform-Specific Connection & Credentials Section -->
+      <div id="gw-form-conn-box" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.6rem;display:flex;flex-direction:column;gap:0.45rem">
+        <div style="font-size:0.75rem;font-weight:600;color:var(--accent-light);display:flex;align-items:center;justify-content:space-between">
+          <span>🔑 Kredensial &amp; Koneksi Platform (<span id="gw-form-conn-title">Telegram</span>)</span>
+          <span style="font-size:0.68rem;color:var(--text-dim);font-weight:normal">* Sesuai spesifikasi resmi Hermes</span>
+        </div>
+        <div id="gw-form-conn-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem"></div>
       </div>
 
       <!-- DM Policy & Allowlist -->
@@ -853,50 +899,17 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div id="gw-config-yaml-view" style="display:none;flex-direction:column;gap:0.4rem">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.2rem;flex-wrap:wrap;gap:0.4rem">
         <label style="font-size:0.75rem;color:var(--text-muted);font-weight:600">Editor YAML (<code>platforms.&lt;nama&gt;</code>)</label>
-        <select id="gw-template-picker" onchange="applyGwSelectedTemplate(this.value)" class="search-input" style="width:auto;margin:0;padding:0.2rem 0.5rem;font-size:0.72rem;background:rgba(255,255,255,0.06);color:var(--accent-light);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-sm);cursor:pointer">
-          <option value="">📋 Muat Template...</option>
-          <optgroup label="Populer">
-            <option value="telegram">Telegram Bot</option>
-            <option value="discord">Discord Bot</option>
-            <option value="webhook">HTTP Webhook</option>
-            <option value="whatsapp">WhatsApp Bridge</option>
-            <option value="slack">Slack Bot</option>
-            <option value="line">LINE Messaging</option>
-          </optgroup>
-          <optgroup label="Kolaborasi">
-            <option value="matrix">Matrix</option>
-            <option value="mattermost">Mattermost</option>
-            <option value="irc">IRC</option>
-          </optgroup>
-          <optgroup label="Enterprise">
-            <option value="teams">Microsoft Teams</option>
-            <option value="feishu">Feishu / Lark</option>
-            <option value="google_chat">Google Chat</option>
-            <option value="dingtalk">DingTalk</option>
-            <option value="wecom">WeCom</option>
-          </optgroup>
-          <optgroup label="Privasi">
-            <option value="signal">Signal</option>
-            <option value="simplex">SimpleX</option>
-          </optgroup>
-          <optgroup label="Otomasi &amp; Lainnya">
-            <option value="ntfy">ntfy.sh</option>
-            <option value="email">Email Gateway</option>
-            <option value="homeassistant">Home Assistant</option>
-            <option value="sms">SMS (Twilio)</option>
-            <option value="bluebubbles">BlueBubbles</option>
-          </optgroup>
-        </select>
       </div>
 
       <textarea id="gw-config-yaml" spellcheck="false" oninput="_yamlEditedByUser=true" style="width:100%;height:190px;max-height:30vh;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:var(--radius-sm);color:#e2e8f0;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;outline:none;box-sizing:border-box" placeholder="enabled: true..."></textarea>
-
-      <details id="gw-config-guide-details" open style="margin-top:0.4rem;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.4rem 0.6rem;font-size:0.71rem">
-        <summary id="gw-config-guide-title" style="cursor:pointer;color:var(--accent-light);font-weight:600;user-select:none">💡 Panduan Kunci &amp; Format Platform</summary>
-        <div id="gw-config-guide-content" style="margin-top:0.35rem;color:var(--text-muted);line-height:1.5;display:flex;flex-direction:column;gap:0.25rem">
-        </div>
-      </details>
     </div>
+
+    <!-- Dynamic syntax guide visible in both Form UI and YAML modes -->
+    <details id="gw-config-guide-details" open style="margin-top:0.4rem;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.4rem 0.6rem;font-size:0.71rem">
+      <summary id="gw-config-guide-title" style="cursor:pointer;color:var(--accent-light);font-weight:600;user-select:none">💡 Panduan Kunci &amp; Format Platform</summary>
+      <div id="gw-config-guide-content" style="margin-top:0.35rem;color:var(--text-muted);line-height:1.5;display:flex;flex-direction:column;gap:0.25rem">
+      </div>
+    </details>
 
     <div id="gw-config-error" style="display:none;color:var(--danger);font-size:0.75rem;margin-top:0.4rem;padding:0.35rem 0.5rem;background:var(--danger-dim);border-radius:var(--radius-sm);border:1px solid rgba(239,68,68,0.3)"></div>
 
@@ -1566,16 +1579,209 @@ function gwActivePlatform(){{
 var GW_FORM_KEYS_COMMON = ['dm_policy', 'allow_from', 'allow_admin_from', 'group_policy', 'group_allow_from', 'require_mention', 'reply_in_thread', 'notice_delivery'];
 var GW_FORM_KEYS_WA = ['mode', 'dm_policy', 'allow_from', 'allow_admin_from', 'group_policy', 'group_allow_from',
   'require_mention', 'reply_in_thread', 'send_read_receipts', 'notice_delivery', 'bridge_port'];
-var GW_FORM_LIST_KEYS = ['allow_from', 'allow_admin_from', 'group_allow_from'];
+var GW_FORM_LIST_KEYS = ['allow_from', 'allow_admin_from', 'group_allow_from', 'allowed_chats', 'allowed_channels', 'allowed_users', 'allowed_rooms', 'allowed_groups', 'watch_domains', 'watch_entities'];
 var gwFormInitial = {{}};
 var gwFormPresent = {{}};
 
-function gwFormFieldValues(){{
+var GW_PLATFORM_FIELDS = {{
+  telegram: [
+    {{ key: 'token', label: 'Bot Token (@BotFather)', type: 'password', placeholder: '123456:ABC-DEF... (kosongkan jika di .env)', hint: 'Token bot resmi dari @BotFather.' }},
+    {{ key: 'allowed_chats', label: 'Allowed Chats (Whitelist)', type: 'list', placeholder: '1992783463, ...', hint: 'ID user atau grup Telegram (pisahkan koma).' }},
+    {{ key: 'reply_to_mode', label: 'Mode Balasan Quote', type: 'select', options: [['first', 'first (Quote balasan chunk pertama)'], ['all', 'all (Quote tiap chunk)'], ['off', 'off (Kirim tanpa quote)']], default: 'first' }},
+    {{ key: 'reactions', label: 'Emoji Reaction', type: 'checkbox', hint: 'Izinkan bot memberi emoji reaction.', default: true }},
+    {{ key: 'typing_indicator', label: 'Indikator Typing', type: 'checkbox', hint: 'Tampilkan typing status saat berpikir.', default: true }},
+    {{ key: 'gateway_restart_notification', label: 'Notifikasi Restart', type: 'checkbox', hint: 'Kirim notifikasi ke chat utama saat restart.', default: true }}
+  ],
+  discord: [
+    {{ key: 'token', label: 'Bot Token Discord', type: 'password', placeholder: 'Discord Bot Token', hint: 'Bot token dari Discord Developer Portal.' }},
+    {{ key: 'allowed_channels', label: 'Allowed Channels', type: 'list', placeholder: '123456789, ...', hint: 'ID channel Discord yang diizinkan.' }},
+    {{ key: 'allowed_users', label: 'Allowed Users', type: 'list', placeholder: '987654321, ...', hint: 'ID user Discord yang diizinkan.' }},
+    {{ key: 'reply_to_mode', label: 'Mode Balasan', type: 'select', options: [['first', 'first'], ['all', 'all'], ['off', 'off']], default: 'first' }},
+    {{ key: 'slash_commands', label: 'Slash Commands', type: 'checkbox', hint: 'Daftarkan slash commands bot Discord.', default: true }}
+  ],
+  webhook: [
+    {{ key: 'host', label: 'Bind Host', type: 'text', placeholder: '127.0.0.1', default: '127.0.0.1', hint: '127.0.0.1 lokal atau 0.0.0.0 publik.' }},
+    {{ key: 'port', label: 'Listen Port', type: 'number', placeholder: '8644', default: 8644, hint: 'Port listener HTTP di server.' }},
+    {{ key: 'path', label: 'Endpoint Path', type: 'text', placeholder: '/webhook', default: '/webhook' }},
+    {{ key: 'secret', label: 'Secret Token (Bearer Auth)', type: 'password', placeholder: 'token-rahasia', hint: 'Otentikasi header Authorization: Bearer <secret>' }}
+  ],
+  whatsapp: [
+    {{ key: 'mode', label: 'Mode Operasi', type: 'select', options: [['bot', 'Bot Dedicated (Akun Bot Terpisah)'], ['self-chat', 'Self-Chat (Akun Pribadi/Catatan Sendiri)']], default: 'bot' }},
+    {{ key: 'bridge_port', label: 'Port Jembatan Bridge', type: 'number', placeholder: '3000', default: 3000, hint: 'Port server Baileys bridge di STB.' }}
+  ],
+  slack: [
+    {{ key: 'token', label: 'Bot User OAuth Token (token)', type: 'password', placeholder: 'xoxb-...', hint: 'OAuth token bot Slack.' }},
+    {{ key: 'app_token', label: 'App-Level Token (app_token)', type: 'password', placeholder: 'xapp-...', hint: 'Socket Mode connections:write token.' }},
+    {{ key: 'allowed_channels', label: 'Allowed Channels', type: 'list', placeholder: 'C12345678, ...', hint: 'ID channel Slack yang diizinkan.' }},
+    {{ key: 'reactions', label: 'Emoji Reaction', type: 'checkbox', hint: 'Beri emoji reaction di pesan.', default: true }}
+  ],
+  matrix: [
+    {{ key: 'homeserver', label: 'Homeserver URL', type: 'text', placeholder: 'https://matrix.org', default: 'https://matrix.org' }},
+    {{ key: 'user_id', label: 'Matrix User ID', type: 'text', placeholder: '@bot:matrix.org' }},
+    {{ key: 'access_token', label: 'Access Token', type: 'password', placeholder: 'syt_...' }},
+    {{ key: 'allowed_rooms', label: 'Allowed Rooms', type: 'list', placeholder: '!roomid:matrix.org' }},
+    {{ key: 'allowed_users', label: 'Allowed Users', type: 'list', placeholder: '@user:matrix.org' }}
+  ],
+  mattermost: [
+    {{ key: 'url', label: 'Server URL', type: 'text', placeholder: 'https://mattermost.example.com' }},
+    {{ key: 'token', label: 'Bot Access Token', type: 'password', placeholder: 'token' }},
+    {{ key: 'allowed_channels', label: 'Allowed Channels', type: 'list', placeholder: 'channel-id' }},
+    {{ key: 'reply_mode', label: 'Mode Balasan', type: 'select', options: [['off', 'off (Flat)'], ['thread', 'thread (Nested)']], default: 'off' }}
+  ],
+  signal: [
+    {{ key: 'phone_number', label: 'Nomor Signal (E.164)', type: 'text', placeholder: '+628...' }},
+    {{ key: 'http_host', label: 'Host API signal-cli', type: 'text', placeholder: '127.0.0.1', default: '127.0.0.1' }},
+    {{ key: 'http_port', label: 'Port API signal-cli', type: 'number', placeholder: '8080', default: 8080 }},
+    {{ key: 'allowed_users', label: 'Allowed Users', type: 'list', placeholder: '+628...' }}
+  ],
+  teams: [
+    {{ key: 'app_id', label: 'Microsoft App ID', type: 'text', placeholder: 'AZURE_BOT_APP_ID' }},
+    {{ key: 'app_password', label: 'App Password (Secret)', type: 'password', placeholder: 'Client Secret' }},
+    {{ key: 'tenant_id', label: 'Tenant ID (Opsional)', type: 'text', placeholder: 'AZURE_TENANT_ID' }},
+    {{ key: 'port', label: 'Webhook Listen Port', type: 'number', placeholder: '3978', default: 3978 }}
+  ],
+  feishu: [
+    {{ key: 'app_id', label: 'Feishu App ID', type: 'text', placeholder: 'cli_...' }},
+    {{ key: 'app_secret', label: 'Feishu App Secret', type: 'password', placeholder: 'app secret' }},
+    {{ key: 'domain', label: 'Domain Layanan', type: 'select', options: [['feishu', 'feishu (China)'], ['lark', 'lark (Internasional)']], default: 'feishu' }},
+    {{ key: 'allowed_users', label: 'Allowed Users', type: 'list', placeholder: 'ou_...' }}
+  ],
+  google_chat: [
+    {{ key: 'service_account_json', label: 'Service Account JSON Path', type: 'text', placeholder: 'credentials.json', default: 'credentials.json' }},
+    {{ key: 'project_id', label: 'GCP Project ID', type: 'text', placeholder: 'gcp-project-id' }},
+    {{ key: 'http_events_url', label: 'HTTP Events URL', type: 'text', placeholder: 'https://...' }}
+  ],
+  dingtalk: [
+    {{ key: 'client_id', label: 'Client ID (App Key)', type: 'text', placeholder: 'Client ID' }},
+    {{ key: 'client_secret', label: 'Client Secret (App Secret)', type: 'password', placeholder: 'Client Secret' }},
+    {{ key: 'robot_code', label: 'Robot Code (Opsional)', type: 'text', placeholder: 'Robot Code' }},
+    {{ key: 'allowed_users', label: 'Allowed Users', type: 'list', placeholder: 'staff_id' }}
+  ],
+  wecom: [
+    {{ key: 'corp_id', label: 'WeCom Corp ID', type: 'text', placeholder: 'YOUR_CORP_ID' }},
+    {{ key: 'corp_secret', label: 'Application Secret', type: 'password', placeholder: 'YOUR_CORP_SECRET' }},
+    {{ key: 'allow_from', label: 'Allowed Members', type: 'list', placeholder: 'user_id' }},
+    {{ key: 'group_allow_from', label: 'Allowed Groups', type: 'list', placeholder: 'group_id' }}
+  ],
+  line: [
+    {{ key: 'channel_secret', label: 'Channel Secret', type: 'password', placeholder: 'Channel Secret' }},
+    {{ key: 'channel_access_token', label: 'Channel Access Token', type: 'password', placeholder: 'Access Token' }},
+    {{ key: 'port', label: 'Webhook Port', type: 'number', placeholder: '8646', default: 8646 }},
+    {{ key: 'allowed_users', label: 'Allowed Users', type: 'list', placeholder: 'U1234...' }},
+    {{ key: 'allowed_groups', label: 'Allowed Groups', type: 'list', placeholder: 'C1234...' }}
+  ],
+  ntfy: [
+    {{ key: 'server', label: 'Server URL', type: 'text', placeholder: 'https://ntfy.sh', default: 'https://ntfy.sh' }},
+    {{ key: 'topic', label: 'Topic Notifikasi', type: 'text', placeholder: 'hermes-alerts', default: 'hermes-alerts' }},
+    {{ key: 'token', label: 'Bearer Token (Opsional)', type: 'password', placeholder: 'Token' }},
+    {{ key: 'publish_topic', label: 'Publish Topic (Opsional)', type: 'text', placeholder: 'Topic balasan' }},
+    {{ key: 'markdown', label: 'Format Markdown', type: 'checkbox', hint: 'Kirim header X-Markdown: true', default: false }}
+  ],
+  email: [
+    {{ key: 'address', label: 'Alamat Email Bot', type: 'text', placeholder: 'bot@example.com' }},
+    {{ key: 'password', label: 'Password / App Password', type: 'password', placeholder: 'App Password' }},
+    {{ key: 'smtp_host', label: 'SMTP Host', type: 'text', placeholder: 'smtp.gmail.com', default: 'smtp.gmail.com' }},
+    {{ key: 'smtp_port', label: 'SMTP Port', type: 'number', placeholder: '587', default: 587 }},
+    {{ key: 'imap_host', label: 'IMAP Host', type: 'text', placeholder: 'imap.gmail.com', default: 'imap.gmail.com' }},
+    {{ key: 'imap_port', label: 'IMAP Port', type: 'number', placeholder: '993', default: 993 }}
+  ],
+  homeassistant: [
+    {{ key: 'url', label: 'Home Assistant URL', type: 'text', placeholder: 'http://homeassistant.local:8123', default: 'http://homeassistant.local:8123' }},
+    {{ key: 'token', label: 'Long-Lived Access Token', type: 'password', placeholder: 'Access Token' }},
+    {{ key: 'cooldown_seconds', label: 'Cooldown (Detik)', type: 'number', placeholder: '3', default: 3 }}
+  ],
+  simplex: [
+    {{ key: 'ws_url', label: 'SimpleX WebSocket URL', type: 'text', placeholder: 'ws://127.0.0.1:5225', default: 'ws://127.0.0.1:5225' }},
+    {{ key: 'auto_accept', label: 'Terima Kontak Otomatis', type: 'checkbox', hint: 'Otomatis terima permintaan kontak baru.', default: true }}
+  ],
+  sms: [
+    {{ key: 'account_sid', label: 'Twilio Account SID', type: 'text', placeholder: 'AC_...' }},
+    {{ key: 'auth_token', label: 'Twilio Auth Token', type: 'password', placeholder: 'Auth Token' }},
+    {{ key: 'phone_number', label: 'Nomor Pengirim Twilio', type: 'text', placeholder: '+1...' }},
+    {{ key: 'allowed_users', label: 'Allowed Users', type: 'list', placeholder: '+628...' }}
+  ],
+  irc: [
+    {{ key: 'server', label: 'Server IRC', type: 'text', placeholder: 'irc.libera.chat', default: 'irc.libera.chat' }},
+    {{ key: 'port', label: 'Port IRC', type: 'number', placeholder: '6697', default: 6697 }},
+    {{ key: 'nickname', label: 'Nickname Bot', type: 'text', placeholder: 'hermes_bot', default: 'hermes_bot' }},
+    {{ key: 'channel', label: 'Channel Utama', type: 'text', placeholder: '#hermes', default: '#hermes' }},
+    {{ key: 'use_tls', label: 'Gunakan SSL/TLS', type: 'checkbox', hint: 'Koneksi aman ke server IRC.', default: true }}
+  ],
+  bluebubbles: [
+    {{ key: 'server_url', label: 'Server URL BlueBubbles', type: 'text', placeholder: 'http://127.0.0.1:1234', default: 'http://127.0.0.1:1234' }},
+    {{ key: 'password', label: 'Password Akses API', type: 'password', placeholder: 'Password' }}
+  ]
+}};
+
+function escGw(s){{
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}}
+
+function renderGwPlatformFields(plat, vals){{
+  var container = document.getElementById('gw-form-conn-fields');
+  var section = document.getElementById('gw-form-conn-box');
+  var titleEl = document.getElementById('gw-form-conn-title');
+  if(!container) return;
+  if(titleEl) titleEl.textContent = GW_PLATFORM_NAMES[plat] || (plat ? plat.toUpperCase() : 'Platform');
+
+  if(plat === 'whatsapp'){{
+    if(section) section.style.display = 'none';
+    return;
+  }}
+  if(section) section.style.display = 'flex';
+
+  var fields = GW_PLATFORM_FIELDS[plat] || [];
+  if(!fields.length){{
+    container.innerHTML = '<div style="grid-column:1/-1;font-size:0.72rem;color:var(--text-muted);font-style:italic">Gunakan tab Raw YAML untuk konfigurasi kustom platform ini.</div>';
+    return;
+  }}
+
+  var html = '';
+  fields.forEach(function(f){{
+    var elId = 'gw-f-plat-' + f.key;
+    var rawVal = (vals && vals[f.key] !== undefined) ? vals[f.key] : (f.default !== undefined ? f.default : '');
+    var valStr = Array.isArray(rawVal) ? rawVal.join(', ') : (rawVal === null ? '' : String(rawVal));
+    var isChk = (f.type === 'checkbox');
+    var isChecked = isChk ? (rawVal === true || rawVal === 'true') : false;
+
+    if(isChk){{
+      html += '<label style="font-size:0.72rem;display:inline-flex;align-items:center;gap:0.4rem;cursor:pointer;padding-top:0.4rem">' +
+        '<input type="checkbox" id="' + elId + '" style="accent-color:var(--accent)"' + (isChecked ? ' checked' : '') + '>' +
+        '<span>' + escGw(f.label) + '</span>' +
+        '</label>';
+    }} else if(f.type === 'select'){{
+      html += '<div style="display:flex;flex-direction:column;gap:3px">' +
+        '<label style="font-size:0.7rem;color:var(--text-dim);font-weight:600">' + escGw(f.label) + '</label>' +
+        '<select id="' + elId + '" class="search-input" style="margin:0;font-size:0.75rem;padding:0.3rem 0.5rem">';
+      (f.options || []).forEach(function(opt){{
+        var optVal = opt[0];
+        var optLabel = opt[1];
+        var sel = (valStr === optVal) ? ' selected' : '';
+        html += '<option value="' + escGw(optVal) + '"' + sel + '>' + escGw(optLabel) + '</option>';
+      }});
+      html += '</select></div>';
+    }} else {{
+      var inType = (f.type === 'password') ? 'password' : (f.type === 'number' ? 'number' : 'text');
+      var ph = f.placeholder ? ' placeholder="' + escGw(f.placeholder) + '"' : '';
+      html += '<div style="display:flex;flex-direction:column;gap:3px">' +
+        '<label style="font-size:0.7rem;color:var(--text-dim);font-weight:600">' + escGw(f.label) + ' (<code>' + escGw(f.key) + '</code>)</label>' +
+        '<input type="' + inType + '" id="' + elId + '" class="search-input" value="' + escGw(valStr) + '"' + ph + ' style="margin:0;font-size:0.75rem;padding:0.35rem 0.5rem">';
+      if(f.hint){{
+        html += '<div style="font-size:0.68rem;color:var(--text-dim)">' + escGw(f.hint) + '</div>';
+      }}
+      html += '</div>';
+    }}
+  }});
+  container.innerHTML = html;
+}}
+
+function gwFormFieldValues(platform){{
+  var plat = platform || currentGwPlatform || gwActivePlatform();
   function val(id){{ var e = document.getElementById(id); return e ? String(e.value || '').trim() : ''; }}
   function chk(id){{ var e = document.getElementById(id); return !!(e && e.checked); }}
   function list(id){{ return val(id).split(',').map(function(s){{ return s.trim(); }}).filter(Boolean); }}
   var port = parseInt(val('gw-f-wa-port'), 10);
-  return {{
+  var res = {{
     mode: val('gw-f-wa-mode'),
     dm_policy: val('gw-f-dm-policy'),
     allow_from: list('gw-f-allow-from'),
@@ -1588,11 +1794,30 @@ function gwFormFieldValues(){{
     notice_delivery: val('gw-f-notice-del'),
     bridge_port: isNaN(port) ? 3000 : port
   }};
+
+  var fields = GW_PLATFORM_FIELDS[plat] || [];
+  fields.forEach(function(f){{
+    var elId = 'gw-f-plat-' + f.key;
+    var el = document.getElementById(elId);
+    if(!el) return;
+    if(f.type === 'checkbox'){{
+      res[f.key] = el.checked;
+    }} else if(f.type === 'number'){{
+      var n = parseInt(el.value, 10);
+      res[f.key] = isNaN(n) ? (f.default !== undefined ? f.default : 0) : n;
+    }} else if(f.type === 'list'){{
+      res[f.key] = String(el.value || '').split(',').map(function(s){{ return s.trim(); }}).filter(Boolean);
+    }} else {{
+      res[f.key] = String(el.value || '').trim();
+    }}
+  }});
+  return res;
 }}
 
 function gwUnquote(s){{ return String(s).trim().replace(/^['"]|['"]$/g, ''); }}
 
 function populateGwFormFromYaml(yamlText, platform){{
+  var plat = platform || currentGwPlatform || gwActivePlatform();
   var d = {{
     enabled: true,
     mode: 'bot',
@@ -1650,9 +1875,9 @@ function populateGwFormFromYaml(yamlText, platform){{
     }}
     if(k === 'enabled') d.enabled = gwParseBool(v);
     else if(k === 'bridge_port'){{ d.bridge_port = parseInt(v, 10) || 3000; present.bridge_port = true; }}
-    else if(d.hasOwnProperty(k)){{
+    else {{
       present[k] = true;
-      d[k] = (typeof d[k] === 'boolean') ? gwParseBool(v) : (v === 'null' || v === '~' ? '' : v);
+      d[k] = (v === 'true' || v === 'false') ? gwParseBool(v) : (v === 'null' || v === '~' ? '' : v);
     }}
   }}
 
@@ -1663,55 +1888,92 @@ function populateGwFormFromYaml(yamlText, platform){{
   var selDm = document.getElementById('gw-f-dm-policy');
   if(selDm) selDm.value = d.dm_policy;
   var inpAllow = document.getElementById('gw-f-allow-from');
-  if(inpAllow) inpAllow.value = d.allow_from.join(', ');
+  if(inpAllow) inpAllow.value = (d.allow_from || []).join(', ');
   var inpAdmin = document.getElementById('gw-f-allow-admin');
-  if(inpAdmin) inpAdmin.value = d.allow_admin_from.join(', ');
+  if(inpAdmin) inpAdmin.value = (d.allow_admin_from || []).join(', ');
   var selGp = document.getElementById('gw-f-group-policy');
   if(selGp) selGp.value = d.group_policy;
   var inpGAllow = document.getElementById('gw-f-group-allow');
-  if(inpGAllow) inpGAllow.value = d.group_allow_from.join(', ');
+  if(inpGAllow) inpGAllow.value = (d.group_allow_from || []).join(', ');
   var chkReq = document.getElementById('gw-f-req-mention');
-  if(chkReq) chkReq.checked = d.require_mention;
+  if(chkReq) chkReq.checked = !!d.require_mention;
   var chkTh = document.getElementById('gw-f-reply-thread');
-  if(chkTh) chkTh.checked = d.reply_in_thread;
+  if(chkTh) chkTh.checked = !!d.reply_in_thread;
   var chkRr = document.getElementById('gw-f-read-receipts');
-  if(chkRr) chkRr.checked = d.send_read_receipts;
+  if(chkRr) chkRr.checked = !!d.send_read_receipts;
   var selNot = document.getElementById('gw-f-notice-del');
   if(selNot) selNot.value = (d.notice_delivery === 'public' || d.notice_delivery === 'private') ? d.notice_delivery : '';
   var inpPort = document.getElementById('gw-f-wa-port');
   if(inpPort) inpPort.value = d.bridge_port || 3000;
 
-  gwFormPresent = present;
-  gwFormInitial = gwFormFieldValues();
-
   var waBanner = document.getElementById('gw-form-wa-banner');
   var waFields = document.getElementById('gw-form-wa-fields');
-  var isWa = (platform === 'whatsapp');
+  var isWa = (plat === 'whatsapp');
   if(waBanner) waBanner.style.display = isWa ? 'flex' : 'none';
   if(waFields) waFields.style.display = isWa ? 'grid' : 'none';
+
+  renderGwPlatformFields(plat, d);
+
+  gwFormPresent = present;
+  gwFormInitial = gwFormFieldValues(plat);
 }}
 
 function serializeGwFormToYaml(platform){{
+  var plat = platform || currentGwPlatform || gwActivePlatform();
   var lines = [];
   var chkEnabled = document.getElementById('gw-config-enabled-chk');
   var enabled = chkEnabled ? chkEnabled.checked : true;
   lines.push('enabled: ' + (enabled ? 'true' : 'false'));
 
-  var cur = gwFormFieldValues();
-  var keys = (platform === 'whatsapp') ? GW_FORM_KEYS_WA : GW_FORM_KEYS_COMMON;
-  keys.forEach(function(k){{
+  var cur = gwFormFieldValues(plat);
+  var fields = GW_PLATFORM_FIELDS[plat] || [];
+
+  fields.forEach(function(f){{
+    var k = f.key;
+    if(plat === 'whatsapp' && (k === 'mode' || k === 'bridge_port')) return;
+    var v = cur[k];
+    if(v === undefined) return;
+    var changed = JSON.stringify(v) !== JSON.stringify(gwFormInitial[k]);
+    if(!gwFormPresent[k] && !changed) return;
+    if(Array.isArray(v)){{
+      if(!v.length){{ lines.push(k + ': []'); return; }}
+      lines.push(k + ':');
+      v.forEach(function(it){{ lines.push('  - ' + (it.indexOf("'") >= 0 ? '"' + it + '"' : "'" + it + "'")); }});
+    }} else if(v === '' || v === null){{
+      lines.push(k + ': null');
+    }} else if(typeof v === 'boolean'){{
+      lines.push(k + ': ' + (v ? 'true' : 'false'));
+    }} else if(typeof v === 'number'){{
+      lines.push(k + ': ' + v);
+    }} else {{
+      lines.push(k + ': ' + (String(v).indexOf("'") >= 0 ? '"' + v + '"' : "'" + v + "'"));
+    }}
+  }});
+
+  if(plat === 'whatsapp'){{
+    var bp = cur.bridge_port;
+    var bpChanged = bp !== gwFormInitial.bridge_port;
+    if(gwFormPresent.bridge_port || bpChanged){{
+      lines.push('extra:');
+      lines.push('  bridge_port: ' + bp);
+    }}
+    var wm = cur.mode;
+    var wmChanged = wm !== gwFormInitial.mode;
+    if(gwFormPresent.mode || wmChanged){{
+      lines.push('mode: ' + wm);
+    }}
+  }}
+
+  GW_FORM_KEYS_COMMON.forEach(function(k){{
     var v = cur[k];
     var changed = JSON.stringify(v) !== JSON.stringify(gwFormInitial[k]);
     if(!gwFormPresent[k] && !changed) return;
-    if(k === 'bridge_port'){{
-      lines.push('extra:');
-      lines.push('  bridge_port: ' + v);
-    }} else if(Array.isArray(v)){{
+    if(Array.isArray(v)){{
       if(!v.length){{ lines.push(k + ': []'); return; }}
       lines.push(k + ':');
       v.forEach(function(it){{ lines.push('  - ' + (it.indexOf("'") >= 0 ? '"' + it + '"' : "'" + it + "'")); }});
     }} else if(v === ''){{
-      lines.push(k + ': null');  // "default Hermes" choice: remove the key
+      lines.push(k + ': null');
     }} else if(typeof v === 'boolean'){{
       lines.push(k + ': ' + (v ? 'true' : 'false'));
     }} else {{
@@ -2153,14 +2415,28 @@ function applyGwSelectedTemplate(key){{
   if(!key || !GW_TEMPLATES[key]) return;
   var yamlEl = document.getElementById('gw-config-yaml');
   if(!yamlEl) return;
-  if(yamlEl.value.trim() && !confirm('Muat template contoh? Teks konfigurasi saat ini akan diganti dengan template pilihan.')){{
+  var prevTpl = GW_TEMPLATES[currentGwPlatform] || '';
+  var isDirty = _yamlEditedByUser && yamlEl.value.trim() && yamlEl.value.trim() !== prevTpl.trim();
+  if(isDirty && !confirm('Muat template contoh? Teks konfigurasi saat ini akan diganti dengan template pilihan.')){{
     var tp = document.getElementById('gw-template-picker'); if(tp) tp.value = '';
     return;
   }}
+  var plat = key;
+  if(isNewGwPlatform){{
+    var inputEl = document.getElementById('gw-platform-input');
+    var selectEl = document.getElementById('gw-platform-catalog-select');
+    var titleEl = document.getElementById('gw-config-title');
+    currentGwPlatform = plat;
+    if(inputEl) inputEl.value = plat;
+    if(selectEl) selectEl.value = plat;
+    var name = GW_PLATFORM_NAMES[plat] || plat.toUpperCase();
+    if(titleEl) titleEl.textContent = 'Tambah Gateway: ' + name;
+  }}
   yamlEl.value = GW_TEMPLATES[key];
-  _yamlEditedByUser = true;
+  _yamlEditedByUser = false;
+  updateGwGuide(plat);
+  populateGwFormFromYaml(GW_TEMPLATES[key], plat);
   var tp = document.getElementById('gw-template-picker'); if(tp) tp.value = '';
-  updateGwGuide(key);
 }}
 
 function selectCatalogPlatform(plat){{

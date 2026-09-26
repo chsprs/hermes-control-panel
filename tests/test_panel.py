@@ -1292,6 +1292,40 @@ process.stdout.write(serializeGwFormToYaml('discord'));
                              "/var/lib/casaos/apps/9router/docker-compose.yml")
             self.assertEqual(panel.router_compose_dir(), "/var/lib/casaos/apps/9router")
 
+    def test_61_gateway_form_ui_templates_and_field_sync(self):
+        """Universal gateway templates and connection fields are rendered in Form UI
+        and correctly synchronize with Hermes platform configs."""
+        # 1. Template picker is in the universal toolbar visible in both Form UI and YAML
+        self.assertIn('id="gw-template-picker"', panel.PAGE)
+        self.assertIn('id="gw-form-conn-box"', panel.PAGE)
+        self.assertIn('id="gw-form-conn-fields"', panel.PAGE)
+
+        # 2. Universal platform fields defined for all 21 gateway platforms
+        for p in ("telegram", "discord", "webhook", "whatsapp", "slack", "matrix",
+                  "mattermost", "signal", "teams", "feishu", "google_chat", "dingtalk",
+                  "wecom", "line", "ntfy", "email", "homeassistant", "simplex", "sms",
+                  "irc", "bluebubbles"):
+            self.assertIn(f"{p}:", panel.PAGE)
+
+        # 3. Form serialization of platform-specific credentials (e.g. Telegram token & chats)
+        js_code = _gw_form_js() + """
+        els['gw-f-plat-token'] = { value: '' };
+        els['gw-f-plat-allowed_chats'] = { value: '' };
+        var sampleYaml = ['enabled: true', 'token: old-token'].join(String.fromCharCode(10));
+        populateGwFormFromYaml(sampleYaml, 'telegram');
+        els['gw-f-plat-token'].value = '999999:TEST_BOT_TOKEN';
+        els['gw-f-plat-allowed_chats'].value = '1992783463, 12345678';
+        process.stdout.write(serializeGwFormToYaml('telegram'));
+        """
+        res = subprocess.run(["node", "-e", _FAKE_DOM_JS + js_code],
+                             capture_output=True, text=True, check=True)
+        out = res.stdout
+        self.assertIn("enabled: true", out)
+        self.assertIn("token: '999999:TEST_BOT_TOKEN'", out)
+        self.assertIn("allowed_chats:", out)
+        self.assertIn("  - '1992783463'", out)
+        self.assertIn("  - '12345678'", out)
+
 
 if __name__ == "__main__":
     unittest.main()
