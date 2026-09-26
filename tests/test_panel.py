@@ -937,6 +937,29 @@ process.stdout.write(serializeGwFormToYaml('discord'));
         for k in panel.SSE_CLIENT_KEYS:
             self.assertIn(k, frag, f"Key '{k}' in SSE_CLIENT_KEYS must be returned by build_fragments()")
 
+    def test_50_rendered_js_syntax(self):
+        """All <script> blocks in build_status_page() must be valid JavaScript (no SyntaxError)."""
+        html = panel.build_status_page()
+        import re, subprocess, shutil
+        node_bin = shutil.which("node")
+        if not node_bin:
+            self.skipTest("node not installed")
+        scripts = re.findall(r'<script>(.*?)</script>', html, re.S)
+        self.assertGreater(len(scripts), 0, "status page must have at least one script block")
+        import tempfile
+        for i, s in enumerate(scripts):
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as tf:
+                tf.write(s)
+                tmp_name = tf.name
+            try:
+                res = subprocess.run([node_bin, "--check", tmp_name], capture_output=True, text=True)
+                self.assertEqual(res.returncode, 0, f"Script block {i} has JS SyntaxError:\n{res.stderr}")
+            finally:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+
 
 if __name__ == "__main__":
     unittest.main()

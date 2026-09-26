@@ -1293,7 +1293,7 @@ function renderFallbackPickerItems(q){{
         for(var i = 0; i < matched.length; i++){{
           var mId = matched[i];
           var safeId = escGw(mId);
-          var jsId = mId.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+          var jsId = mId.replace(/\\\\/g, '\\\\\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
           var isFree = mId.toLowerCase().indexOf('free') !== -1;
           var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
           out += '<a class="aux-model-opt" href="javascript:void(0)" onclick="selectFallbackModel(\\'custom:9router\\', \\'' + jsId + '\\')">' +
@@ -1372,7 +1372,7 @@ function renderAuxPickerItems(q){{
         for(var i = 0; i < matched.length; i++){{
           var mId = matched[i];
           var safeId = escGw(mId);
-          var jsId = mId.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+          var jsId = mId.replace(/\\\\/g, '\\\\\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
           var isFree = mId.toLowerCase().indexOf('free') !== -1;
           var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
           out += '<a class="aux-model-opt" href="javascript:void(0)" onclick="selectAuxModel(\\'custom:9router\\', \\'' + jsId + '\\')">' +
