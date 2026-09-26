@@ -571,6 +571,52 @@ class TestHermesControlPanel(unittest.TestCase):
             save.assert_not_called()
             restart.assert_not_called()
 
+    def test_41_regressions_tick_http(self):
+        """Regression tests for token strip on logged in GET and CSRF IPv6/port enforcement."""
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        # 1. GET /status?token=... redirects to strip token even when valid session cookie exists
+        code, headers, _ = self._request(f"/status?token={panel.TOKEN}", method="GET", headers={"Cookie": cookie})
+        self.assertEqual(code, 302)
+        self.assertEqual(headers.get("Location"), "/status")
+
+        # 2. CSRF checks: cross-port on same IP and IPv6 origin
+        # Same host IP but different port should be rejected (403)
+        code, _, _ = self._request(
+            "/restart-bot",
+            method="POST",
+            headers={
+                "Cookie": cookie,
+                "Host": "192.168.1.100:9120",
+                "Origin": "http://192.168.1.100:8080"
+            }
+        )
+        self.assertEqual(code, 403)
+
+        # IPv6 mismatch should be rejected
+        code, _, _ = self._request(
+            "/restart-bot",
+            method="POST",
+            headers={
+                "Cookie": cookie,
+                "Host": "[::1]:9120",
+                "Origin": "http://[::2]:9120"
+            }
+        )
+        self.assertEqual(code, 403)
+
+        # Valid Origin with matching host:port should succeed
+        with mock.patch.object(panel, "restart_bot"):
+            code, _, _ = self._request(
+                "/restart-bot",
+                method="POST",
+                headers={
+                    "Cookie": cookie,
+                    "Host": "192.168.1.100:9120",
+                    "Origin": "http://192.168.1.100:9120"
+                }
+            )
+            self.assertEqual(code, 302)
+
 
 class TestGatewayConfigSync(unittest.TestCase):
     """Panel edits must land where Hermes' gateway loader actually reads them.
@@ -959,6 +1005,112 @@ process.stdout.write(serializeGwFormToYaml('discord'));
                     os.unlink(tmp_name)
                 except OSError:
                     pass
+
+    def test_54_regressions_post_afbc3a5(self):
+        """Regression tests for post-afbc3a5 audit fixes."""
+        # 1. Root key protection
+        fake_cfg = {
+            "cron": {"jobs": [1, 2]},
+            "skills": {"guard": True},
+            "telegram": {"enabled": True},
+            "platforms": {"telegram": {"enabled": True}}
+        }
+        panel._set_platform_block(fake_cfg, "telegram", {"enabled": True})
+        self.assertNotIn("telegram", fake_cfg, "legacy telegram root block should be cleared")
+        self.assertIn("cron", fake_cfg, "cron root block must never be touched")
+        self.assertIn("skills", fake_cfg, "skills root block must never be touched")
+
+        # 2. Model pickers use data attributes
+        self.assertIn('data-provider="custom:9router"', panel.PAGE)
+        self.assertIn('data-model="\' + safeId + \'"', panel.PAGE)
+
+        # 3. WA modal does not auto startWaPair
+        self.assertNotIn('startWaPair(true);', panel.PAGE[panel.PAGE.index('function openWaPairModal'):panel.PAGE.index('function closeWaPairModal')])
+
+        # 4. GW_FORM_KEYS_COMMON includes admin, group_allow, notice_delivery
+        self.assertIn("'allow_admin_from'", panel.PAGE)
+        self.assertIn("'group_allow_from'", panel.PAGE)
+        self.assertIn("'notice_delivery'", panel.PAGE)
+
+        # 5. Base badge CSS exists
+        self.assertIn(".badge{{display:inline-block;", panel.PAGE)
+
+    def test_55_regressions_audit_cycle(self):
+        """Regression tests for audit cycle: XSS, log restore, bool parsing, root keys."""
+        # 1. active_tab XSS sanitization
+        rendered = panel.build_status_page(active_tab='";alert(1);//')
+        self.assertNotIn('activeTabFromUrl = "";alert(1);//"', rendered)
+        self.assertIn('activeTabFromUrl = "";', rendered)
+
+        # 2. Buka Dasbor Hermes fallback has target="_blank"
+        fallback_link = panel.get_open_block_active()
+        self.assertIn('target="_blank"', fallback_link)
+
+        # 3. syncLogUI caches gateway and clean log cards before removal
+        sync_fn = panel.PAGE[panel.PAGE.index("function syncLogUI"):panel.PAGE.index("if(document.getElementById('router-log-card'))")]
+        self.assertIn("window._lastGatewayLogCard = gc.outerHTML;", sync_fn)
+        self.assertIn("window._lastCleanJunkCard = cc.outerHTML;", sync_fn)
+
+        # 4. LEGACY_GATEWAY_ROOT_KEYS contains all supported platforms
+        self.assertIn("teams", panel.LEGACY_GATEWAY_ROOT_KEYS)
+        self.assertIn("google_chat", panel.LEGACY_GATEWAY_ROOT_KEYS)
+        self.assertIn("wecom", panel.LEGACY_GATEWAY_ROOT_KEYS)
+
+        # 5. Boolean coercion helper handles string booleans properly
+        self.assertFalse(panel._to_bool("false"))
+        self.assertFalse(panel._to_bool("0"))
+        self.assertTrue(panel._to_bool("true"))
+        self.assertTrue(panel._to_bool("1"))
+        self.assertTrue(panel._to_bool(True))
+        self.assertFalse(panel._to_bool(False))
+
+    def test_56_regressions_tick_audit(self):
+        """Regression tests for token redaction, root keys, and boolean parsing."""
+        # 1. Token redaction includes Gemini keys and GitHub tokens
+        gemini_text = "error with key AIzaSyD9876543210abcdefghijklmnopqrs"
+        redacted = panel.redact_sensitive_tokens(gemini_text)
+        self.assertNotIn("AIzaSyD9876543210", redacted)
+        self.assertIn("[REDACTED_KEY]", redacted)
+
+        github_text = "fatal: auth failed with token ghp_1234567890abcdefghijklmnopqrstuvwxyz"
+        redacted_gh = panel.redact_sensitive_tokens(github_text)
+        self.assertNotIn("1234567890abcdef", redacted_gh)
+        self.assertIn("[REDACTED_TOKEN]", redacted_gh)
+
+        # 2. LEGACY_GATEWAY_ROOT_KEYS includes additional platforms
+        for p in ("weixin", "yuanbao", "qqbot", "whatsapp_cloud"):
+            self.assertIn(p, panel.LEGACY_GATEWAY_ROOT_KEYS)
+
+        # 3. Open policy guard checks nested extra dict
+        cfg = {"platforms": {"whatsapp": {"enabled": True, "extra": {"dm_policy": "open"}}}}
+        violation = panel._open_policy_violation(cfg, "whatsapp", cfg["platforms"]["whatsapp"])
+        self.assertIn("Kebijakan 'open' pada whatsapp ditolak", violation)
+
+    def test_57_router_update_uses_real_compose_file(self):
+        """9router update must resolve the real compose file (CasaOS path) and
+        force-recreate the container, else `docker start` keeps the OLD image
+        while the panel reports a successful update."""
+        import os as _os
+        with mock.patch.object(panel, "router_compose_file",
+                               return_value="/var/lib/casaos/apps/9router/docker-compose.yml"):
+            cmd = panel._router_update_command()
+            self.assertIn("/var/lib/casaos/apps/9router/docker-compose.yml", cmd)
+            self.assertIn("--force-recreate", cmd)
+            self.assertIn("for f in", cmd, "compose file must be resolved on the target host")
+            self.assertNotIn("tput", cmd)
+
+        # No compose file anywhere -> still produce a working command (pull + start)
+        with mock.patch.object(panel, "router_compose_file", return_value=""):
+            cmd = panel._router_update_command()
+            self.assertIn("docker pull", cmd)
+            self.assertIn("docker start", cmd)
+
+        # resolver picks the first existing candidate
+        with mock.patch.object(panel.os.path, "isfile",
+                               side_effect=lambda p: p == "/var/lib/casaos/apps/9router/docker-compose.yml"):
+            self.assertEqual(panel.router_compose_file(),
+                             "/var/lib/casaos/apps/9router/docker-compose.yml")
+            self.assertEqual(panel.router_compose_dir(), "/var/lib/casaos/apps/9router")
 
 
 if __name__ == "__main__":

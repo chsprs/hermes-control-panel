@@ -97,6 +97,33 @@ ROUTER_DB_PATH = "/DATA/AppData/9router/db/data.sqlite"  # host-side path of
 # it directly avoids a docker exec round-trip.
 ROUTER_IMAGE = "decolua/9router:latest"
 ROUTER_COMPOSE_DIR = "/opt/AppData/9router"
+# CasaOS keeps the real compose file under /var/lib/casaos/apps/<app>/ while
+# /opt/AppData/9router only holds the panel's update.log/update-check.json.
+# Hardcoding either path makes `docker compose -f <missing>` fail, the
+# fallback `docker start` reuses the OLD image, and the panel reports a
+# successful update that never took effect. Resolve the real file instead.
+ROUTER_COMPOSE_CANDIDATES = [
+    os.environ.get("ROUTER_COMPOSE_FILE", ""),
+    "/var/lib/casaos/apps/9router/docker-compose.yml",
+    "/opt/AppData/9router/docker-compose.yml",
+    "/DATA/AppData/9router/docker-compose.yml",
+]
+
+
+def router_compose_file() -> str:
+    """Path of the compose file that actually exists ('' when none do)."""
+    for cand in ROUTER_COMPOSE_CANDIDATES:
+        if cand and os.path.isfile(cand):
+            return cand
+    return ""
+
+
+def router_compose_dir() -> str:
+    """Directory holding the real compose file, else the log dir."""
+    path = router_compose_file()
+    return os.path.dirname(path) if path else ROUTER_COMPOSE_DIR
+
+
 ROUTER_REMOTE_COMPOSE_DIR = os.environ.get("ROUTER_REMOTE_COMPOSE_DIR", "/opt/AppData/9router")
 ROUTER_SSH_USER = os.environ.get("ROUTER_SSH_USER", "root")
 ROUTER_SSH_KEY = os.environ.get("ROUTER_SSH_KEY", "/root/.ssh/hermes_9router_ed25519")
@@ -451,6 +478,7 @@ a.model-chip:active{{transform:scale(.98)}}
 }}
 @media (max-width:480px){{
   .models-grid{{grid-template-columns:1fr;}}
+  #gw-config-form-view div[style*="grid-template-columns"]{{grid-template-columns:1fr !important;}}
 }}
 
 /* Utilities & Modals */
@@ -537,6 +565,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .task-table tr:hover td{{background:rgba(255,255,255,0.03)}}
 .task-table tr:last-child td{{border-bottom:none}}
 .task-name-cell{{display:flex;align-items:center;gap:.45rem;font-weight:500}}
+.badge{{display:inline-block;padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600;background:rgba(255,255,255,0.05);color:var(--text-dim);border:1px solid rgba(255,255,255,0.08)}}
 .badge-up{{background:var(--success-dim);color:var(--success);border:1px solid rgba(16,185,129,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
 .badge-down{{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(239,68,68,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
 .badge-warn{{background:var(--warning-dim);color:var(--warning);border:1px solid rgba(245,158,11,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
@@ -764,6 +793,8 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
               <option value="">default Hermes</option>
               <option value="public">public (Tampilkan di obrolan)</option>
               <option value="private">private (Kirim khusus ke admin)</option>
+              <option value="dm">dm (Kirim lewat DM)</option>
+              <option value="none">none / off (Jangan kirim)</option>
             </select>
           </div>
         </div>
@@ -1293,10 +1324,9 @@ function renderFallbackPickerItems(q){{
         for(var i = 0; i < matched.length; i++){{
           var mId = matched[i];
           var safeId = escGw(mId);
-          var jsId = mId.replace(/\\\\/g, '\\\\\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
           var isFree = mId.toLowerCase().indexOf('free') !== -1;
           var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
-          out += '<a class="aux-model-opt" href="javascript:void(0)" onclick="selectFallbackModel(\\'custom:9router\\', \\'' + jsId + '\\')">' +
+          out += '<a class="aux-model-opt" href="javascript:void(0)" data-provider="custom:9router" data-model="' + safeId + '" onclick="selectFallbackModel(this.getAttribute(\\'data-provider\\'), this.getAttribute(\\'data-model\\'))">' +
                    '<div style="min-width:0;flex:1">' +
                      '<div class="aux-model-opt-name" style="overflow:hidden;text-overflow:ellipsis">' + safeId + '</div>' +
                      '<div class="aux-model-opt-sub">custom:9router</div>' +
@@ -1372,10 +1402,9 @@ function renderAuxPickerItems(q){{
         for(var i = 0; i < matched.length; i++){{
           var mId = matched[i];
           var safeId = escGw(mId);
-          var jsId = mId.replace(/\\\\/g, '\\\\\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
           var isFree = mId.toLowerCase().indexOf('free') !== -1;
           var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
-          out += '<a class="aux-model-opt" href="javascript:void(0)" onclick="selectAuxModel(\\'custom:9router\\', \\'' + jsId + '\\')">' +
+          out += '<a class="aux-model-opt" href="javascript:void(0)" data-provider="custom:9router" data-model="' + safeId + '" onclick="selectAuxModel(this.getAttribute(\\'data-provider\\'), this.getAttribute(\\'data-model\\'))">' +
                    '<div style="min-width:0;flex:1">' +
                      '<div class="aux-model-opt-name" style="overflow:hidden;text-overflow:ellipsis">' + safeId + '</div>' +
                      '<div class="aux-model-opt-sub">custom:9router</div>' +
@@ -1464,7 +1493,7 @@ if(activeTabFromUrl){{
   if(btn) switchTab(activeTabFromUrl, btn);
 }} else {{
   var saved = safeStore('getItem', 'activeTab');
-  if(saved){{
+  if(saved && ['status','performance','control','auxiliary'].indexOf(saved) !== -1){{
     var btn = document.querySelector('.tab[onclick*="' + saved + '"]');
     if(btn) switchTab(saved, btn);
   }}
@@ -1475,6 +1504,7 @@ syncGwLogTabUI();
 var currentGwPlatform = '';
 var isNewGwPlatform = false;
 var currentGwMode = 'ui';
+var _gwPreviewGen = 0;
 
 function switchGwConfigMode(mode){{
   currentGwMode = mode;
@@ -1503,6 +1533,7 @@ function switchGwConfigMode(mode){{
       // know about (home_channel, extra, ...) stay in the editor.
       var errEl = document.getElementById('gw-config-error');
       var plat = gwActivePlatform();
+      var reqGen = ++_gwPreviewGen;
       fetch('/api/gateway-config-preview', {{
         method: 'POST',
         headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
@@ -1510,6 +1541,7 @@ function switchGwConfigMode(mode){{
       }})
       .then(function(r){{ return r.json(); }})
       .then(function(res){{
+        if(reqGen !== _gwPreviewGen || currentGwMode !== 'yaml') return;
         if(res.ok) yamlEl.value = res.yaml;
         else if(errEl){{ errEl.textContent = res.error || 'Gagal menyusun YAML'; errEl.style.display = 'block'; }}
       }});
@@ -1526,7 +1558,7 @@ function gwActivePlatform(){{
 // Form UI sends a PATCH over the editor's full YAML (base_yaml): only fields that exist in the
 // config or that the user changed. Untouched defaults are never written, so opening "Setting" and
 // saving can't silently change access policy (e.g. turn dm_policy into 'open').
-var GW_FORM_KEYS_COMMON = ['dm_policy', 'allow_from', 'group_policy', 'require_mention', 'reply_in_thread'];
+var GW_FORM_KEYS_COMMON = ['dm_policy', 'allow_from', 'allow_admin_from', 'group_policy', 'group_allow_from', 'require_mention', 'reply_in_thread', 'notice_delivery'];
 var GW_FORM_KEYS_WA = ['mode', 'dm_policy', 'allow_from', 'allow_admin_from', 'group_policy', 'group_allow_from',
   'require_mention', 'reply_in_thread', 'send_read_receipts', 'notice_delivery', 'bridge_port'];
 var GW_FORM_LIST_KEYS = ['allow_from', 'allow_admin_from', 'group_allow_from'];
@@ -1605,11 +1637,15 @@ function populateGwFormFromYaml(yamlText, platform){{
       }}
       continue;
     }}
-    if(k === 'enabled') d.enabled = (v === 'true');
+    function gwParseBool(val){{
+      var s = String(val).trim().toLowerCase();
+      return s === 'true' || s === 'yes' || s === 'on' || s === '1';
+    }}
+    if(k === 'enabled') d.enabled = gwParseBool(v);
     else if(k === 'bridge_port'){{ d.bridge_port = parseInt(v, 10) || 3000; present.bridge_port = true; }}
     else if(d.hasOwnProperty(k)){{
       present[k] = true;
-      d[k] = (typeof d[k] === 'boolean') ? (v === 'true') : (v === 'null' || v === '~' ? '' : v);
+      d[k] = (typeof d[k] === 'boolean') ? gwParseBool(v) : (v === 'null' || v === '~' ? '' : v);
     }}
   }}
 
@@ -1634,7 +1670,7 @@ function populateGwFormFromYaml(yamlText, platform){{
   var chkRr = document.getElementById('gw-f-read-receipts');
   if(chkRr) chkRr.checked = d.send_read_receipts;
   var selNot = document.getElementById('gw-f-notice-del');
-  if(selNot) selNot.value = d.notice_delivery;
+  if(selNot) selNot.value = (d.notice_delivery === 'off' || d.notice_delivery === 'disabled' || d.notice_delivery === 'false' || d.notice_delivery === false || d.notice_delivery === '0') ? 'none' : (d.notice_delivery || '');
   var inpPort = document.getElementById('gw-f-wa-port');
   if(inpPort) inpPort.value = d.bridge_port || 3000;
 
@@ -2111,11 +2147,11 @@ function applyGwSelectedTemplate(key){{
   var yamlEl = document.getElementById('gw-config-yaml');
   if(!yamlEl) return;
   if(yamlEl.value.trim() && !confirm('Muat template contoh? Teks konfigurasi saat ini akan diganti dengan template pilihan.')){{
-    document.getElementById('gw-template-picker').value = '';
+    var tp = document.getElementById('gw-template-picker'); if(tp) tp.value = '';
     return;
   }}
   yamlEl.value = GW_TEMPLATES[key];
-  document.getElementById('gw-template-picker').value = '';
+  var tp = document.getElementById('gw-template-picker'); if(tp) tp.value = '';
   updateGwGuide(key);
 }}
 
@@ -2346,7 +2382,10 @@ function syncGwLogTabUI(){{
 var _waPairPollTimer = null;
 var _waPairTimerInterval = null;
 var _waPairExpiresAt = null;
+var _waPairCancelled = false;
+var _waPairActionGen = 0;
 function openWaPairModal(){{
+  _waPairCancelled = false;
   var m = document.getElementById('wa-pair-modal');
   if(m){{
     m.classList.add('show');
@@ -2355,19 +2394,19 @@ function openWaPairModal(){{
   fetch('/api/whatsapp/pair-status')
     .then(function(r){{ return r.json(); }})
     .then(function(d){{
+      var m = document.getElementById('wa-pair-modal');
+      var isOpen = m && (m.classList.contains('show') || m.style.display !== 'none');
+      if(!isOpen || _waPairCancelled) return;
       setWaPairStatusUI(d);
-      if(d.status === 'idle' || d.status === 'error' || d.status === 'cancelled'){{
-        startWaPair(true);
-      }} else if(d.status === 'starting' || d.status === 'waiting_scan'){{
+      if(d.status === 'starting' || d.status === 'waiting_scan'){{
         pollWaPairStatus();
       }}
     }})
-    .catch(function(){{
-      startWaPair(true);
-    }});
+    .catch(function(){{}});
 }}
 
 function closeWaPairModal(skipCancel){{
+  _waPairCancelled = true;
   var m = document.getElementById('wa-pair-modal');
   if(m){{
     m.classList.remove('show');
@@ -2406,6 +2445,10 @@ function setWaPairStatusUI(data){{
         if(!_waPairExpiresAt || !timerEl) return;
         var rem = Math.max(0, Math.round(_waPairExpiresAt - (Date.now()/1000)));
         timerEl.textContent = rem > 0 ? ('⏳ ' + rem + 's') : '';
+        if(rem <= 0 && _waPairTimerInterval){{
+          clearInterval(_waPairTimerInterval);
+          _waPairTimerInterval = null;
+        }}
       }};
       updateTimer();
       if(!_waPairTimerInterval){{
@@ -2476,7 +2519,7 @@ function setWaPairStatusUI(data){{
   }} else {{
     if(bText) bText.textContent = 'Status: Siap untuk pairing';
     if(badge){{ badge.className = 'badge'; badge.textContent = 'Idle'; }}
-    if(qrBox && (data.status === 'cancelled' || !qrBox.querySelector('svg'))){{
+    if(qrBox){{
       qrBox.innerHTML = '<div style="color:var(--text-dim);font-size:0.82rem;padding:2rem 1rem">Tekan tombol <strong>"Mulai Pairing QR"</strong> di bawah untuk menginisialisasi jembatan Baileys dan membuat QR code.</div>';
     }}
     if(btnStart){{ btnStart.textContent = 'Mulai Pairing QR'; btnStart.style.display = 'inline-block'; }}
@@ -2487,13 +2530,15 @@ function setWaPairStatusUI(data){{
 }}
 
 function pollWaPairStatus(){{
+  if(_waPairPollTimer){{ clearTimeout(_waPairPollTimer); _waPairPollTimer = null; }}
   fetch('/api/whatsapp/pair-status')
     .then(function(r){{ return r.json(); }})
     .then(function(d){{
-      setWaPairStatusUI(d);
       var m = document.getElementById('wa-pair-modal');
       var isOpen = m && (m.classList.contains('show') || m.style.display !== 'none');
-      if(isOpen && (d.status === 'starting' || d.status === 'waiting_scan')){{
+      if(!isOpen || _waPairCancelled) return;
+      setWaPairStatusUI(d);
+      if(d.status === 'starting' || d.status === 'waiting_scan'){{
         _waPairPollTimer = setTimeout(pollWaPairStatus, 1500);
       }}
     }})
@@ -2501,6 +2546,8 @@ function pollWaPairStatus(){{
 }}
 
 function startWaPair(clearSession){{
+  _waPairCancelled = false;
+  var actGen = ++_waPairActionGen;
   var bText = document.getElementById('wa-pair-status-text');
   var badge = document.getElementById('wa-pair-status-badge');
   var qrBox = document.getElementById('wa-pair-qr-container');
@@ -2528,12 +2575,23 @@ function startWaPair(clearSession){{
 }}
 
 function cancelWaPair(){{
+  _waPairCancelled = true;
+  var actGen = ++_waPairActionGen;
+  if(_waPairPollTimer){{
+    clearTimeout(_waPairPollTimer);
+    _waPairPollTimer = null;
+  }}
+  if(_waPairTimerInterval){{
+    clearInterval(_waPairTimerInterval);
+    _waPairTimerInterval = null;
+  }}
   fetch('/api/whatsapp/pair-cancel', {{
     method: 'POST',
     headers: {{'Content-Type': 'application/json', 'Accept': 'application/json'}},
     body: JSON.stringify({{}})
   }}).then(function(r){{ return r.json(); }})
     .then(function(d){{
+      if(actGen !== _waPairActionGen) return;
       setWaPairStatusUI(d);
       var qrBox = document.getElementById('wa-pair-qr-container');
       if(qrBox){{
@@ -2618,6 +2676,10 @@ function toggleLog(flag, wrapId){{
   var w = document.getElementById(wrapId);
   if(w) w.style.display = 'none';
   window._forceBottom = true;
+  if(flag === 'logDismissed' && window._lastRouterLogCard){{
+    var rls = document.getElementById('log-slot');
+    if(rls) rls.innerHTML = window._lastRouterLogCard;
+  }}
   if(flag === 'hermesLogDismissed' && window._lastHermesLogCard){{
     var hls = document.getElementById('hermes-log-slot');
     if(hls) hls.innerHTML = window._lastHermesLogCard;
@@ -2634,10 +2696,13 @@ function toggleLog(flag, wrapId){{
 function syncLogUI(){{
   var routerDismissed = safeStore('getItem','logDismissed');
   var rw = document.getElementById('log-show-wrap');
-  if(rw) rw.style.display = routerDismissed ? '' : 'none';
-  if(routerDismissed){{
-    var rc = document.getElementById('router-log-card');
-    if(rc) rc.remove();
+  var rc = document.getElementById('router-log-card');
+  var hasRouter = !!(rc || window._hasRouterLog || window._lastRouterLogCard);
+  if(rw) rw.style.display = (routerDismissed && hasRouter) ? '' : 'none';
+  if(routerDismissed && rc){{
+    window._lastRouterLogCard = rc.outerHTML;
+    window._hasRouterLog = true;
+    rc.remove();
   }}
   var hermesDismissed = safeStore('getItem','hermesLogDismissed');
   var hw = document.getElementById('hermes-log-show');
@@ -2652,38 +2717,45 @@ function syncLogUI(){{
   var cleanDismissed = safeStore('getItem','cleanLogDismissed');
   var cw = document.getElementById('clean-log-show');
   var cc = document.getElementById('clean-log-card');
-  var hasClean = !!(cc || window._hasCleanLog);
+  var hasClean = !!(cc || window._hasCleanLog || window._lastCleanJunkCard);
   if(cw) cw.style.display = (cleanDismissed && hasClean) ? '' : 'none';
   if(cleanDismissed && cc){{
+    window._lastCleanJunkCard = cc.outerHTML;
     window._hasCleanLog = true;
     cc.remove();
   }}
   var gatewayDismissed = safeStore('getItem','gatewayLogDismissed');
   var gwShow = document.getElementById('gateway-log-show');
   var gc = document.getElementById('gateway-log-card');
-  var hasGateway = !!(gc || window._hasGatewayLog);
+  var hasGateway = !!(gc || window._hasGatewayLog || window._lastGatewayLogCard);
   if(gwShow) gwShow.style.display = (gatewayDismissed && hasGateway) ? '' : 'none';
   if(gatewayDismissed && gc){{
+    window._lastGatewayLogCard = gc.outerHTML;
     window._hasGatewayLog = true;
     gc.remove();
   }}
+}}
+if(document.getElementById('router-log-card')){{
+  window._hasRouterLog = true;
+  var initRc = document.getElementById('router-log-card');
+  if(initRc) window._lastRouterLogCard = initRc.outerHTML;
 }}
 if(document.getElementById('hermes-log-card')){{
   window._hasHermesLog = true;
   var initHc = document.getElementById('hermes-log-card');
   if(initHc) window._lastHermesLogCard = initHc.outerHTML;
 }}
-syncLogUI();
 if(document.getElementById('clean-log-card')){{
   window._hasCleanLog = true;
-  var clsInit = document.getElementById('clean-log-slot');
-  if(clsInit) window._lastCleanJunkCard = clsInit.innerHTML;
+  var initClc = document.getElementById('clean-log-card');
+  if(initClc) window._lastCleanJunkCard = initClc.outerHTML;
 }}
 if(document.getElementById('gateway-log-card')){{
   window._hasGatewayLog = true;
-  var glsInit = document.getElementById('gateway-log-slot');
-  if(glsInit) window._lastGatewayLogCard = glsInit.innerHTML;
+  var initGwc = document.getElementById('gateway-log-card');
+  if(initGwc) window._lastGatewayLogCard = initGwc.outerHTML;
 }}
+syncLogUI();
 // Initial load: scroll all existing log boxes to the bottom once
 document.addEventListener('DOMContentLoaded', scrollAllLogsToBottom);
 setTimeout(scrollAllLogsToBottom, 100);
@@ -2700,7 +2772,7 @@ def get_open_block_active():
         )
 
     return (
-        f'<a class="open" href="#" '
+        f'<a class="open" href="#" target="_blank" rel="noopener" '
         f'onclick="window.open(window.location.protocol+\'//\'+'
         f'window.location.hostname+\':9119\',\'_blank\',\'noopener\');'
         f'return false;">'
@@ -2857,9 +2929,9 @@ def _probe_gateway_platforms() -> list[dict]:
         if p not in candidate_platforms:
             candidate_platforms.append(p)
 
-    for k in ("telegram", "discord", "slack", "whatsapp", "webhook", "mattermost", "matrix", "signal", "feishu"):
+    for k in sorted(LEGACY_GATEWAY_ROOT_KEYS):
         if k not in candidate_platforms and k in cfg and isinstance(cfg[k], dict):
-            if cfg[k].get("enabled") is True or cfg[k].get("token") or cfg[k].get("bot_token"):
+            if _to_bool(cfg[k].get("enabled")) or cfg[k].get("token") or cfg[k].get("bot_token"):
                 candidate_platforms.append(k)
 
     state = {}
@@ -3044,7 +3116,7 @@ def render_gateway_platforms_html() -> str:
 
         err_div = ""
         if p["is_error"] and p["error_detail"]:
-            err_msg = html.escape(p["error_detail"])
+            err_msg = html.escape(redact_sensitive_tokens(p["error_detail"]))
             err_div = (
                 f'<div style="color:var(--danger);font-size:.7rem;margin-top:.25rem;'
                 f'display:flex;align-items:center;gap:.3rem">'
@@ -3177,7 +3249,7 @@ _wa_pair_state = {
 def _append_wa_pair_log(msg: str):
     with _wa_pair_lock:
         ts = datetime.now().strftime("%H:%M:%S")
-        _wa_pair_state["logs"].append(f"[{ts}] {msg}")
+        _wa_pair_state["logs"].append(f"[{ts}] {redact_sensitive_tokens(msg)}")
         if len(_wa_pair_state["logs"]) > 80:
             _wa_pair_state["logs"] = _wa_pair_state["logs"][-80:]
 
@@ -3203,6 +3275,17 @@ def get_wa_pair_status() -> dict:
                     if code != 0 and not _wa_pair_state.get("error"):
                         _wa_pair_state["error"] = f"Proses bridge keluar dengan kode {code}"
             _wa_pair_proc = None
+        elif _wa_pair_proc is None and _wa_pair_state["status"] == "idle":
+            creds_p = Path("/root/.hermes/whatsapp/session/creds.json")
+            if creds_p.exists():
+                try:
+                    with open(creds_p, "r", encoding="utf-8") as f:
+                        cdata = json.load(f)
+                        if cdata.get("registered") or cdata.get("me"):
+                            _wa_pair_state["status"] = "connected"
+                            _wa_pair_state["user"] = cdata.get("me")
+                except Exception:
+                    pass
         return dict(_wa_pair_state)
 
 
@@ -3252,12 +3335,12 @@ def _wa_pair_watcher(proc, session_dir: Path):
         _append_wa_pair_log(f"Exception watcher: {ex}")
     finally:
         with _wa_pair_lock:
-            if _wa_pair_proc is not None:
+            if _wa_pair_proc is proc:
                 try:
-                    _wa_pair_proc.wait(timeout=1.0)
+                    proc.wait(timeout=0.2)
                 except Exception:
                     pass
-            _wa_pair_proc = None
+                _wa_pair_proc = None
 
 
 def _reap_proc_async(proc) -> None:
@@ -3384,6 +3467,8 @@ def redact_sensitive_tokens(text: str) -> str:
     text = re.sub(r'\bxox[baprs]-[A-Za-z0-9-]+\b', '[REDACTED_SLACK_TOKEN]', text)
     text = re.sub(r'(bearer\s+)[A-Za-z0-9_.-]{16,}', r'\1[REDACTED]', text, flags=re.IGNORECASE)
     text = re.sub(r'\bsk-[A-Za-z0-9_-]{20,}\b', '[REDACTED_KEY]', text)
+    text = re.sub(r'\bAIza[0-9A-Za-z_-]{30,40}\b', '[REDACTED_KEY]', text)
+    text = re.sub(r'\bgh[pousr]_[A-Za-z0-9_]{36,}\b', '[REDACTED_TOKEN]', text)
     return text
 
 
@@ -3485,15 +3570,32 @@ def _effective_platform_block(cfg: dict, platform: str) -> dict:
     return merged
 
 
-RESERVED_ROOT_KEYS = {
-    "platforms",
-    "model",
-    "gateway",
-    "auxiliary",
-    "delegation",
-    "tools",
-    "fallback_providers",
-    "custom_providers",
+LEGACY_GATEWAY_ROOT_KEYS = {
+    "telegram",
+    "discord",
+    "slack",
+    "whatsapp",
+    "webhook",
+    "mattermost",
+    "matrix",
+    "signal",
+    "feishu",
+    "teams",
+    "google_chat",
+    "dingtalk",
+    "wecom",
+    "line",
+    "ntfy",
+    "email",
+    "homeassistant",
+    "simplex",
+    "sms",
+    "irc",
+    "bluebubbles",
+    "weixin",
+    "yuanbao",
+    "qqbot",
+    "whatsapp_cloud",
 }
 
 
@@ -3502,7 +3604,7 @@ def _set_platform_block(cfg: dict, platform: str, block: dict) -> None:
     if not isinstance(cfg.get("platforms"), dict):
         cfg["platforms"] = {}
     cfg["platforms"][platform] = block
-    if platform not in RESERVED_ROOT_KEYS and isinstance(cfg.get(platform), dict):
+    if platform in LEGACY_GATEWAY_ROOT_KEYS and isinstance(cfg.get(platform), dict):
         del cfg[platform]
 
 
@@ -3545,12 +3647,13 @@ def _read_hermes_env() -> dict:
 def _open_policy_violation(cfg: dict, platform: str, block: dict) -> str:
     """Mirror gateway/run.py::_own_policy_open_startup_violation for one platform block."""
     guard = _OPEN_POLICY_GUARD.get(platform)
-    if not guard or not block.get("enabled"):
+    if not guard or not _to_bool(block.get("enabled")):
         return ""
     dm_env, group_env, allow_all_env = guard
     env = _read_hermes_env()
-    dm_policy = str(block.get("dm_policy") or (env.get(dm_env) if dm_env else "") or "pairing").strip().lower()
-    group_policy = str(block.get("group_policy") or (env.get(group_env) if group_env else "") or "pairing").strip().lower()
+    extra = block.get("extra") if isinstance(block.get("extra"), dict) else {}
+    dm_policy = str(block.get("dm_policy") or extra.get("dm_policy") or (env.get(dm_env) if dm_env else "") or "pairing").strip().lower()
+    group_policy = str(block.get("group_policy") or extra.get("group_policy") or (env.get(group_env) if group_env else "") or "pairing").strip().lower()
     if dm_policy != "open" and group_policy != "open":
         return ""
     gateway_section = cfg.get("gateway") if isinstance(cfg.get("gateway"), dict) else {}
@@ -3597,6 +3700,10 @@ def _write_config_atomic(cfg: dict | str) -> None:
             os.replace(tmp_path, CONFIG_PATH)
         except BaseException:
             try:
+                os.close(fd)
+            except OSError:
+                pass
+            try:
                 os.unlink(tmp_path)
             except OSError:
                 pass
@@ -3642,7 +3749,7 @@ def get_gateway_platform_config(plat: str) -> dict:
         return {
             "ok": True,
             "platform": plat,
-            "enabled": bool(plat_data.get("enabled", False)),
+            "enabled": _to_bool(plat_data.get("enabled", False)),
             "yaml": yaml_text,
             "is_new": False,
         }
@@ -3728,6 +3835,10 @@ def _sync_env_platform_flag(platform: str, enabled: bool, extra_vars: dict = Non
                 f.write("\n".join(new_lines) + "\n")
             os.replace(tmp_path, env_file)
         except BaseException:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -3889,11 +4000,13 @@ def remove_gateway_platform_config(platform: str) -> tuple[bool, str]:
         if platform in platforms:
             del platforms[platform]
             found = True
-        if platform not in RESERVED_ROOT_KEYS and isinstance(cfg.get(platform), dict):
+        if platform in LEGACY_GATEWAY_ROOT_KEYS and isinstance(cfg.get(platform), dict):
             del cfg[platform]
             found = True
         if not found:
             return False, f"Platform '{platform}' tidak ditemukan di config.yaml."
+        if platform == "whatsapp":
+            _sync_env_platform_flag("whatsapp", False, remove_vars=["WHATSAPP_ENABLED", "WHATSAPP_MODE", "WHATSAPP_DM_POLICY", "WHATSAPP_ALLOWED_USERS"])
         _write_config_atomic(cfg)
         return True, ""
     except Exception as e:
@@ -3914,7 +4027,7 @@ def get_9router_host() -> str:
             return _9router_host_cache
 
     # 1. Check local Docker / Compose first: if compose file or container exists locally, it's local!
-    if os.path.exists(f"{ROUTER_COMPOSE_DIR}/docker-compose.yml"):
+    if router_compose_file():
         with _9router_host_lock:
             _9router_host_cache = "127.0.0.1"
             _9router_host_at = time.time()
@@ -4038,7 +4151,7 @@ SSE_SCRIPT = """<script>
     if(!svg) return;
     var poly = svg.querySelector('.spark-poly');
     var fill = svg.querySelector('.spark-fill');
-    if(!poly || !fill) return;
+    if(!poly || !fill || historyArr.length < 2) return;
     var pts = [];
     var w = 300, h = 80;
     var step = w / (historyArr.length - 1);
@@ -4062,7 +4175,8 @@ SSE_SCRIPT = """<script>
   }
   var _scrolling=false, _scrollTimer=null, _pendingUpdate=null;
   function onUpdate(d){ if(_scrolling){ _pendingUpdate=d; return; } apply(d); }
-  window.addEventListener('scroll', function(){
+  window.addEventListener('scroll', function(e){
+    if(e && e.target && e.target !== window && e.target !== document && e.target !== document.documentElement && e.target !== document.body) return;
     _scrolling=true;
     if(_scrollTimer) clearTimeout(_scrollTimer);
     _scrollTimer=setTimeout(function(){
@@ -4166,8 +4280,12 @@ SSE_SCRIPT = """<script>
     if(d.cells && d.cells.ts) set('cell-ts-perf', d.cells.ts);
     if(d.cells && d.cells.uptime) set('cell-uptime-perf', d.cells.uptime);
     if(d.cells && d.cells.internet) set('cell-internet-perf', d.cells.internet);
+    if(d.log_card){{
+      window._lastRouterLogCard = d.log_card;
+      window._hasRouterLog = true;
+    }}
     if(!safeStore('getItem','logDismissed')) stickySet('log-slot',d.log_card);
-    else { var rc=document.getElementById('router-log-card'); if(rc) rc.remove(); }
+    else {{ var rc=document.getElementById('router-log-card'); if(rc) {{ window._lastRouterLogCard = rc.outerHTML; window._hasRouterLog = true; rc.remove(); }} }}
     if(d.hermes_log_card){{
       window._lastHermesLogCard = d.hermes_log_card;
       window._hasHermesLog = true;
@@ -4188,13 +4306,13 @@ SSE_SCRIPT = """<script>
       if(cls && d.clean_junk_card) stickySet('clean-log-slot', d.clean_junk_card);
     }} else {{
       var cc = document.getElementById('clean-log-card');
-      if(cc) {{ window._hasCleanLog = true; cc.remove(); }}
+      if(cc) {{ window._lastCleanJunkCard = cc.outerHTML; window._hasCleanLog = true; cc.remove(); }}
     }}
     if(!safeStore('getItem','gatewayLogDismissed')) {
       if(d.gateway_log_card) stickySet('gateway-log-slot', d.gateway_log_card);
     } else {
       var gc = document.getElementById('gateway-log-card');
-      if(gc) { window._hasGatewayLog = true; gc.remove(); }
+      if(gc) { window._lastGatewayLogCard = gc.outerHTML; window._hasGatewayLog = true; gc.remove(); }
     }
     if(d.gateway_log_card) {
       window._lastGatewayLogCard = d.gateway_log_card;
@@ -4304,7 +4422,7 @@ function postNavigate(url) {
 
 document.addEventListener('click', function(e){
   var a = e.target.closest('a.toggle, a.open, a.model-chip, a.btn-end-task, a.btn-restart-task, a.btn-start-task, a.btn-action-danger');
-  if(!a || !a.getAttribute('href') || a.target === '_blank'
+  if(!a || !a.getAttribute('href') || a.getAttribute('href') === '#' || a.getAttribute('href').indexOf('javascript:') === 0 || a.target === '_blank'
      || a.classList.contains('is-loading')) return;
   var href = a.getAttribute('href');
   for(var i=0;i<CONFIRM_ROUTES.length;i++){
@@ -5628,24 +5746,28 @@ def get_update_status() -> str:
 
 
 def _router_update_command() -> str:
-    compose = shlex.quote(ROUTER_COMPOSE_DIR)
     container = shlex.quote(ROUTER_CONTAINER)
     image = shlex.quote(ROUTER_IMAGE)
+    candidates = " ".join(shlex.quote(c) for c in ROUTER_COMPOSE_CANDIDATES if c)
     return (
-        f"cd {compose} && "
-        "printf '[1/5] host='; hostname; "
-        f"before=$(docker inspect -f '{{{{.Image}}}}' {container} 2>&1); printf '[2/5] before=%s\\n' \"$before\"; "
-        "printf '[3/5] Menghentikan container 9router...\\n'; "
-        f"docker compose -f {compose}/docker-compose.yml stop 2>&1 || docker stop {container} 2>&1; "
-        "printf '[4/5] Mengunduh (pull) image baru...\\n'; "
-        f"docker compose -f {compose}/docker-compose.yml pull 2>&1 || docker pull {image} 2>&1; pull_rc=$?; "
-        "printf 'compose pull exit=%s\\n' \"$pull_rc\"; "
-        "printf '[5/5] Menyalakan kembali 9router...\\n'; "
-        f"docker compose -f {compose}/docker-compose.yml up -d 2>&1 || docker start {container} 2>&1; up_rc=$?; "
-        "printf 'compose up exit=%s\\n' \"$up_rc\"; "
-        f"after=$(docker inspect -f '{{{{.Image}}}}' {container} 2>&1); printf 'after=%s\\n' \"$after\"; "
+        # Resolve the compose file ON THE TARGET HOST: CasaOS keeps the real
+        # file under /var/lib/casaos/apps/<app>/, while the panel dir holds
+        # only update.log/update-check.json. A missing -f path made `compose
+        # up` fail, the `docker start` fallback reused the OLD image, and the
+        # panel reported success while the container stayed on the old build.
+        f"CF=''; for f in {candidates}; do [ -f \"$f\" ] && {{ CF=\"$f\"; break; }}; done; "
+        "echo \"[1/5] host=$(hostname) compose=${CF:-none}\"; "
+        f"before=$(docker inspect -f '{{{{.Image}}}}' {container} 2>&1); echo \"[2/5] before=$before\"; "
+        "echo '[3/5] Mengunduh (pull) image baru...'; "
+        f"if [ -n \"$CF\" ]; then docker compose -f \"$CF\" pull 2>&1 || docker pull {image} 2>&1; else docker pull {image} 2>&1; fi; pull_rc=$?; "
+        "echo \"compose pull exit=$pull_rc\"; "
+        "echo '[4/5] Membangun ulang container dari image baru...'; "
+        f"if [ -n \"$CF\" ]; then docker compose -f \"$CF\" up -d --force-recreate 2>&1; up_rc=$?; else docker start {container} 2>&1; up_rc=$?; fi; "
+        f"if [ \"$up_rc\" -ne 0 ]; then echo 'compose up gagal, fallback docker start'; docker start {container} 2>&1; fi; "
+        "echo \"compose up exit=$up_rc\"; "
+        f"after=$(docker inspect -f '{{{{.Image}}}}' {container} 2>&1); echo \"[5/5] after=$after\"; "
         "if [ -n \"$before\" ] && [ \"$before\" = \"$after\" ]; then echo 'changed=false'; else echo 'changed=true'; fi; "
-        f"printf 'image_id='; docker image inspect {image} --format '{{{{.Id}}}}' 2>&1; "
+        f"echo \"image_id=$(docker image inspect {image} --format '{{{{.Id}}}}' 2>&1)\"; "
         "[ \"$up_rc\" -eq 0 ] || exit \"$up_rc\"; "
         "[ \"$pull_rc\" -eq 0 ] || exit \"$pull_rc\""
     )
@@ -6899,7 +7021,20 @@ def build_fragments() -> dict:
     }
 
 
+VALID_TABS = {"status", "performance", "control", "auxiliary"}
+
+
+def _to_bool(val, default: bool = False) -> bool:
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    return str(val).strip().lower() in ("1", "true", "yes", "on")
+
+
 def build_status_page(just: str = "", active_tab: str = "") -> str:
+    if active_tab not in VALID_TABS:
+        active_tab = ""
     frag = build_fragments()
     dash_active = frag["dash_active"]
     gw_active = frag["gw_active"]
@@ -6959,7 +7094,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         countdown_block = ""
 
     models_dict = get_available_models_cached()
-    available_models_json = json.dumps(models_dict)
+    available_models_json = json.dumps(models_dict).replace("</", "<\\/")
 
     return PAGE.format(
         icon_hermes_logo=ICON_HERMES_LOGO,
@@ -7135,8 +7270,9 @@ def _sse_push_loop():
                         dead.append((q, evt))
                 for d in dead:
                     try:
+                        d[1].set()
                         _sse_clients.remove(d)
-                    except ValueError:
+                    except (ValueError, Exception):
                         pass
         except Exception as e:
             sys.stderr.write(f"[panel] SSE push loop error: {e}\n")
@@ -7209,7 +7345,7 @@ class Handler(BaseHTTPRequestHandler):
         location = "/status"
         if just:
             location += f"?just={quote(just)}"
-        if tab:
+        if tab and tab in VALID_TABS:
             location += f"{'&' if just else '?'}tab={quote(tab)}"
         self.send_response(302)
         if getattr(self, "_bootstrap", False) or not self._has_valid_session():
@@ -7225,10 +7361,10 @@ class Handler(BaseHTTPRequestHandler):
         routes). All other requests must present a valid cookie.
         """
         query_token = (qs.get("token") or [""])[0]
-        if self._has_valid_session():
-            return True, False
         if self._token_matches(query_token):
             return True, self.command == "GET"
+        if self._has_valid_session():
+            return True, False
         return False, False
 
     def do_POST(self):
@@ -7250,7 +7386,7 @@ class Handler(BaseHTTPRequestHandler):
                     if isinstance(loaded, dict):
                         json_data = loaded
                         if "token" in json_data and json_data["token"]:
-                            qs.setdefault("token", [str(json_data["token"])])
+                            qs["token"] = [str(json_data["token"])]
                     else:
                         self._send_json({"ok": False, "error": "Format JSON harus berupa objek"}, code=400)
                         return
@@ -7267,18 +7403,42 @@ class Handler(BaseHTTPRequestHandler):
         is_json_client = parsed.path.startswith("/api/") or "application/json" in self.headers.get("Accept", "")
 
         if not has_explicit_token:
-            host = (self.headers.get("Host") or "").lower()
+            client_ip = self.client_address[0] if self.client_address else ""
+            raw_host = (self.headers.get("Host") or "").lower().strip()
+            forwarded = ""
+            if client_ip in ("127.0.0.1", "::1", "localhost"):
+                forwarded = (self.headers.get("X-Forwarded-Host") or "").split(",")[0].strip().lower()
+            allowed_hosts = {h for h in (raw_host, forwarded) if h}
+
+            def _strip_port(netloc_str: str) -> str:
+                return re.sub(r":\d+$", "", netloc_str.strip())
+
+            for h in list(allowed_hosts):
+                allowed_hosts.add(_strip_port(h))
+
+            def _is_host_allowed(candidate: str) -> bool:
+                if not candidate:
+                    return False
+                if candidate in allowed_hosts:
+                    return True
+                cand_bare = _strip_port(candidate)
+                if any(":" not in h for h in (raw_host, forwarded) if h) and cand_bare in allowed_hosts:
+                    return True
+                return False
+
             origin = self.headers.get("Origin")
             referer = self.headers.get("Referer")
             if origin:
-                if (urlparse(origin).netloc or "").lower() != host:
+                origin_netloc = (urlparse(origin).netloc or "").lower().strip()
+                if not _is_host_allowed(origin_netloc):
                     if is_json_client:
                         self._send_json({"ok": False, "error": "CSRF: Invalid Origin"}, code=403)
                     else:
                         self._send_html("<h1>403 — CSRF: Invalid Origin</h1>", 403)
                     return
             elif referer:
-                if (urlparse(referer).netloc or "").lower() != host:
+                ref_netloc = (urlparse(referer).netloc or "").lower().strip()
+                if not _is_host_allowed(ref_netloc):
                     if is_json_client:
                         self._send_json({"ok": False, "error": "CSRF: Invalid Referer"}, code=403)
                     else:
@@ -7323,13 +7483,15 @@ class Handler(BaseHTTPRequestHandler):
                 clean = "/status"
                 if just:
                     clean += f"?just={quote(just)}"
-                if tab:
+                if tab and tab in VALID_TABS:
                     clean += f"{'&' if just else '?'}tab={quote(tab)}"
                 self.send_header("Location", clean)
                 self.end_headers()
                 return
             just = (qs.get("just") or [""])[0]
             tab = (qs.get("tab") or [""])[0]
+            if tab not in VALID_TABS:
+                tab = ""
             self._send_html(build_status_page(just, active_tab=tab))
             return
 
@@ -7426,12 +7588,14 @@ class Handler(BaseHTTPRequestHandler):
                 data = _sse_payload(frag)
                 self.wfile.write(f"event: update\ndata: {data}\n\n".encode())
                 self.wfile.flush()
-                while True:
+                while not evt.is_set():
                     try:
                         msg = q.get(timeout=15)
                         self.wfile.write(f"event: update\ndata: {msg}\n\n".encode())
                         self.wfile.flush()
                     except queue.Empty:
+                        if evt.is_set():
+                            break
                         # Send heartbeat to keep connection alive
                         self.wfile.write(b": heartbeat\n\n")
                         self.wfile.flush()
@@ -7467,9 +7631,10 @@ class Handler(BaseHTTPRequestHandler):
             plat = str(json_data.get("platform") or (qs.get("platform") or [""])[0]).strip().lower()
             yaml_content = str(json_data.get("yaml") if "yaml" in json_data else (qs.get("yaml") or [""])[0])
             enabled_raw = json_data.get("enabled") if "enabled" in json_data else (qs.get("enabled") or [None])[0]
-            enabled = enabled_raw if isinstance(enabled_raw, bool) else (str(enabled_raw).strip().lower() in ("1", "true")) if enabled_raw is not None else None
-            restart_gw = bool(json_data.get("restart_gw") if "restart_gw" in json_data else ((qs.get("restart_gw") or ["1"])[0] in ("1", "true", "True")))
-            merge = bool(json_data.get("merge"))
+            enabled = enabled_raw if isinstance(enabled_raw, bool) else _to_bool(enabled_raw) if enabled_raw is not None else None
+            restart_gw = _to_bool(json_data.get("restart_gw") if "restart_gw" in json_data else (qs.get("restart_gw") or ["1"])[0], default=True)
+            merge_raw = json_data.get("merge") if "merge" in json_data else (qs.get("merge") or ["0"])[0]
+            merge = merge_raw if isinstance(merge_raw, bool) else _to_bool(merge_raw, default=False)
             base_yaml = json_data.get("base_yaml") if isinstance(json_data.get("base_yaml"), str) else None
 
             ok, err = save_gateway_platform_config(plat, yaml_content, enabled, merge=merge, base_yaml=base_yaml)
@@ -7489,8 +7654,8 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/toggle-gateway-platform":
             plat = str(json_data.get("platform") or (qs.get("platform") or [""])[0]).strip().lower()
             enabled_raw = json_data.get("enabled") if "enabled" in json_data else (qs.get("enabled") or ["1"])[0]
-            enabled = bool(enabled_raw) if isinstance(enabled_raw, bool) else (enabled_raw in ("1", "true", "True"))
-            restart_gw = bool(json_data.get("restart_gw") if "restart_gw" in json_data else ((qs.get("restart_gw") or ["1"])[0] in ("1", "true", "True")))
+            enabled = _to_bool(enabled_raw, default=True)
+            restart_gw = _to_bool(json_data.get("restart_gw") if "restart_gw" in json_data else (qs.get("restart_gw") or ["1"])[0], default=True)
 
             ok, err = toggle_gateway_platform_config(plat, enabled)
             if ok and restart_gw:
@@ -7508,7 +7673,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/remove-gateway-platform":
             plat = str(json_data.get("platform") or (qs.get("platform") or [""])[0]).strip().lower()
-            restart_gw = bool(json_data.get("restart_gw") if "restart_gw" in json_data else ((qs.get("restart_gw") or ["1"])[0] in ("1", "true", "True")))
+            restart_gw = _to_bool(json_data.get("restart_gw") if "restart_gw" in json_data else (qs.get("restart_gw") or ["1"])[0], default=True)
 
             ok, err = remove_gateway_platform_config(plat)
             if ok and restart_gw:
@@ -7525,7 +7690,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/whatsapp/pair-start":
-            force_new = bool(json_data.get("force_new") or ((qs.get("force_new") or ["0"])[0] in ("1", "true", "True")))
+            force_new_raw = json_data.get("force_new") if "force_new" in json_data else (qs.get("force_new") or ["0"])[0]
+            force_new = _to_bool(force_new_raw, default=False)
             ok, msg = start_wa_pair(clear_session=force_new)
             self._send_json({"ok": ok, "message": msg, **get_wa_pair_status()})
             return
@@ -7536,7 +7702,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/whatsapp/pair-apply":
-            restart_gw = bool(json_data.get("restart_gw") if "restart_gw" in json_data else ((qs.get("restart_gw") or ["1"])[0] in ("1", "true", "True")))
+            restart_gw = _to_bool(json_data.get("restart_gw") if "restart_gw" in json_data else (qs.get("restart_gw") or ["1"])[0], default=True)
             ok, msg = apply_wa_pair(restart_gw=restart_gw)
             self._send_json({"ok": ok, "message": msg, **get_wa_pair_status()})
             return
@@ -7563,10 +7729,10 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/set-aux-model":
-            task = (qs.get("task") or [""])[0]
-            provider = (qs.get("provider") or [""])[0]
-            model = (qs.get("model") or [""])[0]
-            is_ajax = bool((qs.get("ajax") or [""])[0]) or "application/json" in self.headers.get("Accept", "")
+            task = str(json_data.get("task") or (qs.get("task") or [""])[0]).strip()
+            provider = str(json_data.get("provider") or (qs.get("provider") or [""])[0]).strip()
+            model = str(json_data.get("model") or (qs.get("model") or [""])[0]).strip()
+            is_ajax = bool(json_data) or bool((qs.get("ajax") or [""])[0]) or "application/json" in self.headers.get("Accept", "")
             now = time.monotonic()
             with _last_aux_model_lock:
                 debounced = (now - _last_aux_model_at) < 0.3
@@ -7609,19 +7775,19 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/set-fallback-model":
-            index_str = (qs.get("index") or ["-1"])[0]
+            index_raw = json_data.get("index") if "index" in json_data else (qs.get("index") or ["-1"])[0]
             try:
-                index = int(index_str)
-            except ValueError:
+                index = int(index_raw)
+            except (ValueError, TypeError):
                 index = -1
-            provider = (qs.get("provider") or ["custom:9router"])[0]
-            model = (qs.get("model") or [""])[0]
-            is_ajax = bool((qs.get("ajax") or [""])[0]) or "application/json" in self.headers.get("Accept", "")
+            provider = str(json_data.get("provider") or (qs.get("provider") or ["custom:9router"])[0]).strip()
+            model = str(json_data.get("model") or (qs.get("model") or [""])[0]).strip()
+            is_ajax = bool(json_data) or bool((qs.get("ajax") or [""])[0]) or "application/json" in self.headers.get("Accept", "")
             now = time.monotonic()
-            with _last_aux_model_lock:
-                debounced = (now - _last_aux_model_at) < 0.3
+            with _last_action_lock:
+                debounced = (now - _last_action_at) < DEBOUNCE_SECONDS
                 if not debounced:
-                    _last_aux_model_at = now
+                    _last_action_at = now
             if not debounced and model:
                 saved = set_fallback_model(index, provider, model)
                 if is_ajax:
@@ -7644,10 +7810,10 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/remove-fallback-model":
-            index_str = (qs.get("index") or ["-1"])[0]
+            index_raw = json_data.get("index") if "index" in json_data else (qs.get("index") or ["-1"])[0]
             try:
-                index = int(index_str)
-            except ValueError:
+                index = int(index_raw)
+            except (ValueError, TypeError):
                 index = -1
             now = time.monotonic()
             with _last_action_lock:
@@ -7664,38 +7830,60 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/process-action":
-            service = (qs.get("service") or [""])[0]
-            action = (qs.get("action") or [""])[0]
+            service = str(json_data.get("service") or (qs.get("service") or [""])[0]).strip()
+            action = str(json_data.get("action") or (qs.get("action") or [""])[0]).strip()
             now = time.monotonic()
             with _last_action_lock:
                 debounced = (now - _last_action_at) < DEBOUNCE_SECONDS
                 if not debounced:
                     _last_action_at = now
             if not debounced and service and action:
-                if service == "9router":
-                    if action == "stop":
-                        subprocess.run(["docker", "compose", "-f", f"{ROUTER_COMPOSE_DIR}/docker-compose.yml", "stop"])
-                    elif action == "start":
-                        subprocess.run(["docker", "compose", "-f", f"{ROUTER_COMPOSE_DIR}/docker-compose.yml", "up", "-d"])
-                    elif action == "restart":
-                        subprocess.run(["docker", "restart", "9router"])
-                elif service == "cloudflared" and action in ("start", "stop", "restart"):
-                    subprocess.run(["docker", action, "cloudflared"])
-                elif service in ("pihole", "pihole-pihole-1") and action in ("start", "stop", "restart"):
-                    subprocess.run(["docker", action, "pihole-pihole-1"])
-                elif service == "hermes-dashboard" and action == "restart":
-                    subprocess.run(["systemctl", "restart", "hermes-dashboard"])
-                elif service == "hermes-panel" and action == "restart":
-                    def _delayed_restart():
-                        time.sleep(0.5)
-                        subprocess.run(["systemctl", "restart", "hermes-panel.service"])
-                    threading.Thread(target=_delayed_restart, daemon=True).start()
+                try:
+                    if service == "9router":
+                        _cf = router_compose_file()
+                        if action == "stop":
+                            if _cf:
+                                subprocess.run(["docker", "compose", "-f", _cf, "stop"], timeout=15)
+                            else:
+                                subprocess.run(["docker", "stop", "9router"], timeout=15)
+                        elif action == "start":
+                            if _cf:
+                                subprocess.run(["docker", "compose", "-f", _cf, "up", "-d"], timeout=15)
+                            else:
+                                subprocess.run(["docker", "start", "9router"], timeout=15)
+                        elif action == "restart":
+                            subprocess.run(["docker", "restart", "9router"], timeout=15)
+                    elif service == "cloudflared" and action in ("start", "stop", "restart"):
+                        subprocess.run(["docker", action, "cloudflared"], timeout=15)
+                    elif service in ("pihole", "pihole-pihole-1") and action in ("start", "stop", "restart"):
+                        subprocess.run(["docker", action, "pihole-pihole-1"], timeout=15)
+                    elif service == "hermes-dashboard" and action == "restart":
+                        subprocess.run(["systemctl", "restart", "hermes-dashboard"], timeout=15)
+                    elif service == "hermes-panel" and action == "restart":
+                        def _delayed_restart():
+                            time.sleep(0.5)
+                            try:
+                                subprocess.run(["systemctl", "restart", "hermes-panel.service"], timeout=15)
+                            except Exception:
+                                pass
+                        threading.Thread(target=_delayed_restart, daemon=True).start()
+                except Exception as ex:
+                    sys.stderr.write(f"[panel] Process action error for {service} {action}: {ex}\n")
             self._redirect_to_status(tab="status")
             return
 
         # Action route: perform once (debounced against duplicate/prefetch
         # requests), then redirect — never render an action route directly,
         # so a refresh of the resulting page can never re-trigger it.
+        VALID_POST_ACTIONS = {
+            "/toggle", "/on", "/off", "/restart-bot", "/bot-toggle",
+            "/update-router", "/check-update", "/clean-junk",
+            "/check-hermes-update", "/update-hermes", "/fetch-models", "/reload-panel-config"
+        }
+        if parsed.path not in VALID_POST_ACTIONS:
+            self._send_html("<h1>404</h1>", 404)
+            return
+
         now = time.monotonic()
         with _last_action_lock:
             debounced = (now - _last_action_at) < DEBOUNCE_SECONDS
@@ -7705,63 +7893,66 @@ class Handler(BaseHTTPRequestHandler):
         just = ""
         target_tab = ""
         if not debounced:
-            if parsed.path == "/toggle":
-                will_start = not service_active(SERVICE)
-                subprocess.run(["systemctl", "start" if will_start else "stop", SERVICE])
-                just = "start" if will_start else ""
-                target_tab = "control"
-            elif parsed.path == "/on":
-                subprocess.run(["systemctl", "start", SERVICE])
-                just = "start"
-                target_tab = "control"
-            elif parsed.path == "/off":
-                subprocess.run(["systemctl", "stop", SERVICE])
-                target_tab = "control"
-            elif parsed.path == "/restart-bot":
-                restart_bot()
-                just = "restart"
-                target_tab = "control"
-            elif parsed.path == "/bot-toggle":
-                was_active = service_active("hermes-gateway", user=True)
-                bot_action("stop" if was_active else "start")
-                just = "bot-off" if was_active else "bot-on"
-                target_tab = "control"
-            elif parsed.path == "/update-router":
-                # updating flag (set in update_router) makes /status show the
-                # live pull-log card; the auto-poll then streams it. No banner.
-                update_router()
-                target_tab = "control"
-            elif parsed.path == "/check-update":
-                # Force a fresh check: drop the cache so /status re-checks in
-                # the background (its "checking" state auto-refreshes).
-                try:
-                    os.remove(UPDATE_CACHE_PATH)
-                except OSError:
-                    pass
-                target_tab = "control"
-            elif parsed.path == "/clean-junk":
-                cleanup_system_junk()
-                just = "cleaned"
-                target_tab = "control"
-            elif parsed.path == "/check-hermes-update":
-                # Force a fresh Hermes update check
-                with _hermes_update_lock:
-                    _hermes_update_cache["at"] = 0
-                threading.Thread(target=_refresh_hermes_update, daemon=True).start()
-                target_tab = "control"
-            elif parsed.path == "/update-hermes":
-                # Official updater owns backup, stash policy, validation,
-                # rollback, dependencies, migration, and gateway restart.
-                run_hermes_update()
-                target_tab = "control"
-            elif parsed.path == "/fetch-models":
-                fetch_remote_models()
-                just = "model"
-                target_tab = "status"
-            elif parsed.path == "/reload-panel-config":
-                reload_panel_config()
-                just = "model"
-                target_tab = "status"
+            try:
+                if parsed.path == "/toggle":
+                    will_start = not service_active(SERVICE)
+                    subprocess.run(["systemctl", "start" if will_start else "stop", SERVICE], timeout=15)
+                    just = "start" if will_start else ""
+                    target_tab = "control"
+                elif parsed.path == "/on":
+                    subprocess.run(["systemctl", "start", SERVICE], timeout=15)
+                    just = "start"
+                    target_tab = "control"
+                elif parsed.path == "/off":
+                    subprocess.run(["systemctl", "stop", SERVICE], timeout=15)
+                    target_tab = "control"
+                elif parsed.path == "/restart-bot":
+                    restart_bot()
+                    just = "restart"
+                    target_tab = "control"
+                elif parsed.path == "/bot-toggle":
+                    was_active = service_active("hermes-gateway", user=True)
+                    bot_action("stop" if was_active else "start")
+                    just = "bot-off" if was_active else "bot-on"
+                    target_tab = "control"
+                elif parsed.path == "/update-router":
+                    # updating flag (set in update_router) makes /status show the
+                    # live pull-log card; the auto-poll then streams it. No banner.
+                    update_router()
+                    target_tab = "control"
+                elif parsed.path == "/check-update":
+                    # Force a fresh check: drop the cache so /status re-checks in
+                    # the background (its "checking" state auto-refreshes).
+                    try:
+                        os.remove(UPDATE_CACHE_PATH)
+                    except OSError:
+                        pass
+                    target_tab = "control"
+                elif parsed.path == "/clean-junk":
+                    cleanup_system_junk()
+                    just = "cleaned"
+                    target_tab = "control"
+                elif parsed.path == "/check-hermes-update":
+                    # Force a fresh Hermes update check
+                    with _hermes_update_lock:
+                        _hermes_update_cache["at"] = 0
+                    threading.Thread(target=_refresh_hermes_update, daemon=True).start()
+                    target_tab = "control"
+                elif parsed.path == "/update-hermes":
+                    # Official updater owns backup, stash policy, validation,
+                    # rollback, dependencies, migration, and gateway restart.
+                    run_hermes_update()
+                    target_tab = "control"
+                elif parsed.path == "/fetch-models":
+                    fetch_remote_models()
+                    just = "model"
+                    target_tab = "status"
+                elif parsed.path == "/reload-panel-config":
+                    reload_panel_config()
+                    just = "model"
+                    target_tab = "status"
+            except Exception as ex:
+                sys.stderr.write(f"[panel] Action route error {parsed.path}: {ex}\n")
 
         self._redirect_to_status(just=just, tab=target_tab)
 
