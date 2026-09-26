@@ -43,7 +43,9 @@ from pathlib import Path
 import re
 import signal
 import socket
+import queue
 import sqlite3
+import tempfile
 import shlex
 import shutil
 import subprocess
@@ -146,6 +148,8 @@ CLEAN_JUNK_JSON = "/root/.hermes/logs/clean-junk.json"
 CLEAN_JUNK_LOG = "/root/.hermes/logs/clean-junk.log"
 _clean_junk_result = {"status": "idle", "freed_bytes": 0, "freed_human": "0 B", "freed_mb": 0.0, "files_count": 0, "log": "", "at": 0.0}
 _clean_junk_lock = threading.Lock()
+_config_write_lock = threading.Lock()
+_env_write_lock = threading.Lock()
 
 # --- icons ---
 # Inline SVG (stroke-based, Lucide-style), never emoji: emoji glyphs render
@@ -316,7 +320,7 @@ display:flex;align-items:center;gap:.5rem}}
 /* Bento Tile Grid */
 .cc-grid{{display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:.75rem}}
 @media (max-width: 440px){{.cc-grid{{grid-template-columns:1fr}}}}
-@media (max-width:380px){{.tab{{font-size:.74rem;min-height:38px;gap:.2rem}}.tabs{{gap:.2rem;padding:.25rem}}}}
+@media (max-width:390px){{.tab{{font-size:.74rem;min-height:38px;gap:.2rem}}.tabs{{gap:.2rem;padding:.25rem}}}}
 
 .cc-tile{{background:rgba(255,255,255,0.025);border:1px solid var(--border-subtle);
 border-radius:var(--radius-lg);padding:1rem;display:flex;flex-direction:column;
@@ -492,7 +496,7 @@ display:none;align-items:center;justify-content:center;z-index:300;padding:1.5re
 #confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show, #wa-pair-modal.show{{display:flex}}
 .confirm-box{{background:rgba(22,27,38,0.95);border:1px solid var(--border-hover);
 border-radius:var(--radius-xl);padding:1.6rem 1.5rem;max-width:360px;width:100%;
-box-shadow:0 12px 48px rgba(0,0,0,0.7);backdrop-filter:blur(20px)}}
+box-shadow:0 12px 48px rgba(0,0,0,0.7)}}
 .confirm-box h3{{font-size:1rem;font-weight:600;margin-bottom:.5rem}}
 .confirm-box p{{font-size:.82rem;color:var(--text-muted);margin-bottom:1.3rem;line-height:1.5}}
 .confirm-actions{{display:flex;gap:.6rem}}
@@ -701,7 +705,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 
     <!-- Mode Switcher: Form UI (Default) vs Raw YAML -->
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.4rem">
-      <div style="display:flex;gap:0.35rem;background:rgba(255,255,255,0.04);padding:3px;border-radius:var(--radius-sm);border:1px solid var(--border)">
+      <div style="display:flex;flex-wrap:wrap;gap:0.35rem;background:rgba(255,255,255,0.04);padding:3px;border-radius:var(--radius-sm);border:1px solid var(--border)">
         <button type="button" class="btn-action-sm active" id="gw-btn-mode-ui" onclick="switchGwConfigMode('ui')" style="min-height:28px;font-size:0.74rem">🎛 Form Setting (Full UI)</button>
         <button type="button" class="btn-action-sm" id="gw-btn-mode-yaml" onclick="switchGwConfigMode('yaml')" style="min-height:28px;font-size:0.74rem">📝 Raw YAML (Manual)</button>
       </div>
@@ -726,7 +730,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       </div>
 
       <!-- Mode & Port (WhatsApp only) -->
-      <div id="gw-form-wa-fields" style="display:none;display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
+      <div id="gw-form-wa-fields" style="display:none;grid-template-columns:1fr 1fr;gap:0.5rem">
         <div style="display:flex;flex-direction:column;gap:3px">
           <label style="font-size:0.72rem;color:var(--text-muted);font-weight:600">Mode Operasi</label>
           <select id="gw-f-wa-mode" class="search-input" style="margin:0;font-size:0.75rem;padding:0.35rem 0.5rem">
@@ -757,6 +761,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
           <div style="display:flex;flex-direction:column;gap:3px">
             <label style="font-size:0.7rem;color:var(--text-dim)">Penyampaian Notifikasi</label>
             <select id="gw-f-notice-del" class="search-input" style="margin:0;font-size:0.75rem;padding:0.3rem 0.5rem">
+              <option value="">default Hermes</option>
               <option value="public">public (Tampilkan di obrolan)</option>
               <option value="private">private (Kirim khusus ke admin)</option>
             </select>
@@ -1284,13 +1289,14 @@ function renderFallbackPickerItems(q){{
       var list = AVAILABLE_MODELS[groupName] || [];
       var matched = list.filter(function(m){{ return !q || m.toLowerCase().indexOf(q) !== -1; }});
       if(matched.length > 0){{
-        out += '<div style="font-size:0.7rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-dim);margin-top:0.4rem;padding:0 0.2rem">' + groupName + '</div>';
+        out += '<div style="font-size:0.7rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-dim);margin-top:0.4rem;padding:0 0.2rem">' + escGw(groupName) + '</div>';
         for(var i = 0; i < matched.length; i++){{
           var mId = matched[i];
-          var safeId = mId.replace(/"/g, '&quot;');
+          var safeId = escGw(mId);
+          var jsId = mId.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
           var isFree = mId.toLowerCase().indexOf('free') !== -1;
           var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
-          out += '<a class="aux-model-opt" href="javascript:void(0)" onclick="selectFallbackModel(\\'custom:9router\\', \\'' + safeId + '\\')">' +
+          out += '<a class="aux-model-opt" href="javascript:void(0)" onclick="selectFallbackModel(\\'custom:9router\\', \\'' + jsId + '\\')">' +
                    '<div style="min-width:0;flex:1">' +
                      '<div class="aux-model-opt-name" style="overflow:hidden;text-overflow:ellipsis">' + safeId + '</div>' +
                      '<div class="aux-model-opt-sub">custom:9router</div>' +
@@ -1362,13 +1368,14 @@ function renderAuxPickerItems(q){{
       var list = AVAILABLE_MODELS[groupName] || [];
       var matched = list.filter(function(m){{ return !q || m.toLowerCase().indexOf(q) !== -1; }});
       if(matched.length > 0){{
-        out += '<div style="font-size:0.7rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-dim);margin-top:0.4rem;padding:0 0.2rem">' + groupName + '</div>';
+        out += '<div style="font-size:0.7rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-dim);margin-top:0.4rem;padding:0 0.2rem">' + escGw(groupName) + '</div>';
         for(var i = 0; i < matched.length; i++){{
           var mId = matched[i];
-          var safeId = mId.replace(/"/g, '&quot;');
+          var safeId = escGw(mId);
+          var jsId = mId.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
           var isFree = mId.toLowerCase().indexOf('free') !== -1;
           var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
-          out += '<a class="aux-model-opt" href="javascript:void(0)" onclick="selectAuxModel(\\'custom:9router\\', \\'' + safeId + '\\')">' +
+          out += '<a class="aux-model-opt" href="javascript:void(0)" onclick="selectAuxModel(\\'custom:9router\\', \\'' + jsId + '\\')">' +
                    '<div style="min-width:0;flex:1">' +
                      '<div class="aux-model-opt-name" style="overflow:hidden;text-overflow:ellipsis">' + safeId + '</div>' +
                      '<div class="aux-model-opt-sub">custom:9router</div>' +
@@ -1483,7 +1490,8 @@ function switchGwConfigMode(mode){{
     if(formView) formView.style.display = 'flex';
     if(yamlView) yamlView.style.display = 'none';
     if(yamlEl && yamlEl.value.trim()){{
-      populateGwFormFromYaml(yamlEl.value, currentGwPlatform);
+      var plat = currentGwPlatform || gwActivePlatform();
+      populateGwFormFromYaml(yamlEl.value, plat);
     }}
   }} else {{
     if(btnYaml) btnYaml.classList.add('active');
@@ -1869,7 +1877,7 @@ var GW_PLATFORM_GUIDES = {{
 }};
 
 function escGw(s){{
-  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }}
 
 function updateGwGuide(plat){{
@@ -2135,12 +2143,18 @@ function selectCatalogPlatform(plat){{
   updateGwGuide(plat);
 
   if(GW_TEMPLATES[plat]){{
-    if(yamlEl) yamlEl.value = GW_TEMPLATES[plat];
+    if(yamlEl){{
+      yamlEl.value = GW_TEMPLATES[plat];
+      populateGwFormFromYaml(yamlEl.value, plat);
+    }}
   }} else {{
     fetch('/api/gateway-config?platform=' + encodeURIComponent(plat))
       .then(function(r){{ return r.json(); }})
       .then(function(d){{
-        if(d.ok && yamlEl) yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
+        if(d.ok && yamlEl){{
+          yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
+          populateGwFormFromYaml(yamlEl.value, plat);
+        }}
       }});
   }}
 }}
@@ -2351,6 +2365,7 @@ function closeWaPairModal(){{
     clearTimeout(_waPairPollTimer);
     _waPairPollTimer = null;
   }}
+  fetch('/api/whatsapp/pair-cancel', {{method: 'POST'}}).catch(function(){{}});
 }}
 
 function setWaPairStatusUI(data){{
@@ -2358,10 +2373,20 @@ function setWaPairStatusUI(data){{
   var badge = document.getElementById('wa-pair-status-badge');
   var qrBox = document.getElementById('wa-pair-qr-container');
   var logBox = document.getElementById('wa-pair-logbox');
+  var timerEl = document.getElementById('wa-pair-timer');
   var btnStart = document.getElementById('btn-start-wa-pair');
   var btnReset = document.getElementById('btn-reset-wa-pair');
   var btnCancel = document.getElementById('btn-cancel-wa-pair');
   var btnApply = document.getElementById('btn-apply-wa-pair');
+
+  if(timerEl){{
+    if(data.status === 'waiting_scan' && data.expires_at){{
+      var rem = Math.max(0, Math.round(data.expires_at - (Date.now()/1000)));
+      timerEl.textContent = '⏳ ' + rem + 's';
+    }} else {{
+      timerEl.textContent = '';
+    }}
+  }}
 
   if(logBox && data.logs && data.logs.length > 0){{
     logBox.textContent = data.logs.join(String.fromCharCode(10));
@@ -2392,7 +2417,7 @@ function setWaPairStatusUI(data){{
     if(btnReset) btnReset.style.display = 'none';
     if(btnApply) btnApply.style.display = 'none';
   }} else if(data.status === 'connected'){{
-    var uName = (data.user && (data.user.name || data.user.id)) || 'Akun WhatsApp';
+    var uName = escGw((data.user && (data.user.name || data.user.id)) || 'Akun WhatsApp');
     if(bText) bText.textContent = 'Terhubung sebagai: ' + uName;
     if(badge){{ badge.className = 'badge badge-up'; badge.textContent = 'Terhubung'; }}
     if(qrBox){{
@@ -2403,7 +2428,7 @@ function setWaPairStatusUI(data){{
     if(btnReset) btnReset.style.display = 'inline-block';
     if(btnApply) btnApply.style.display = 'inline-block';
   }} else if(data.status === 'error'){{
-    var err = data.error || 'Terjadi kesalahan';
+    var err = escGw(data.error || 'Terjadi kesalahan');
     if(bText) bText.textContent = 'Status: ' + err;
     if(badge){{ badge.className = 'badge badge-down'; badge.textContent = 'Gagal'; }}
     if(qrBox){{
@@ -2416,6 +2441,9 @@ function setWaPairStatusUI(data){{
   }} else {{
     if(bText) bText.textContent = 'Status: Siap untuk pairing';
     if(badge){{ badge.className = 'badge'; badge.textContent = 'Idle'; }}
+    if(qrBox){{
+      qrBox.innerHTML = '<div style="color:var(--text-dim);font-size:0.82rem;padding:2rem 1rem">Tekan tombol <strong>"Mulai Pairing QR"</strong> di bawah untuk menginisialisasi jembatan Baileys dan membuat QR code.</div>';
+    }}
     if(btnStart){{ btnStart.textContent = 'Mulai Pairing QR'; btnStart.style.display = 'inline-block'; }}
     if(btnCancel) btnCancel.style.display = 'none';
     if(btnReset) btnReset.style.display = 'none';
@@ -2488,8 +2516,16 @@ function applyWaPair(){{
     body: JSON.stringify({{restart_gw: true}})
   }}).then(function(r){{ return r.json(); }})
     .then(function(d){{
-      closeWaPairModal();
-      window.location.reload();
+      if(d && d.ok){{
+        closeWaPairModal();
+        window.location.reload();
+      }} else {{
+        if(btn){{ btn.disabled = false; btn.textContent = 'Aktifkan & Mulai Ulang Gateway'; }}
+        alert((d && d.message) || 'Gagal menerapkan pairing WhatsApp');
+      }}
+    }}).catch(function(err){{
+      if(btn){{ btn.disabled = false; btn.textContent = 'Aktifkan & Mulai Ulang Gateway'; }}
+      alert('Kesalahan jaringan: ' + err);
     }});
 }}
 
@@ -2547,6 +2583,10 @@ function toggleLog(flag, wrapId){{
   var w = document.getElementById(wrapId);
   if(w) w.style.display = 'none';
   window._forceBottom = true;
+  if(flag === 'hermesLogDismissed' && window._lastHermesLogCard){{
+    var hls = document.getElementById('hermes-log-slot');
+    if(hls) hls.innerHTML = window._lastHermesLogCard;
+  }}
   if(flag === 'cleanLogDismissed' && window._lastCleanJunkCard){{
     var cls = document.getElementById('clean-log-slot');
     if(cls) cls.innerHTML = window._lastCleanJunkCard;
@@ -2566,10 +2606,13 @@ function syncLogUI(){{
   }}
   var hermesDismissed = safeStore('getItem','hermesLogDismissed');
   var hw = document.getElementById('hermes-log-show');
-  if(hw) hw.style.display = hermesDismissed ? '' : 'none';
-  if(hermesDismissed){{
-    var hc = document.getElementById('hermes-log-card');
-    if(hc) hc.remove();
+  var hc = document.getElementById('hermes-log-card');
+  var hasHermes = !!(hc || window._hasHermesLog || window._lastHermesLogCard);
+  if(hw) hw.style.display = (hermesDismissed && hasHermes) ? '' : 'none';
+  if(hermesDismissed && hc){{
+    window._lastHermesLogCard = hc.outerHTML;
+    window._hasHermesLog = true;
+    hc.remove();
   }}
   var cleanDismissed = safeStore('getItem','cleanLogDismissed');
   var cw = document.getElementById('clean-log-show');
@@ -2589,6 +2632,11 @@ function syncLogUI(){{
     window._hasGatewayLog = true;
     gc.remove();
   }}
+}}
+if(document.getElementById('hermes-log-card')){{
+  window._hasHermesLog = true;
+  var initHc = document.getElementById('hermes-log-card');
+  if(initHc) window._lastHermesLogCard = initHc.outerHTML;
 }}
 syncLogUI();
 if(document.getElementById('clean-log-card')){{
@@ -3169,6 +3217,11 @@ def _wa_pair_watcher(proc, session_dir: Path):
         _append_wa_pair_log(f"Exception watcher: {ex}")
     finally:
         with _wa_pair_lock:
+            if _wa_pair_proc is not None:
+                try:
+                    _wa_pair_proc.wait(timeout=1.0)
+                except Exception:
+                    pass
             _wa_pair_proc = None
 
 
@@ -3218,7 +3271,8 @@ def start_wa_pair(clear_session: bool = True) -> tuple[bool, str]:
 
         env = os.environ.copy()
         env["WHATSAPP_MODE"] = "bot"
-        env["WHATSAPP_DM_POLICY"] = "open"
+        existing_dm = _read_hermes_env().get("WHATSAPP_DM_POLICY") or "pairing"
+        env["WHATSAPP_DM_POLICY"] = existing_dm
 
         cmd = [
             "node",
@@ -3398,16 +3452,20 @@ def _set_platform_block(cfg: dict, platform: str, block: dict) -> None:
     if not isinstance(cfg.get("platforms"), dict):
         cfg["platforms"] = {}
     cfg["platforms"][platform] = block
-    if isinstance(cfg.get(platform), dict):
+    if platform != "platforms" and isinstance(cfg.get(platform), dict):
         del cfg[platform]
 
 
 def _merge_platform_patch(base: dict, patch: dict) -> dict:
     """Apply a Form UI patch: ``null`` removes a key, ``extra`` is merged one level deep."""
     merged = copy.deepcopy(base)
+    wa_keys = {k for k, _, _ in _WHATSAPP_ENV_KEYS}
     for key, value in patch.items():
         if value is None:
-            merged.pop(key, None)
+            if key in wa_keys:
+                merged[key] = None
+            else:
+                merged.pop(key, None)
         elif key == "extra" and isinstance(value, dict) and isinstance(merged.get("extra"), dict):
             for extra_key, extra_value in value.items():
                 if extra_value is None:
@@ -3446,8 +3504,13 @@ def _open_policy_violation(cfg: dict, platform: str, block: dict) -> str:
     if dm_policy != "open" and group_policy != "open":
         return ""
     gateway_section = cfg.get("gateway") if isinstance(cfg.get("gateway"), dict) else {}
-    yaml_allow_all = cfg.get("allow_all_users", gateway_section.get("allow_all_users"))
-    opt_ins = (env.get("GATEWAY_ALLOW_ALL_USERS"), env.get(allow_all_env), yaml_allow_all)
+    opt_ins = (
+        env.get("GATEWAY_ALLOW_ALL_USERS"),
+        env.get(allow_all_env),
+        block.get("allow_all_users"),
+        gateway_section.get("allow_all_users"),
+        cfg.get("allow_all_users"),
+    )
     if any(str(v).strip().lower() in _TRUTHY for v in opt_ins if v is not None):
         return ""
     return (
@@ -3465,20 +3528,31 @@ def _read_config_for_write() -> dict:
     return cfg
 
 
-def _write_config_atomic(cfg: dict) -> None:
+def _write_config_atomic(cfg: dict | str) -> None:
     """Atomic config.yaml write that keeps the file mode (Hermes keeps it 0600: it holds API keys)."""
-    try:
-        mode = os.stat(CONFIG_PATH).st_mode & 0o777
-    except OSError:
-        mode = 0o600
-    tmp_path = CONFIG_PATH + ".tmp"
-    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-    os.chmod(tmp_path, mode)  # O_CREAT's mode is umask-filtered and ignored for a leftover tmp file
-    os.replace(tmp_path, CONFIG_PATH)
-    invalidate_config_cache()
-    _invalidate_status_cache("gateway_platforms")
+    with _config_write_lock:
+        try:
+            mode = os.stat(CONFIG_PATH).st_mode & 0o777
+        except OSError:
+            mode = 0o600
+        dirname = os.path.dirname(os.path.abspath(CONFIG_PATH))
+        fd, tmp_path = tempfile.mkstemp(dir=dirname, prefix=".config.yaml.tmp.")
+        try:
+            os.chmod(tmp_path, mode)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                if isinstance(cfg, str):
+                    f.write(cfg)
+                else:
+                    yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            os.replace(tmp_path, CONFIG_PATH)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+        invalidate_config_cache()
+        _invalidate_status_cache("gateway_platforms")
 
 
 def get_gateway_platform_config(plat: str) -> dict:
@@ -3549,43 +3623,66 @@ def _sync_env_platform_flag(platform: str, enabled: bool, extra_vars: dict = Non
     Raises on I/O errors: callers write .env before config.yaml, so a failure must abort the
     save rather than drop keys from config that never reached .env.
     """
-    env_file = Path(CONFIG_PATH).parent / ".env"
-    if not env_file.exists():
-        if platform != "whatsapp":
-            return
-        env_file.touch(mode=0o600)
-    drop_prefixes = tuple(f"{name}=" for name in (remove_vars or ()))
-    lines = [line for line in env_file.read_text(encoding="utf-8").splitlines()
-             if not (drop_prefixes and line.strip().startswith(drop_prefixes))]
+    with _env_write_lock:
+        env_file = Path(CONFIG_PATH).parent / ".env"
+        if not env_file.exists():
+            if platform != "whatsapp":
+                return
+            env_file.touch(mode=0o600)
 
-    prefix = f"{platform.upper()}_ENABLED="
-    found = False
-    new_lines = []
-    for line in lines:
-        if line.strip().startswith(prefix):
+        def _strip_export(s: str) -> str:
+            st = s.strip()
+            if st.startswith("export "):
+                return st[7:].lstrip()
+            return st
+
+        drop_prefixes = tuple(f"{name}=" for name in (remove_vars or ()))
+        lines = [line for line in env_file.read_text(encoding="utf-8").splitlines()
+                 if not (drop_prefixes and _strip_export(line).startswith(drop_prefixes))]
+
+        prefix = f"{platform.upper()}_ENABLED="
+        found = False
+        new_lines = []
+        for line in lines:
+            stripped = _strip_export(line)
+            if stripped.startswith(prefix):
+                exp = "export " if line.strip().startswith("export ") else ""
+                new_lines.append(f"{exp}{prefix}{'true' if enabled else 'false'}")
+                found = True
+            else:
+                new_lines.append(line)
+        if not found and platform == "whatsapp":
             new_lines.append(f"{prefix}{'true' if enabled else 'false'}")
-            found = True
-        else:
-            new_lines.append(line)
-    if not found and platform == "whatsapp":
-        new_lines.append(f"{prefix}{'true' if enabled else 'false'}")
 
-    for k, v in (extra_vars or {}).items():
-        k_prefix = f"{k}="
-        for idx, line in enumerate(new_lines):
-            if line.strip().startswith(k_prefix):
-                new_lines[idx] = f"{k}={v}"
-                break
-        else:
-            new_lines.append(f"{k}={v}")
+        for k, v in (extra_vars or {}).items():
+            k_clean = str(k).replace("\r", "").replace("\n", "").strip()
+            v_clean = str(v).replace("\r", "").replace("\n", "").strip()
+            k_prefix = f"{k_clean}="
+            for idx, line in enumerate(new_lines):
+                if _strip_export(line).startswith(k_prefix):
+                    exp = "export " if line.strip().startswith("export ") else ""
+                    new_lines[idx] = f"{exp}{k_clean}={v_clean}"
+                    break
+            else:
+                new_lines.append(f"{k_clean}={v_clean}")
 
-    mode = os.stat(env_file).st_mode & 0o777
-    tmp_path = str(env_file) + ".tmp"
-    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write("\n".join(new_lines) + "\n")
-    os.chmod(tmp_path, mode)
-    os.replace(tmp_path, env_file)
+        try:
+            mode = os.stat(env_file).st_mode & 0o777
+        except OSError:
+            mode = 0o600
+        dirname = os.path.dirname(os.path.abspath(env_file))
+        fd, tmp_path = tempfile.mkstemp(dir=dirname, prefix=".env.tmp.")
+        try:
+            os.chmod(tmp_path, mode)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("\n".join(new_lines) + "\n")
+            os.replace(tmp_path, env_file)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
 
 # Hermes' dashboard Channels page stores these WhatsApp settings in .env, while the adapter prefers a
@@ -3613,6 +3710,8 @@ def _sync_whatsapp_env(block: dict) -> None:
     """Move the Channels-managed keys out of ``block`` into .env (unset/empty ones are removed)."""
     set_vars, remove_vars = {}, []
     for key, env_name, is_list in _WHATSAPP_ENV_KEYS:
+        if key not in block:
+            continue
         value = block.pop(key, None)
         if is_list and isinstance(value, list):
             value = ",".join(str(x).strip() for x in value if str(x).strip())
@@ -3670,7 +3769,7 @@ def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override:
                                  merge: bool = False, base_yaml: str | None = None) -> tuple[bool, str]:
     """Validate and atomically write platforms.<platform> (folding any root <platform>: block)."""
     platform = platform.strip().lower()
-    if not platform:
+    if not platform or platform == "platforms":
         return False, "Nama platform tidak boleh kosong."
 
     if not re.match(r"^[a-z0-9_-]+$", platform):
@@ -3707,7 +3806,7 @@ def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override:
 def toggle_gateway_platform_config(platform: str, enabled: bool) -> tuple[bool, str]:
     """Atomically toggle enabled state of a platform in config.yaml."""
     platform = platform.strip().lower()
-    if not platform:
+    if not platform or platform == "platforms":
         return False, "Nama platform tidak valid."
     try:
         cfg = _read_config_for_write()
@@ -3728,7 +3827,7 @@ def toggle_gateway_platform_config(platform: str, enabled: bool) -> tuple[bool, 
 def remove_gateway_platform_config(platform: str) -> tuple[bool, str]:
     """Atomically remove a platform (platforms.<name> and any root <name>: block) from config.yaml."""
     platform = platform.strip().lower()
-    if not platform:
+    if not platform or platform == "platforms" or not re.match(r"^[a-z0-9_-]+$", platform):
         return False, "Nama platform tidak valid."
     try:
         cfg = _read_config_for_write()
@@ -3915,9 +4014,9 @@ SSE_SCRIPT = """<script>
     if(_scrollTimer) clearTimeout(_scrollTimer);
     _scrollTimer=setTimeout(function(){
       _scrolling=false; _scrollTimer=null;
-      if(_pendingUpdate){ var d=_pendingUpdate; _pendingUpdate=null; apply(d); }
+      if(_pendingUpdate){ var d=_pendingUpdate; _pendingUpdate=null; try { apply(d); } catch(e){} }
     }, 180);
-  }, {passive:true});
+  }, {passive:true, capture:true});
   // END sse-render-gate
   function pulse(){
     if(!pbar) return;
@@ -4016,31 +4115,27 @@ SSE_SCRIPT = """<script>
     if(d.cells && d.cells.internet) set('cell-internet-perf', d.cells.internet);
     if(!safeStore('getItem','logDismissed')) stickySet('log-slot',d.log_card);
     else { var rc=document.getElementById('router-log-card'); if(rc) rc.remove(); }
+    if(d.hermes_log_card){{
+      window._lastHermesLogCard = d.hermes_log_card;
+      window._hasHermesLog = true;
+    }}
     if(!safeStore('getItem','hermesLogDismissed')) {{
-      var hlc = document.getElementById('hermes-log-card');
-      if(hlc && d.hermes_log_card) stickySet('hermes-log-card', d.hermes_log_card);
-      else if(d.hermes_log_card) {{
-        var hls = document.getElementById('hermes-log-slot');
-        if(hls) stickySet('hermes-log-slot', d.hermes_log_card);
-      }}
+      var hls = document.getElementById('hermes-log-slot');
+      if(hls && d.hermes_log_card) stickySet('hermes-log-slot', d.hermes_log_card);
     }} else {{
       var hc = document.getElementById('hermes-log-card');
-      if(hc) hc.remove();
-    }}
-    if(!safeStore('getItem','cleanLogDismissed')) {{
-      var clc = document.getElementById('clean-log-card');
-      if(clc && d.clean_junk_card) stickySet('clean-log-card', d.clean_junk_card);
-      else if(d.clean_junk_card) {{
-        var cls = document.getElementById('clean-log-slot');
-        if(cls) stickySet('clean-log-slot', d.clean_junk_card);
-      }}
-    }} else {{
-      var cc = document.getElementById('clean-log-card');
-      if(cc) {{ window._hasCleanLog = true; cc.remove(); }}
+      if(hc) {{ window._lastHermesLogCard = hc.outerHTML; window._hasHermesLog = true; hc.remove(); }}
     }}
     if(d.clean_junk_card) {{
       window._lastCleanJunkCard = d.clean_junk_card;
       window._hasCleanLog = true;
+    }}
+    if(!safeStore('getItem','cleanLogDismissed')) {{
+      var cls = document.getElementById('clean-log-slot');
+      if(cls && d.clean_junk_card) stickySet('clean-log-slot', d.clean_junk_card);
+    }} else {{
+      var cc = document.getElementById('clean-log-card');
+      if(cc) {{ window._hasCleanLog = true; cc.remove(); }}
     }}
     if(!safeStore('getItem','gatewayLogDismissed')) {
       if(d.gateway_log_card) stickySet('gateway-log-slot', d.gateway_log_card);
@@ -4214,7 +4309,7 @@ def render_poll_script() -> str:
 
 
 def render_log_card(log_text: str, result: dict | None = None) -> str:
-    body = html.escape(log_text) if log_text.strip() else "(menunggu output…)"
+    body = html.escape(redact_sensitive_tokens(log_text)) if log_text.strip() else "(menunggu output…)"
     status = (result or {}).get("status", "")
     summary = html.escape((result or {}).get("summary", ""))
     if status == "success":
@@ -4476,7 +4571,15 @@ def run_hermes_update() -> None:
                 try:
                     rc = proc.wait(timeout=HERMES_UPDATE_TIMEOUT)
                 except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid, signal.SIGTERM)
+                    try:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                        proc.wait(timeout=5)
+                    except Exception:
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                            proc.wait(timeout=2)
+                        except Exception:
+                            pass
                     log.write(f"\n[panel] ERROR: timeout {HERMES_UPDATE_TIMEOUT} detik\n")
                     rc = 124
             if rc == 0:
@@ -4766,13 +4869,10 @@ def set_current_model(model_id: str) -> bool:
         )
         if n == 0:
             return False
-        tmp_path = CONFIG_PATH + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            f.write(new_text)
-        os.replace(tmp_path, CONFIG_PATH)
-        invalidate_config_cache()
+        _write_config_atomic(new_text)
         return True
-    except Exception:
+    except Exception as e:
+        sys.stderr.write(f"[panel] set_current_model error: {e}\n")
         return False
 
 
@@ -4878,13 +4978,10 @@ def set_aux_task_model(task: str, provider: str, model: str) -> bool:
                     task_cfg["base_url"] = f"http://{host}:20128/v1"
                     task_cfg["api_key"] = key or ""
 
-        tmp_path = CONFIG_PATH + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-        os.replace(tmp_path, CONFIG_PATH)
-        invalidate_config_cache()
+        _write_config_atomic(cfg)
         return True
-    except Exception:
+    except Exception as e:
+        sys.stderr.write(f"[panel] set_aux_task_model error: {e}\n")
         return False
 
 
@@ -4906,13 +5003,10 @@ def reset_all_aux_tasks() -> bool:
             dele["provider"] = ""
             dele["model"] = ""
 
-        tmp_path = CONFIG_PATH + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-        os.replace(tmp_path, CONFIG_PATH)
-        invalidate_config_cache()
+        _write_config_atomic(cfg)
         return True
-    except Exception:
+    except Exception as e:
+        sys.stderr.write(f"[panel] reset_all_aux_tasks error: {e}\n")
         return False
 
 
@@ -5005,13 +5099,10 @@ def set_fallback_model(index: int, provider: str, model: str) -> bool:
         else:
             fps.append(entry)
 
-        tmp_path = CONFIG_PATH + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-        os.replace(tmp_path, CONFIG_PATH)
-        invalidate_config_cache()
+        _write_config_atomic(cfg)
         return True
-    except Exception:
+    except Exception as e:
+        sys.stderr.write(f"[panel] set_fallback_model error: {e}\n")
         return False
 
 
@@ -5023,14 +5114,11 @@ def remove_fallback_model(index: int) -> bool:
         fps = cfg.get("fallback_providers")
         if isinstance(fps, list) and 0 <= index < len(fps):
             fps.pop(index)
-            tmp_path = CONFIG_PATH + ".tmp"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-            os.replace(tmp_path, CONFIG_PATH)
-            invalidate_config_cache()
+            _write_config_atomic(cfg)
             return True
         return False
-    except Exception:
+    except Exception as e:
+        sys.stderr.write(f"[panel] remove_fallback_model error: {e}\n")
         return False
 
 
@@ -5049,7 +5137,7 @@ def render_backup_models_block() -> str:
         priority = idx + 1
         model_name = html.escape(m["model"])
         provider = html.escape(m["provider"])
-        safe_model = m["model"].replace("'", "\\'")
+        safe_model = html.escape(m["model"].replace("\\", "\\\\").replace("'", "\\'"), quote=True)
         rows.append(
             f'<div class="aux-task-row" style="margin-bottom:0.45rem">'
             f'  <div class="aux-task-info">'
@@ -5079,7 +5167,8 @@ def restart_bot() -> None:
     # Non-blocking: a drain (active task) can make this take a while, and
     # we don't want the HTTP request itself to hang waiting for it — the
     # resulting page shows its own countdown instead.
-    subprocess.Popen(["systemctl", "--user", "restart", "hermes-gateway"], env=env)
+    p = subprocess.Popen(["systemctl", "--user", "restart", "hermes-gateway"], env=env)
+    threading.Thread(target=p.wait, daemon=True).start()
 
 
 def bot_action(action: str) -> None:
@@ -5095,9 +5184,11 @@ def bot_action(action: str) -> None:
     env = os.environ.copy()
     env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
     if action == "start":
-        subprocess.Popen(["systemctl", "--user", "enable", "--now", "hermes-gateway"], env=env)
+        p = subprocess.Popen(["systemctl", "--user", "enable", "--now", "hermes-gateway"], env=env)
+        threading.Thread(target=p.wait, daemon=True).start()
     elif action == "stop":
-        subprocess.Popen(["systemctl", "--user", "disable", "--now", "hermes-gateway"], env=env)
+        p = subprocess.Popen(["systemctl", "--user", "disable", "--now", "hermes-gateway"], env=env)
+        threading.Thread(target=p.wait, daemon=True).start()
 
 
 def _router_ssh_argv(command: str) -> list[str]:
@@ -5447,8 +5538,8 @@ def _refresh_update_cache() -> None:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(data, f)
             os.replace(tmp, UPDATE_CACHE_PATH)
-        except Exception:
-            pass
+        except OSError as e:
+            sys.stderr.write(f"[panel] update cache save error: {e}\n")
     finally:
         with _update_refresh_lock:
             _update_refreshing = False
@@ -5744,8 +5835,8 @@ def cleanup_system_junk() -> dict:
             json.dump(result_data, f)
         with open(CLEAN_JUNK_LOG, "w", encoding="utf-8") as f:
             f.write(full_log)
-    except Exception:
-        pass
+    except OSError as e:
+        sys.stderr.write(f"[panel] clean junk save error: {e}\n")
 
     global _clean_junk_result
     with _clean_junk_lock:
@@ -5794,7 +5885,11 @@ def update_router() -> None:
                 try:
                     rc = proc.wait(timeout=UPDATE_TIMEOUT)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=5)
+                    except Exception:
+                        pass
                     log.write("\n[ERROR] timeout: update melebihi 300 detik\n")
                     rc = 124
             try:
@@ -5853,8 +5948,8 @@ def get_router_status() -> tuple[bool, float, str]:
     port = get_9router_port()
     start = time.monotonic()
     try:
-        s = socket.create_connection((host, port), timeout=INFO_TIMEOUT)
-        s.close()
+        with socket.create_connection((host, port), timeout=INFO_TIMEOUT) as s:
+            pass
         return True, time.monotonic() - start, host
     except Exception:
         return False, time.monotonic() - start, host
@@ -6387,8 +6482,8 @@ def get_internet_status() -> tuple[bool, float, str]:
     for target in [("1.1.1.1", 53), ("8.8.8.8", 53)]:
         t0 = time.monotonic()
         try:
-            s = socket.create_connection(target, timeout=1.2)
-            s.close()
+            with socket.create_connection(target, timeout=1.2) as s:
+                pass
             latency_ms = (time.monotonic() - t0) * 1000
             online = True
             active_target = target[0]
@@ -6650,7 +6745,7 @@ def build_fragments() -> dict:
     hermes_local = hermes_upd.get("local", "?")
     hermes_status = hermes_upd.get("status", "unknown")
     hermes_result = get_hermes_update_result()
-    hermes_log = html.escape(tail_hermes_update_log())
+    hermes_log = html.escape(redact_sensitive_tokens(tail_hermes_update_log()))
     hermes_notes = get_hermes_patch_notes()
     hermes_patch_notes_html = render_patch_notes_block("Hermes Agent", hermes_notes)
 
@@ -6680,10 +6775,11 @@ def build_fragments() -> dict:
         hermes_update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan Hermes…</div>' + hermes_patch_notes_html
 
     # Permanently render Hermes log card whenever log file exists or update result exists
+    hermes_log_card = ""
     if hermes_log or hermes_result.get("status") != "idle" or os.path.exists("/root/.hermes/logs/update.log"):
         cls = "up" if hermes_result.get("status") == "success" else ("down" if hermes_result.get("status") == "failed" else "warn")
         summary_text = html.escape(hermes_result.get("summary", "")) if hermes_result.get("summary") else ("Pembaruan sedang berjalan…" if hermes_result.get("running") else "Log Terakhir Pembaruan Hermes")
-        hermes_update_block += (
+        hermes_log_card = (
             f'<div id="hermes-log-card" style="margin-top:0.8rem">'
             f'<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:0.4rem">'
             f'<div class="update-hint {cls}" style="margin:0;flex:1">{summary_text}</div>'
@@ -6694,6 +6790,7 @@ def build_fragments() -> dict:
             f'<div class="logbox">{hermes_log or "(belum ada log)"}</div>'
             f'</div>'
         )
+    hermes_update_block += f'<div id="hermes-log-slot">{hermes_log_card}</div>'
 
     quick_links_block = (
         (get_open_block_active() if dash_active else OPEN_BLOCK_INACTIVE)
@@ -6727,6 +6824,7 @@ def build_fragments() -> dict:
         "update_block": update_block,
         "hermes_update_block": hermes_update_block,
         "log_card": log_card,
+        "hermes_log_card": hermes_log_card,
         "clean_junk_card": render_clean_junk_card(),
         "quick_links_block": quick_links_block,
         "dash_bot_btns_block": dash_bot_btns_block,
@@ -6916,73 +7014,81 @@ def _sse_push_loop():
         try:
             frag = build_fragments()
             data = _sse_payload(frag)
+
+            # Extract meaningful signals from cells for change detection
+            cells = frag.get("cells", {})
+            def _extract_status(cell_html: str) -> str:
+                import re as _re
+                for kw in ("Berjalan", "Berhenti", "Aktif", "Mati", "Terhubung", "Tidak terhubung", "Terputus"):
+                    if kw in cell_html:
+                        return kw
+                m = _re.search(r'class="value(?:\s+[^\"]+)?"[^>]*>(.*?)</span>', cell_html)
+                return m.group(1) if m else cell_html[:30]
+
+            current_state = {
+                "dash": _extract_status(cells.get("dash", "")),
+                "bot": _extract_status(cells.get("bot", "")),
+                "gw": _extract_status(cells.get("gw", "")),
+                "model": _extract_status(cells.get("model", "")),
+                "router": _extract_status(cells.get("router", "")),
+                "internet": _extract_status(cells.get("internet", "")),
+                "ram": cells.get("ram", ""),
+                "temp": cells.get("temp", ""),
+                "disk": cells.get("disk", ""),
+                "uptime": cells.get("uptime", ""),
+                "lan": cells.get("lan", ""),
+                "ts": cells.get("ts", ""),
+                "model_chips": frag.get("model_chips", "")[:50],
+                "rate_limit": bool(frag.get("rate_limit_card", "")),
+                "update_block": frag.get("update_block", ""),
+                "log_card": frag.get("log_card", ""),
+                "hermes_update_block": frag.get("hermes_update_block", ""),
+                "quick_links_block": frag.get("quick_links_block", ""),
+                "dash_bot_btns_block": frag.get("dash_bot_btns_block", ""),
+                "aux_tasks_block": frag.get("aux_tasks_block", "")[:100],
+                "backup_models_block": frag.get("backup_models_block", "")[:100],
+                "cpu_pct": frag.get("cpu_pct", 0.0),
+                "processes_table": frag.get("processes_table", "")[:80],
+                "updating": frag.get("updating", False),
+                "cell_load": frag.get("cell_load", ""),
+                "ram_pct": frag.get("ram_pct", 0.0),
+                "gateway_list_block": frag.get("gateway_list_block", "")[:100],
+                "gw_summary_text": frag.get("gw_summary_text", ""),
+                "gw_summary_badge_class": frag.get("gw_summary_badge_class", ""),
+                "hermes_log_card": frag.get("hermes_log_card", ""),
+                "clean_junk_card": frag.get("clean_junk_card", ""),
+                "gateway_log_card": frag.get("gateway_log_card", ""),
+            }
+
+            should_push = current_state != last_state or frag.get("updating", False)
+            # Periodic sync every 10s to keep metrics strictly live
+            if tick_count >= 10:
+                should_push = True
+                tick_count = 0
+
+            if not should_push:
+                continue
+
+            last_state = current_state
+            with _sse_last_data_lock:
+                _sse_last_data = data
+
+            with _sse_clients_lock:
+                dead = []
+                for q, evt in _sse_clients:
+                    try:
+                        q.put_nowait(data)
+                    except queue.Full:
+                        dead.append((q, evt))
+                    except Exception:
+                        dead.append((q, evt))
+                for d in dead:
+                    try:
+                        _sse_clients.remove(d)
+                    except ValueError:
+                        pass
         except Exception:
             continue
-
-        # Extract meaningful signals from cells for change detection
-        cells = frag.get("cells", {})
-        def _extract_status(cell_html: str) -> str:
-            import re as _re
-            for kw in ("Berjalan", "Berhenti", "Aktif", "Mati", "Terhubung", "Tidak terhubung", "Terputus"):
-                if kw in cell_html:
-                    return kw
-            m = _re.search(r'class="value(?:\s+[^\"]+)?"[^>]*>(.*?)</span>', cell_html)
-            return m.group(1) if m else cell_html[:30]
-
-        current_state = {
-            "dash": _extract_status(cells.get("dash", "")),
-            "bot": _extract_status(cells.get("bot", "")),
-            "gw": _extract_status(cells.get("gw", "")),
-            "model": _extract_status(cells.get("model", "")),
-            "router": _extract_status(cells.get("router", "")),
-            "internet": _extract_status(cells.get("internet", "")),
-            "ram": cells.get("ram", ""),
-            "temp": cells.get("temp", ""),
-            "disk": cells.get("disk", ""),
-            "uptime": cells.get("uptime", ""),
-            "lan": cells.get("lan", ""),
-            "ts": cells.get("ts", ""),
-            "model_chips": frag.get("model_chips", "")[:50],
-            "rate_limit": bool(frag.get("rate_limit_card", "")),
-            "update_block": frag.get("update_block", ""),
-            "log_card": frag.get("log_card", ""),
-            "hermes_update_block": frag.get("hermes_update_block", ""),
-            "quick_links_block": frag.get("quick_links_block", ""),
-            "dash_bot_btns_block": frag.get("dash_bot_btns_block", ""),
-            "aux_tasks_block": frag.get("aux_tasks_block", "")[:100],
-            "backup_models_block": frag.get("backup_models_block", "")[:100],
-            "cpu_pct": frag.get("cpu_pct", 0.0),
-            "processes_table": frag.get("processes_table", "")[:80],
-            "updating": frag.get("updating", False),
-        }
-
-        should_push = current_state != last_state or frag.get("updating", False)
-        # Periodic sync every 10s to keep metrics strictly live
-        if tick_count >= 10:
-            should_push = True
-            tick_count = 0
-
-        if not should_push:
-            continue
-
-        last_state = current_state
-        with _sse_last_data_lock:
-            _sse_last_data = data
-
-        with _sse_clients_lock:
-            dead = []
-            for q, evt in _sse_clients:
-                try:
-                    q.put_nowait(data)
-                except queue.Full:
-                    dead.append((q, evt))
-                except Exception:
-                    dead.append((q, evt))
-            for d in dead:
-                try:
-                    _sse_clients.remove(d)
-                except ValueError:
-                    pass
 
 # Start SSE push thread
 threading.Thread(target=_sse_push_loop, daemon=True).start()
@@ -7054,6 +7160,8 @@ class Handler(BaseHTTPRequestHandler):
         if tab:
             location += f"{'&' if just else '?'}tab={quote(tab)}"
         self.send_response(302)
+        if getattr(self, "_bootstrap", False) or not self._has_valid_session():
+            self._set_session_cookie()
         self.send_header("Location", location)
         self.end_headers()
 
@@ -7074,6 +7182,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         """Mutations arrive here (UI fetch POST). Query string is parsed the
         same way as GET; body (form-encoded) is merged into qs."""
+        host = self.headers.get("Host")
+        origin = self.headers.get("Origin")
+        referer = self.headers.get("Referer")
+        if origin:
+            if urlparse(origin).netloc != host:
+                self._send_html("<h1>403 — CSRF: Invalid Origin</h1>", 403)
+                return
+        elif referer:
+            if urlparse(referer).netloc != host:
+                self._send_html("<h1>403 — CSRF: Invalid Referer</h1>", 403)
+                return
+
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         try:
@@ -7089,11 +7209,18 @@ class Handler(BaseHTTPRequestHandler):
                     loaded = json.loads(body)
                     if isinstance(loaded, dict):
                         json_data = loaded
+                        if "token" in json_data and json_data["token"]:
+                            qs.setdefault("token", [str(json_data["token"])])
+                    else:
+                        self._send_json({"ok": False, "error": "Format JSON harus berupa objek"}, code=400)
+                        return
                 except Exception:
-                    pass
-            body_qs = parse_qs(body)
-            for k, v in body_qs.items():
-                qs.setdefault(k, v)
+                    self._send_json({"ok": False, "error": "Sintaks JSON tidak valid"}, code=400)
+                    return
+            else:
+                body_qs = parse_qs(body)
+                for k, v in body_qs.items():
+                    qs.setdefault(k, v)
         authed, _ = self._authenticate(qs)
         if not authed:
             self._send_html("<h1>403 — token salah</h1>", 403)
@@ -7106,6 +7233,7 @@ class Handler(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
 
         authed, bootstrap = self._authenticate(qs)
+        self._bootstrap = bootstrap
         if not authed:
             self._send_html("<h1>403 — token salah</h1>", 403)
             return
@@ -7215,7 +7343,6 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/events":
             # SSE endpoint: stream updates to client
-            import queue
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
@@ -7273,7 +7400,7 @@ class Handler(BaseHTTPRequestHandler):
             plat = str(json_data.get("platform") or (qs.get("platform") or [""])[0]).strip().lower()
             yaml_content = str(json_data.get("yaml") if "yaml" in json_data else (qs.get("yaml") or [""])[0])
             enabled_raw = json_data.get("enabled") if "enabled" in json_data else (qs.get("enabled") or [None])[0]
-            enabled = bool(enabled_raw) if enabled_raw is not None else None
+            enabled = enabled_raw if isinstance(enabled_raw, bool) else (str(enabled_raw).strip().lower() in ("1", "true")) if enabled_raw is not None else None
             restart_gw = bool(json_data.get("restart_gw") if "restart_gw" in json_data else ((qs.get("restart_gw") or ["1"])[0] in ("1", "true", "True")))
             merge = bool(json_data.get("merge"))
             base_yaml = json_data.get("base_yaml") if isinstance(json_data.get("base_yaml"), str) else None

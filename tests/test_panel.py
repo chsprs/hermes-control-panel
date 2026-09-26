@@ -41,6 +41,7 @@ class TestHermesControlPanel(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+        cls.server.server_close()
 
     def setUp(self):
         panel._last_action_at = 0.0
@@ -774,7 +775,8 @@ class TestGatewayConfigSync(unittest.TestCase):
         # Hermes' update waits up to restart_after_turn_timeout + restart_drain_timeout
         # (1995s on this host) for the gateway; killing earlier leaves a half-finished update.
         self.assertGreaterEqual(panel.HERMES_UPDATE_TIMEOUT, 3600)
-        src = open(os.path.join(REPO_ROOT, "dashboard-toggle-server.py"), encoding="utf-8").read()
+        with open(os.path.join(REPO_ROOT, "dashboard-toggle-server.py"), encoding="utf-8") as f:
+            src = f.read()
         self.assertNotIn("timeout 900 detik", src, "timeout message must use the real value")
 
     def test_38_form_patch_merges_onto_editor_base_yaml(self):
@@ -928,6 +930,12 @@ process.stdout.write(serializeGwFormToYaml('discord'));
         block = panel.PAGE[idx:panel.PAGE.index("</select>", idx)]
         self.assertIn('value="pairing"', block)
         self.assertIn('value=""', block, "a 'Hermes default' choice that removes the key")
+
+    def test_49_sse_client_keys_parity(self):
+        """build_fragments() must return every key defined in SSE_CLIENT_KEYS."""
+        frag = panel.build_fragments()
+        for k in panel.SSE_CLIENT_KEYS:
+            self.assertIn(k, frag, f"Key '{k}' in SSE_CLIENT_KEYS must be returned by build_fragments()")
 
 
 if __name__ == "__main__":
