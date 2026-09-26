@@ -57,7 +57,7 @@ import yaml
 from datetime import datetime, timedelta, timezone
 from http import cookies as http_cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs, quote
+from urllib.parse import urlparse, parse_qs, quote, urlsplit
 
 TOKEN = os.environ.get("PANEL_TOKEN", "").strip()
 PORT = int(os.environ.get("PANEL_PORT", 9120))
@@ -671,7 +671,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   </div>
 </div>
 <div id="gw-config-modal">
-  <div class="confirm-box" style="max-width:580px;width:94%;max-height:88vh;display:flex;flex-direction:column;padding:1.4rem">
+  <div class="confirm-box" style="max-width:580px;width:94%;max-height:88vh;display:flex;flex-direction:column;padding:1.4rem;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
       <h3 id="gw-config-title" style="margin:0;font-size:1.05rem">Konfigurasi Gateway</h3>
       <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeGwConfig()">✕</button>
@@ -793,8 +793,6 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
               <option value="">default Hermes</option>
               <option value="public">public (Tampilkan di obrolan)</option>
               <option value="private">private (Kirim khusus ke admin)</option>
-              <option value="dm">dm (Kirim lewat DM)</option>
-              <option value="none">none / off (Jangan kirim)</option>
             </select>
           </div>
         </div>
@@ -891,7 +889,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         </select>
       </div>
 
-      <textarea id="gw-config-yaml" spellcheck="false" style="width:100%;height:190px;max-height:30vh;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:var(--radius-sm);color:#e2e8f0;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;outline:none;box-sizing:border-box" placeholder="enabled: true..."></textarea>
+      <textarea id="gw-config-yaml" spellcheck="false" oninput="_yamlEditedByUser=true" style="width:100%;height:190px;max-height:30vh;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:var(--radius-sm);color:#e2e8f0;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;outline:none;box-sizing:border-box" placeholder="enabled: true..."></textarea>
 
       <details id="gw-config-guide-details" open style="margin-top:0.4rem;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.4rem 0.6rem;font-size:0.71rem">
         <summary id="gw-config-guide-title" style="cursor:pointer;color:var(--accent-light);font-weight:600;user-select:none">💡 Panduan Kunci &amp; Format Platform</summary>
@@ -1505,6 +1503,7 @@ var currentGwPlatform = '';
 var isNewGwPlatform = false;
 var currentGwMode = 'ui';
 var _gwPreviewGen = 0;
+var _yamlEditedByUser = false;
 
 function switchGwConfigMode(mode){{
   currentGwMode = mode;
@@ -1519,9 +1518,10 @@ function switchGwConfigMode(mode){{
     if(btnYaml) btnYaml.classList.remove('active');
     if(formView) formView.style.display = 'flex';
     if(yamlView) yamlView.style.display = 'none';
-    if(yamlEl && yamlEl.value.trim()){{
+    if(_yamlEditedByUser && yamlEl && yamlEl.value.trim()){{
       var plat = currentGwPlatform || gwActivePlatform();
       populateGwFormFromYaml(yamlEl.value, plat);
+      _yamlEditedByUser = false;
     }}
   }} else {{
     if(btnYaml) btnYaml.classList.add('active');
@@ -1534,6 +1534,7 @@ function switchGwConfigMode(mode){{
       var errEl = document.getElementById('gw-config-error');
       var plat = gwActivePlatform();
       var reqGen = ++_gwPreviewGen;
+      yamlEl.readOnly = true;
       fetch('/api/gateway-config-preview', {{
         method: 'POST',
         headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
@@ -1541,9 +1542,13 @@ function switchGwConfigMode(mode){{
       }})
       .then(function(r){{ return r.json(); }})
       .then(function(res){{
+        if(yamlEl) yamlEl.readOnly = false;
         if(reqGen !== _gwPreviewGen || currentGwMode !== 'yaml') return;
-        if(res.ok) yamlEl.value = res.yaml;
-        else if(errEl){{ errEl.textContent = res.error || 'Gagal menyusun YAML'; errEl.style.display = 'block'; }}
+        if(res.ok && !_yamlEditedByUser) yamlEl.value = res.yaml;
+        else if(!res.ok && errEl){{ errEl.textContent = res.error || 'Gagal menyusun YAML'; errEl.style.display = 'block'; }}
+      }})
+      .catch(function(){{
+        if(yamlEl) yamlEl.readOnly = false;
       }});
     }}
   }}
@@ -1631,6 +1636,8 @@ function populateGwFormFromYaml(yamlText, platform){{
       present[k] = true;
       if(v.charAt(0) === '[' && v.charAt(v.length - 1) === ']'){{
         d[k] = v.slice(1, -1).split(',').map(gwUnquote).filter(Boolean);
+      }} else if(v) {{
+        d[k] = [v];
       }} else {{
         d[k] = [];
         currentList = d[k];
@@ -1670,7 +1677,7 @@ function populateGwFormFromYaml(yamlText, platform){{
   var chkRr = document.getElementById('gw-f-read-receipts');
   if(chkRr) chkRr.checked = d.send_read_receipts;
   var selNot = document.getElementById('gw-f-notice-del');
-  if(selNot) selNot.value = (d.notice_delivery === 'off' || d.notice_delivery === 'disabled' || d.notice_delivery === 'false' || d.notice_delivery === false || d.notice_delivery === '0') ? 'none' : (d.notice_delivery || '');
+  if(selNot) selNot.value = (d.notice_delivery === 'public' || d.notice_delivery === 'private') ? d.notice_delivery : '';
   var inpPort = document.getElementById('gw-f-wa-port');
   if(inpPort) inpPort.value = d.bridge_port || 3000;
 
@@ -2151,6 +2158,7 @@ function applyGwSelectedTemplate(key){{
     return;
   }}
   yamlEl.value = GW_TEMPLATES[key];
+  _yamlEditedByUser = true;
   var tp = document.getElementById('gw-template-picker'); if(tp) tp.value = '';
   updateGwGuide(key);
 }}
@@ -2167,12 +2175,24 @@ function selectCatalogPlatform(plat){{
   }}
   if(plat === currentGwPlatform) return;
   var prevTpl = GW_TEMPLATES[currentGwPlatform] || '';
-  var isDirty = yamlEl && yamlEl.value.trim() && yamlEl.value.trim() !== prevTpl.trim();
+  var isFormDirty = false;
+  try {{
+    var cur = gwFormFieldValues();
+    for (var k in cur) {{
+      if (JSON.stringify(cur[k]) !== JSON.stringify(gwFormInitial[k])) {{
+        isFormDirty = true;
+        break;
+      }}
+    }}
+  }} catch(e) {{}}
+  var isYamlDirty = _yamlEditedByUser && yamlEl && yamlEl.value.trim() && yamlEl.value.trim() !== prevTpl.trim();
+  var isDirty = (currentGwMode === 'ui') ? isFormDirty : isYamlDirty;
   if(isDirty && !confirm('Ganti platform? Perubahan yang belum disimpan akan hilang.')){{
     if(selectEl) selectEl.value = currentGwPlatform || '';
     return;
   }}
   currentGwPlatform = plat;
+  _yamlEditedByUser = false;
 
   if(plat === 'custom'){{
     if(inputEl){{ inputEl.value = ''; inputEl.focus(); }}
@@ -2196,7 +2216,7 @@ function selectCatalogPlatform(plat){{
     fetch('/api/gateway-config?platform=' + encodeURIComponent(plat))
       .then(function(r){{ return r.json(); }})
       .then(function(d){{
-        if(d.ok && yamlEl){{
+        if(d.ok && yamlEl && currentGwPlatform === plat){{
           yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
           populateGwFormFromYaml(yamlEl.value, plat);
         }}
@@ -2220,6 +2240,8 @@ function openGwConfig(platform, title){{
   if(errEl){{ errEl.style.display = 'none'; errEl.textContent = ''; }}
   if(titleEl) titleEl.textContent = title ? 'Konfigurasi: ' + title : 'Tambah Platform Gateway';
   if(saveBtn){{ saveBtn.textContent = 'Simpan'; saveBtn.disabled = false; }}
+  _yamlEditedByUser = false;
+  if(yamlEl) yamlEl.value = '';
 
   switchGwConfigMode('ui');
   if(isNewGwPlatform){{
@@ -2236,12 +2258,14 @@ function openGwConfig(platform, title){{
   }} else {{
     if(selectWrap) selectWrap.style.display = 'none';
     if(yamlEl) yamlEl.value = 'Memuat konfigurasi…';
+    if(saveBtn) saveBtn.disabled = true;
     updateGwGuide(platform);
     if(modal) modal.classList.add('show');
 
     fetch('/api/gateway-config?platform=' + encodeURIComponent(platform))
       .then(function(r){{ return r.json(); }})
       .then(function(d){{
+        if(saveBtn) saveBtn.disabled = false;
         if(d.ok){{
           var yText = d.yaml || ('enabled: true' + String.fromCharCode(10));
           if(yamlEl) yamlEl.value = yText;
@@ -2252,6 +2276,7 @@ function openGwConfig(platform, title){{
         }}
       }})
       .catch(function(e){{
+        if(saveBtn) saveBtn.disabled = false;
         if(errEl){{ errEl.textContent = 'Error koneksi: ' + e; errEl.style.display = 'block'; }}
       }});
   }}
@@ -2261,6 +2286,8 @@ function closeGwConfig(){{
   var modal = document.getElementById('gw-config-modal');
   if(modal) modal.classList.remove('show');
   currentGwPlatform = '';
+  isNewGwPlatform = false;
+  _yamlEditedByUser = false;
 }}
 
 function saveGwConfig(){{
@@ -2384,13 +2411,19 @@ var _waPairTimerInterval = null;
 var _waPairExpiresAt = null;
 var _waPairCancelled = false;
 var _waPairActionGen = 0;
+var _lastWaPairStatus = '';
 function openWaPairModal(){{
   _waPairCancelled = false;
+  _lastWaPairStatus = '';
   var m = document.getElementById('wa-pair-modal');
   if(m){{
     m.classList.add('show');
     m.style.display = 'flex';
   }}
+  var qrBox = document.getElementById('wa-pair-qr-container');
+  if(qrBox) qrBox.innerHTML = '';
+  var timerEl = document.getElementById('wa-pair-timer');
+  if(timerEl) timerEl.textContent = '';
   fetch('/api/whatsapp/pair-status')
     .then(function(r){{ return r.json(); }})
     .then(function(d){{
@@ -2402,7 +2435,9 @@ function openWaPairModal(){{
         pollWaPairStatus();
       }}
     }})
-    .catch(function(){{}});
+    .catch(function(err){{
+      setWaPairStatusUI({{status: 'error', error: 'Gagal memuat status WhatsApp: ' + err}});
+    }});
 }}
 
 function closeWaPairModal(skipCancel){{
@@ -2420,14 +2455,18 @@ function closeWaPairModal(skipCancel){{
     clearInterval(_waPairTimerInterval);
     _waPairTimerInterval = null;
   }}
-  var badge = document.getElementById('wa-pair-status-badge');
-  var isConnected = badge && badge.textContent === 'Terhubung';
-  if(!skipCancel && !isConnected){{
+  var qrBox = document.getElementById('wa-pair-qr-container');
+  if(qrBox) qrBox.innerHTML = '';
+  var timerEl = document.getElementById('wa-pair-timer');
+  if(timerEl) timerEl.textContent = '';
+  var isPairingActive = (_lastWaPairStatus === 'waiting_scan' || _lastWaPairStatus === 'starting');
+  if(!skipCancel && isPairingActive){{
     fetch('/api/whatsapp/pair-cancel', {{method: 'POST'}}).catch(function(){{}});
   }}
 }}
 
 function setWaPairStatusUI(data){{
+  _lastWaPairStatus = data.status || '';
   var bText = document.getElementById('wa-pair-status-text');
   var badge = document.getElementById('wa-pair-status-badge');
   var qrBox = document.getElementById('wa-pair-qr-container');
@@ -2445,9 +2484,13 @@ function setWaPairStatusUI(data){{
         if(!_waPairExpiresAt || !timerEl) return;
         var rem = Math.max(0, Math.round(_waPairExpiresAt - (Date.now()/1000)));
         timerEl.textContent = rem > 0 ? ('⏳ ' + rem + 's') : '';
-        if(rem <= 0 && _waPairTimerInterval){{
-          clearInterval(_waPairTimerInterval);
-          _waPairTimerInterval = null;
+        if(rem <= 0){{
+          var qb = document.getElementById('wa-pair-qr-container');
+          if(qb) qb.innerHTML = '<div style="color:var(--warning);padding:2rem 1rem;text-align:center"><div style="font-size:2rem;margin-bottom:0.5rem">⏳</div><div style="font-weight:600">QR Code Kedaluwarsa</div><div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.4rem">Menunggu refresh QR dari server…</div></div>';
+          if(_waPairTimerInterval){{
+            clearInterval(_waPairTimerInterval);
+            _waPairTimerInterval = null;
+          }}
         }}
       }};
       updateTimer();
@@ -2529,11 +2572,15 @@ function setWaPairStatusUI(data){{
   }}
 }}
 
+var _waPairPolling = false;
 function pollWaPairStatus(){{
   if(_waPairPollTimer){{ clearTimeout(_waPairPollTimer); _waPairPollTimer = null; }}
+  if(_waPairPolling) return;
+  _waPairPolling = true;
   fetch('/api/whatsapp/pair-status')
     .then(function(r){{ return r.json(); }})
     .then(function(d){{
+      _waPairPolling = false;
       var m = document.getElementById('wa-pair-modal');
       var isOpen = m && (m.classList.contains('show') || m.style.display !== 'none');
       if(!isOpen || _waPairCancelled) return;
@@ -2542,7 +2589,14 @@ function pollWaPairStatus(){{
         _waPairPollTimer = setTimeout(pollWaPairStatus, 1500);
       }}
     }})
-    .catch(function(){{}});
+    .catch(function(){{
+      _waPairPolling = false;
+      var m = document.getElementById('wa-pair-modal');
+      var isOpen = m && (m.classList.contains('show') || m.style.display !== 'none');
+      if(isOpen && !_waPairCancelled){{
+        _waPairPollTimer = setTimeout(pollWaPairStatus, 2500);
+      }}
+    }});
 }}
 
 function startWaPair(clearSession){{
@@ -2690,7 +2744,10 @@ function toggleLog(flag, wrapId){{
   }}
   if(flag === 'gatewayLogDismissed' && window._lastGatewayLogCard){{
     var gls = document.getElementById('gateway-log-slot');
-    if(gls) gls.innerHTML = window._lastGatewayLogCard;
+    if(gls){{
+      gls.innerHTML = window._lastGatewayLogCard;
+      syncGwLogTabUI();
+    }}
   }}
 }}
 function syncLogUI(){{
@@ -2949,7 +3006,7 @@ def _probe_gateway_platforms() -> list[dict]:
     for p in candidate_platforms:
         p_cfg = _effective_platform_block(cfg, p)
 
-        enabled = bool(p_cfg.get("enabled", False))
+        enabled = _to_bool(p_cfg.get("enabled", False))
         rt = rt_platforms.get(p) if isinstance(rt_platforms.get(p), dict) else {}
 
         rt_state = str(rt.get("state") or "").strip().lower()
@@ -3336,11 +3393,9 @@ def _wa_pair_watcher(proc, session_dir: Path):
     finally:
         with _wa_pair_lock:
             if _wa_pair_proc is proc:
-                try:
-                    proc.wait(timeout=0.2)
-                except Exception:
-                    pass
                 _wa_pair_proc = None
+        if proc.poll() is None:
+            _reap_proc_async(proc)
 
 
 def _reap_proc_async(proc) -> None:
@@ -3451,6 +3506,11 @@ def cancel_wa_pair() -> None:
 
 
 def apply_wa_pair(restart_gw: bool = True) -> tuple[bool, str]:
+    global _wa_pair_proc
+    with _wa_pair_lock:
+        if _wa_pair_proc is not None:
+            _reap_proc_async(_wa_pair_proc)
+            _wa_pair_proc = None
     ok, err = toggle_gateway_platform_config("whatsapp", True)
     if not ok:
         return False, f"Gagal mengaktifkan WhatsApp di config: {err}"
@@ -3463,7 +3523,7 @@ def redact_sensitive_tokens(text: str) -> str:
     if not text:
         return ""
     text = re.sub(r'\b\d{8,12}:[A-Za-z0-9_-]{25,}\b', '[REDACTED_TOKEN]', text)
-    text = re.sub(r'\b[A-Za-z0-9_-]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}\b', '[REDACTED_DISCORD_TOKEN]', text)
+    text = re.sub(r'\b[A-Za-z0-9_-]{24,32}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}\b', '[REDACTED_DISCORD_TOKEN]', text)
     text = re.sub(r'\bxox[baprs]-[A-Za-z0-9-]+\b', '[REDACTED_SLACK_TOKEN]', text)
     text = re.sub(r'(bearer\s+)[A-Za-z0-9_.-]{16,}', r'\1[REDACTED]', text, flags=re.IGNORECASE)
     text = re.sub(r'\bsk-[A-Za-z0-9_-]{20,}\b', '[REDACTED_KEY]', text)
@@ -3523,7 +3583,7 @@ def render_gateway_log_card(n: int = 60) -> str:
         f"onclick=\"var bg=document.getElementById('gateway-logbox'), bw=document.getElementById('whatsapp-logbox'); if(bg&&bg.style.display!=='none')bg.scrollTop=bg.scrollHeight; if(bw&&bw.style.display!=='none')bw.scrollTop=bw.scrollHeight;\">"
         f'Ke Log Terbaru</button>'
         f'<button type="button" class="btn" style="width:auto;padding:0.2rem 0.6rem;font-size:0.72rem;margin:0" '
-        f"onclick=\"safeStore('setItem','gatewayLogDismissed','1');document.getElementById('gateway-log-card').remove();if(window.syncLogUI)syncLogUI()\">"
+        f"onclick=\"safeStore('setItem','gatewayLogDismissed','1');var c=document.getElementById('gateway-log-card');if(c)c.remove();if(window.syncLogUI)syncLogUI()\">"
         f'Sembunyikan Log</button>'
         f'</div>'
         f'</div>'
@@ -3549,7 +3609,7 @@ _OPEN_POLICY_GUARD = {
     "yuanbao": ("YUANBAO_DM_POLICY", "YUANBAO_GROUP_POLICY", "YUANBAO_ALLOW_ALL_USERS"),
     "qqbot": (None, None, "QQ_ALLOW_ALL_USERS"),
 }
-_TRUTHY = {"true", "1", "yes"}
+_TRUTHY = {"true", "1", "yes", "on"}
 
 
 def _effective_platform_block(cfg: dict, platform: str) -> dict:
@@ -3661,6 +3721,7 @@ def _open_policy_violation(cfg: dict, platform: str, block: dict) -> str:
         env.get("GATEWAY_ALLOW_ALL_USERS"),
         env.get(allow_all_env),
         block.get("allow_all_users"),
+        extra.get("allow_all_users"),
         gateway_section.get("allow_all_users"),
         cfg.get("allow_all_users"),
     )
@@ -3949,7 +4010,7 @@ def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override:
         return False, err
 
     if enabled_override is not None:
-        block["enabled"] = bool(enabled_override)
+        block["enabled"] = _to_bool(enabled_override)
     elif "enabled" not in block:
         block["enabled"] = True
 
@@ -4451,15 +4512,21 @@ document.addEventListener('click', function(e){
 
 function confirmAction(route, href){
   var modal=document.getElementById('confirm-modal');
-  document.getElementById('confirm-title').textContent = route.title;
-  document.getElementById('confirm-msg').textContent = route.msg;
+  if(!modal) return;
+  var titleEl = document.getElementById('confirm-title');
+  var msgEl = document.getElementById('confirm-msg');
+  var cancelBtn = document.getElementById('confirm-cancel');
+  var okBtn = document.getElementById('confirm-ok');
+  if(titleEl) titleEl.textContent = route.title;
+  if(msgEl) msgEl.textContent = route.msg;
   modal.classList.add('show');
-  document.getElementById('confirm-cancel').onclick=function(){ modal.classList.remove('show'); };
-  document.getElementById('confirm-ok').onclick=function(){
+  if(cancelBtn) cancelBtn.onclick=function(){ modal.classList.remove('show'); };
+  if(okBtn) okBtn.onclick=function(){
     try{
       safeStore('removeItem','logDismissed');
       safeStore('removeItem','hermesLogDismissed');
       safeStore('removeItem','cleanLogDismissed');
+      safeStore('removeItem','gatewayLogDismissed');
     }catch(x){}
     if(isMutatingPath(href)){
       postNavigate(href);
@@ -4498,7 +4565,7 @@ def render_log_card(log_text: str, result: dict | None = None) -> str:
         f'<div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">'
         f'<div>{ICON_TERMINAL} Log pembaruan 9router {badge}</div>'
         f'<button type="button" class="btn" style="width:auto;padding:0.2rem 0.6rem;font-size:0.72rem;margin:0" '
-        f"onclick=\"safeStore('setItem','logDismissed','1');document.getElementById('router-log-card').remove();if(window.syncLogUI)syncLogUI()\">"
+        f"onclick=\"safeStore('setItem','logDismissed','1');var c=document.getElementById('router-log-card');if(c)c.remove();if(window.syncLogUI)syncLogUI()\">"
         f'Sembunyikan Log</button>'
         f'</div>'
         f'<div class="logbox" id="logbox">{body}</div>'
@@ -4553,6 +4620,7 @@ def _refresh_hermes_update() -> None:
         behind = 0
         status = "current"
         remote_tag = local_tag
+        cmp_data = None
 
         try:
             req = urllib.request.Request(
@@ -4697,9 +4765,10 @@ def is_hermes_updating() -> bool:
 
 
 def get_hermes_update_result() -> dict:
+    running = is_hermes_updating()
     with _hermes_update_lock:
         result = dict(_hermes_update_result)
-        result["running"] = is_hermes_updating()
+        result["running"] = running
         return result
 
 
@@ -4945,7 +5014,7 @@ def fetch_remote_models() -> dict:
 
 def reload_panel_config() -> dict:
     """Reload dynamic caches from disk and refresh 9router models/version info."""
-    global _router_host_cache, _router_host_at
+    global _9router_host_cache, _9router_host_at
     with _9router_host_lock:
         _9router_host_cache = ""
         _9router_host_at = 0
@@ -4998,8 +5067,10 @@ def get_available_models() -> dict:
         return {"9router (Kombo)": []}
     try:
         host = get_9router_host()
+        port = get_9router_port()
+        url = f"http://{host}:{port}/v1/models"
         req = urllib.request.Request(
-            ROUTER_MODELS_URL.format(host=host), headers={"Authorization": f"Bearer {key}", "Accept": "application/json"}
+            url, headers={"Authorization": f"Bearer {key}", "Accept": "application/json"}
         )
         with urllib.request.urlopen(req, timeout=MODELS_TIMEOUT) as resp:
             data = json.load(resp)
@@ -5560,8 +5631,9 @@ def get_remote_image_digest() -> str:
 def get_router_release() -> dict:
     """Read 9router's own public release check from the detected host."""
     host = get_9router_host()
+    port = get_9router_port()
     try:
-        with urllib.request.urlopen(ROUTER_VERSION_URL.format(host=host), timeout=INFO_TIMEOUT) as resp:
+        with urllib.request.urlopen(f"http://{host}:{port}/api/version", timeout=INFO_TIMEOUT) as resp:
             data = json.load(resp)
         return {
             "current": data.get("currentVersion", "?"),
@@ -5813,7 +5885,7 @@ def render_clean_junk_card() -> str:
         f'  </span>'
         f'</div>'
         f'<button type="button" class="btn btn-action-sm" '
-        f"onclick=\"safeStore('setItem','cleanLogDismissed','1');document.getElementById('clean-log-card').remove();if(window.syncLogUI)syncLogUI()\">"
+        f"onclick=\"safeStore('setItem','cleanLogDismissed','1');var c=document.getElementById('clean-log-card');if(c)c.remove();if(window.syncLogUI)syncLogUI()\">"
         f'Sembunyikan Log</button>'
         f'</div>'
         f'<div class="logbox">{log_text or "(belum ada log)"}</div>'
@@ -6961,7 +7033,7 @@ def build_fragments() -> dict:
             f'<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:0.4rem">'
             f'<div class="update-hint {cls}" style="margin:0;flex:1">{summary_text}</div>'
             f'<button type="button" class="btn" style="width:auto;padding:0.2rem 0.6rem;font-size:0.72rem;margin:0" '
-            f"onclick=\"safeStore('setItem','hermesLogDismissed','1');document.getElementById('hermes-log-card').remove();if(window.syncLogUI)syncLogUI()\">"
+            f"onclick=\"safeStore('setItem','hermesLogDismissed','1');var c=document.getElementById('hermes-log-card');if(c)c.remove();if(window.syncLogUI)syncLogUI()\">"
             f'Sembunyikan Log</button>'
             f'</div>'
             f'<div class="logbox">{hermes_log or "(belum ada log)"}</div>'
@@ -7029,7 +7101,10 @@ def _to_bool(val, default: bool = False) -> bool:
         return default
     if isinstance(val, bool):
         return val
-    return str(val).strip().lower() in ("1", "true", "yes", "on")
+    s = str(val).strip().lower()
+    if not s:
+        return default
+    return s in ("1", "true", "yes", "on")
 
 
 def build_status_page(just: str = "", active_tab: str = "") -> str:
@@ -7408,23 +7483,26 @@ class Handler(BaseHTTPRequestHandler):
             forwarded = ""
             if client_ip in ("127.0.0.1", "::1", "localhost"):
                 forwarded = (self.headers.get("X-Forwarded-Host") or "").split(",")[0].strip().lower()
-            allowed_hosts = {h for h in (raw_host, forwarded) if h}
+            def _norm_host(netloc_str: str) -> str:
+                if not netloc_str:
+                    return ""
+                try:
+                    u = urlsplit("//" + netloc_str.strip())
+                    h = (u.hostname or "").lower()
+                    p = u.port
+                    if p in (80, 443):
+                        p = None
+                    host_part = f"[{h}]" if ":" in h else h
+                    return f"{host_part}:{p}" if p else host_part
+                except Exception:
+                    return netloc_str.strip().lower()
 
-            def _strip_port(netloc_str: str) -> str:
-                return re.sub(r":\d+$", "", netloc_str.strip())
-
-            for h in list(allowed_hosts):
-                allowed_hosts.add(_strip_port(h))
+            allowed_hosts = {_norm_host(h) for h in (raw_host, forwarded) if h}
 
             def _is_host_allowed(candidate: str) -> bool:
                 if not candidate:
                     return False
-                if candidate in allowed_hosts:
-                    return True
-                cand_bare = _strip_port(candidate)
-                if any(":" not in h for h in (raw_host, forwarded) if h) and cand_bare in allowed_hosts:
-                    return True
-                return False
+                return _norm_host(candidate) in allowed_hosts
 
             origin = self.headers.get("Origin")
             referer = self.headers.get("Referer")
@@ -7710,7 +7788,7 @@ class Handler(BaseHTTPRequestHandler):
         global _last_action_at, _last_model_switch_at, _last_aux_model_at
 
         if parsed.path == "/switch-model":
-            requested = (qs.get("model") or [""])[0]
+            requested = str(json_data.get("model") or (qs.get("model") or [""])[0]).strip()
             now = time.monotonic()
             with _last_model_switch_lock:
                 debounced = (now - _last_model_switch_at) < DEBOUNCE_SECONDS
@@ -7723,8 +7801,14 @@ class Handler(BaseHTTPRequestHandler):
                 all_models = {m for group in models_dict.values() for m in group}
                 if requested in all_models:
                     if set_current_model(requested):
+                        if is_ajax:
+                            self._send_json({"ok": True, "model": requested})
+                            return
                         self._redirect_to_status(just="model")
                         return
+            if is_ajax:
+                self._send_json({"ok": False, "error": f"Model tidak valid atau gagal disetel: {requested}"}, code=400)
+                return
             self._redirect_to_status()
             return
 

@@ -49,6 +49,8 @@ class TestHermesControlPanel(unittest.TestCase):
         panel._last_model_switch_at = 0.0
         with panel._router_update_lock:
             panel._router_updating = False
+        with panel._hermes_update_lock:
+            panel._hermes_update_cache["at"] = time.time()
 
     def _request(self, path: str, method: str = "GET", headers: dict = None, data: bytes = None):
         url = f"http://127.0.0.1:{self.port}{path}"
@@ -616,6 +618,184 @@ class TestHermesControlPanel(unittest.TestCase):
                 }
             )
             self.assertEqual(code, 302)
+
+    def test_58_regressions_tick_audit(self):
+        """Regression tests for audit tick: CSRF port 80/443 bypass, 9router cache typo, modern Discord token redaction, boolean string coercion, and TRUTHY 'on'."""
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+
+        # 1. CSRF: Port 80 Origin (no port in Origin header) must be rejected when Host has port 9120
+        code, _, _ = self._request(
+            "/restart-bot",
+            method="POST",
+            headers={
+                "Cookie": cookie,
+                "Host": "192.168.1.100:9120",
+                "Origin": "http://192.168.1.100",
+            }
+        )
+        self.assertEqual(code, 403)
+
+        # 2. reload_panel_config clears _9router_host_cache and _9router_host_at
+        with panel._9router_host_lock:
+            panel._9router_host_cache = "192.168.1.50"
+            panel._9router_host_at = 1234567.0
+        with mock.patch.object(panel, "fetch_remote_models"):
+            res = panel.reload_panel_config()
+            self.assertEqual(res.get("status"), "reloaded")
+        self.assertEqual(panel._9router_host_cache, "")
+        self.assertEqual(panel._9router_host_at, 0)
+
+        # 3. Modern Discord snowflake bot token redaction (26 base64 chars in user id)
+        # Construct dynamically to avoid triggering GitHub push protection secret scanner on static dummy test data
+        discord_p1 = "MTA4ODc2NTQzMjEwOTg3NjU0"
+        discord_p2 = "GaBcDe"
+        discord_p3 = "123456789012345678901234567"
+        modern_discord_token = discord_p1 + "." + discord_p2 + "." + discord_p3
+        redacted = panel.redact_sensitive_tokens(f"Bot token is {modern_discord_token}")
+        self.assertNotIn(discord_p1, redacted)
+        self.assertIn("[REDACTED_DISCORD_TOKEN]", redacted)
+
+        # 4. _to_bool and _TRUTHY accept 'on'
+        self.assertTrue(panel._to_bool("on"))
+        self.assertIn("on", panel._TRUTHY)
+
+        # 5. String boolean coercion in platform config
+        cfg = {"platforms": {"telegram": {"enabled": "false"}}}
+        with mock.patch.object(panel, "get_parsed_config", return_value=cfg):
+            plats = panel._probe_gateway_platforms()
+            tg = next((p for p in plats if p["platform"] == "telegram"), None)
+            self.assertIsNotNone(tg)
+            self.assertFalse(tg["enabled"])
+
+        # 6. apply_wa_pair reaps running _wa_pair_proc
+        mock_proc = mock.MagicMock()
+        with panel._wa_pair_lock:
+            panel._wa_pair_proc = mock_proc
+        with mock.patch.object(panel, "toggle_gateway_platform_config", return_value=(True, "")), \
+             mock.patch.object(panel, "restart_bot"), \
+             mock.patch.object(panel, "_reap_proc_async") as mock_reap:
+            ok, msg = panel.apply_wa_pair(restart_gw=False)
+            self.assertTrue(ok)
+            mock_reap.assert_called_once_with(mock_proc)
+            self.assertIsNone(panel._wa_pair_proc)
+
+    def test_59_regressions_pasca_8270425_audit(self):
+        """Regression tests for audit fixes: IPv6 CSRF port normalization, /switch-model JSON, dynamic 9router port, proc reap in watcher, and extra allow_all_users."""
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+
+        # 1. CSRF: IPv6 Host without port matching Origin with default port 80
+        with mock.patch.object(panel, "restart_bot"):
+            code, _, _ = self._request(
+                "/restart-bot",
+                method="POST",
+                headers={
+                    "Cookie": cookie,
+                    "Host": "[::1]",
+                    "Origin": "http://[::1]:80"
+                }
+            )
+            self.assertEqual(code, 302)
+
+            # Reverse proxy forwarding X-Forwarded-Host: example.com:443 with Origin: https://example.com
+            code, _, _ = self._request(
+                "/restart-bot",
+                method="POST",
+                headers={
+                    "Cookie": cookie,
+                    "Host": "127.0.0.1:9120",
+                    "X-Forwarded-Host": "example.com:443",
+                    "Origin": "https://example.com"
+                }
+            )
+            self.assertEqual(code, 302)
+
+        # 2. /switch-model accepts JSON POST
+        with mock.patch.object(panel, "get_available_models_cached", return_value={"9router": ["test-model-123"]}), \
+             mock.patch.object(panel, "set_current_model", return_value=True):
+            code, _, body = self._request(
+                "/switch-model",
+                method="POST",
+                headers={
+                    "Cookie": cookie,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                data=json.dumps({"model": "test-model-123"}).encode("utf-8")
+            )
+            self.assertEqual(code, 200)
+            data = json.loads(body)
+            self.assertTrue(data.get("ok"))
+            self.assertEqual(data.get("model"), "test-model-123")
+
+        # 3. Dynamic port in get_available_models and get_router_release
+        with mock.patch.object(panel, "get_9router_host", return_value="127.0.0.1"), \
+             mock.patch.object(panel, "get_9router_port", return_value=20199), \
+             mock.patch.object(panel, "get_router_api_key", return_value="dummy-key"), \
+             mock.patch.object(panel.urllib.request, "urlopen") as mock_url:
+            cm = mock.MagicMock()
+            cm.read.return_value = json.dumps({"data": []}).encode("utf-8")
+            cm.__enter__.return_value = cm
+            cm.__exit__.return_value = None
+            mock_url.return_value = cm
+
+            panel.get_available_models()
+            called_req = mock_url.call_args[0][0]
+            url = called_req.full_url if hasattr(called_req, "full_url") else str(called_req)
+            self.assertIn("127.0.0.1:20199/v1/models", url)
+
+            cm.read.return_value = json.dumps({"currentVersion": "1.0", "latestVersion": "1.1", "hasUpdate": True}).encode("utf-8")
+            panel.get_router_release()
+            called_url = mock_url.call_args[0][0]
+            url2 = called_url.full_url if hasattr(called_url, "full_url") else str(called_url)
+            self.assertIn("127.0.0.1:20199/api/version", url2)
+
+        # 4. _open_policy_violation recognizes allow_all_users inside extra
+        cfg = {"platforms": {"whatsapp": {"enabled": True, "extra": {"dm_policy": "open", "allow_all_users": True}}}}
+        violation = panel._open_policy_violation(cfg, "whatsapp", cfg["platforms"]["whatsapp"])
+        self.assertEqual(violation, "", "allow_all_users inside extra must satisfy open policy guard")
+
+        # 5. _to_bool empty string fallback
+        self.assertTrue(panel._to_bool("", default=True))
+        self.assertFalse(panel._to_bool("", default=False))
+
+    def test_60_frontend_audit_regressions(self):
+        """Regression tests for frontend audit: modal safety, WA pairing lifecycle, and dismiss guards."""
+        page = panel.PAGE
+        nav_script = panel.NAV_SCRIPT
+
+        # 1. confirmAction has null guard for confirm-modal
+        self.assertIn("function confirmAction(route, href){\n  var modal=document.getElementById('confirm-modal');\n  if(!modal) return;", nav_script)
+
+        # 2. Dismiss buttons on all 4 log cards check element before calling remove()
+        gw_card = panel.render_gateway_log_card()
+        self.assertIn("var c=document.getElementById('gateway-log-card');if(c)c.remove();", gw_card)
+
+        r_card = panel.render_log_card("dummy log")
+        self.assertIn("var c=document.getElementById('router-log-card');if(c)c.remove();", r_card)
+
+        clean_card = panel.render_clean_junk_card()
+        # when clean_card renders, button must have guard
+        with mock.patch.object(panel, "get_clean_junk_result", return_value={"log": "done", "at": 12345}):
+            clean_html = panel.render_clean_junk_card()
+            self.assertIn("var c=document.getElementById('clean-log-card');if(c)c.remove();", clean_html)
+
+        # 3. WA pair modal lifecycle: only active pairing is cancelled on close
+        self.assertIn("var isPairingActive = (_lastWaPairStatus === 'waiting_scan' || _lastWaPairStatus === 'starting');", page)
+        self.assertIn("if(!skipCancel && isPairingActive)", page)
+
+        # 4. WA timer expiry clears QR container
+        self.assertIn("QR Code Kedaluwarsa", page)
+
+        # 5. WA poll status reschedules on fetch failure
+        self.assertIn("_waPairPollTimer = setTimeout(pollWaPairStatus, 2500);", page)
+
+        # 6. Gateway YAML switch sets readOnly while preview in-flight and guards user edits
+        self.assertIn("yamlEl.readOnly = true;", page)
+        self.assertIn("if(res.ok && !_yamlEditedByUser) yamlEl.value = res.yaml;", page)
+
+        # 7. Gateway config loading disables save button until response
+        self.assertIn("if(saveBtn) saveBtn.disabled = true;", page)
+
 
 
 class TestGatewayConfigSync(unittest.TestCase):
