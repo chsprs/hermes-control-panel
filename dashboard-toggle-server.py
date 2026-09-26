@@ -1567,7 +1567,7 @@ function populateGwFormFromYaml(yamlText, platform){{
     require_mention: false,
     reply_in_thread: false,
     send_read_receipts: false,
-    notice_delivery: 'public',
+    notice_delivery: '',
     bridge_port: 3000
   }};
   var present = {{}};
@@ -2129,6 +2129,15 @@ function selectCatalogPlatform(plat){{
     if(inputEl) inputEl.value = '';
     return;
   }}
+  if(plat === currentGwPlatform) return;
+  var prevTpl = GW_TEMPLATES[currentGwPlatform] || '';
+  var isDirty = yamlEl && yamlEl.value.trim() && yamlEl.value.trim() !== prevTpl.trim();
+  if(isDirty && !confirm('Ganti platform? Perubahan yang belum disimpan akan hilang.')){{
+    if(selectEl) selectEl.value = currentGwPlatform || '';
+    return;
+  }}
+  currentGwPlatform = plat;
+
   if(plat === 'custom'){{
     if(inputEl){{ inputEl.value = ''; inputEl.focus(); }}
     if(titleEl) titleEl.textContent = 'Tambah Gateway Kustom';
@@ -2178,6 +2187,7 @@ function openGwConfig(platform, title){{
 
   switchGwConfigMode('ui');
   if(isNewGwPlatform){{
+    currentGwPlatform = 'telegram';
     if(selectWrap) selectWrap.style.display = 'block';
     if(catalogSelect) catalogSelect.value = 'telegram';
     if(inputEl){{ inputEl.value = 'telegram'; inputEl.disabled = false; }}
@@ -2334,6 +2344,8 @@ function syncGwLogTabUI(){{
 }}
 
 var _waPairPollTimer = null;
+var _waPairTimerInterval = null;
+var _waPairExpiresAt = null;
 function openWaPairModal(){{
   var m = document.getElementById('wa-pair-modal');
   if(m){{
@@ -2355,7 +2367,7 @@ function openWaPairModal(){{
     }});
 }}
 
-function closeWaPairModal(){{
+function closeWaPairModal(skipCancel){{
   var m = document.getElementById('wa-pair-modal');
   if(m){{
     m.classList.remove('show');
@@ -2365,7 +2377,15 @@ function closeWaPairModal(){{
     clearTimeout(_waPairPollTimer);
     _waPairPollTimer = null;
   }}
-  fetch('/api/whatsapp/pair-cancel', {{method: 'POST'}}).catch(function(){{}});
+  if(_waPairTimerInterval){{
+    clearInterval(_waPairTimerInterval);
+    _waPairTimerInterval = null;
+  }}
+  var badge = document.getElementById('wa-pair-status-badge');
+  var isConnected = badge && badge.textContent === 'Terhubung';
+  if(!skipCancel && !isConnected){{
+    fetch('/api/whatsapp/pair-cancel', {{method: 'POST'}}).catch(function(){{}});
+  }}
 }}
 
 function setWaPairStatusUI(data){{
@@ -2381,9 +2401,22 @@ function setWaPairStatusUI(data){{
 
   if(timerEl){{
     if(data.status === 'waiting_scan' && data.expires_at){{
-      var rem = Math.max(0, Math.round(data.expires_at - (Date.now()/1000)));
-      timerEl.textContent = '⏳ ' + rem + 's';
+      _waPairExpiresAt = data.expires_at;
+      var updateTimer = function(){{
+        if(!_waPairExpiresAt || !timerEl) return;
+        var rem = Math.max(0, Math.round(_waPairExpiresAt - (Date.now()/1000)));
+        timerEl.textContent = rem > 0 ? ('⏳ ' + rem + 's') : '';
+      }};
+      updateTimer();
+      if(!_waPairTimerInterval){{
+        _waPairTimerInterval = setInterval(updateTimer, 1000);
+      }}
     }} else {{
+      _waPairExpiresAt = null;
+      if(_waPairTimerInterval){{
+        clearInterval(_waPairTimerInterval);
+        _waPairTimerInterval = null;
+      }}
       timerEl.textContent = '';
     }}
   }}
@@ -2417,8 +2450,9 @@ function setWaPairStatusUI(data){{
     if(btnReset) btnReset.style.display = 'none';
     if(btnApply) btnApply.style.display = 'none';
   }} else if(data.status === 'connected'){{
-    var uName = escGw((data.user && (data.user.name || data.user.id)) || 'Akun WhatsApp');
-    if(bText) bText.textContent = 'Terhubung sebagai: ' + uName;
+    var rawUName = (data.user && (data.user.name || data.user.id)) || 'Akun WhatsApp';
+    var uName = escGw(rawUName);
+    if(bText) bText.textContent = 'Terhubung sebagai: ' + rawUName;
     if(badge){{ badge.className = 'badge badge-up'; badge.textContent = 'Terhubung'; }}
     if(qrBox){{
       qrBox.innerHTML = '<div style="color:#10b981;padding:2rem 1rem;text-align:center"><div style="font-size:3rem;line-height:1;margin-bottom:0.5rem">✓</div><div style="font-weight:700;font-size:1.1rem">WhatsApp Berhasil Tertaut!</div><div style="font-size:0.82rem;color:var(--text);margin-top:0.4rem">Akun: <strong>' + uName + '</strong></div><div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.3rem">Kredensial tersimpan di sesi lokal server.</div></div>';
@@ -2428,8 +2462,9 @@ function setWaPairStatusUI(data){{
     if(btnReset) btnReset.style.display = 'inline-block';
     if(btnApply) btnApply.style.display = 'inline-block';
   }} else if(data.status === 'error'){{
-    var err = escGw(data.error || 'Terjadi kesalahan');
-    if(bText) bText.textContent = 'Status: ' + err;
+    var rawErr = data.error || 'Terjadi kesalahan';
+    var err = escGw(rawErr);
+    if(bText) bText.textContent = 'Status: ' + rawErr;
     if(badge){{ badge.className = 'badge badge-down'; badge.textContent = 'Gagal'; }}
     if(qrBox){{
       qrBox.innerHTML = '<div style="color:var(--danger);padding:2rem 1rem;text-align:center"><div style="font-size:2rem;margin-bottom:0.5rem">⚠</div><div style="font-weight:600">' + err + '</div><div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.4rem">Tekan tombol Coba Lagi untuk membuat sesi pairing baru.</div></div>';
@@ -2441,7 +2476,7 @@ function setWaPairStatusUI(data){{
   }} else {{
     if(bText) bText.textContent = 'Status: Siap untuk pairing';
     if(badge){{ badge.className = 'badge'; badge.textContent = 'Idle'; }}
-    if(qrBox){{
+    if(qrBox && (data.status === 'cancelled' || !qrBox.querySelector('svg'))){{
       qrBox.innerHTML = '<div style="color:var(--text-dim);font-size:0.82rem;padding:2rem 1rem">Tekan tombol <strong>"Mulai Pairing QR"</strong> di bawah untuk menginisialisasi jembatan Baileys dan membuat QR code.</div>';
     }}
     if(btnStart){{ btnStart.textContent = 'Mulai Pairing QR'; btnStart.style.display = 'inline-block'; }}
@@ -2517,7 +2552,7 @@ function applyWaPair(){{
   }}).then(function(r){{ return r.json(); }})
     .then(function(d){{
       if(d && d.ok){{
-        closeWaPairModal();
+        closeWaPairModal(true);
         window.location.reload();
       }} else {{
         if(btn){{ btn.disabled = false; btn.textContent = 'Aktifkan & Mulai Ulang Gateway'; }}
@@ -3016,8 +3051,8 @@ def render_gateway_platforms_html() -> str:
                 f'<span>⚠ {err_msg}</span></div>'
             )
 
-        safe_p = p["platform"].replace("'", "\'")
-        safe_name = name.replace("'", "\'")
+        safe_p = html.escape(p["platform"].replace(chr(92), chr(92)*2).replace(chr(39), chr(92)+chr(39)), quote=True)
+        safe_name = html.escape(p["display_name"].replace(chr(92), chr(92)*2).replace(chr(39), chr(92)+chr(39)), quote=True)
         pair_btn = (
             f'<button type="button" class="btn-action-sm btn-action-primary" '
             f'style="background:rgba(16,185,129,0.15);color:#10b981;border-color:rgba(16,185,129,0.3)" '
@@ -3225,20 +3260,30 @@ def _wa_pair_watcher(proc, session_dir: Path):
             _wa_pair_proc = None
 
 
+def _reap_proc_async(proc) -> None:
+    """Terminate and reap a subprocess in a daemon thread to avoid blocking HTTP request threads."""
+    if proc is None:
+        return
+    def _reaper():
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:
+            try:
+                proc.kill()
+                proc.wait(timeout=1)
+            except Exception:
+                pass
+    threading.Thread(target=_reaper, daemon=True).start()
+
+
 def start_wa_pair(clear_session: bool = True) -> tuple[bool, str]:
     global _wa_pair_proc
     with _wa_pair_lock:
         if _wa_pair_proc is not None and _wa_pair_proc.poll() is None:
             if _wa_pair_state.get("status") == "waiting_scan" and not clear_session:
                 return True, "Pairing sudah berjalan."
-            try:
-                _wa_pair_proc.terminate()
-                _wa_pair_proc.wait(timeout=1.5)
-            except Exception:
-                try:
-                    _wa_pair_proc.kill()
-                except Exception:
-                    pass
+            _reap_proc_async(_wa_pair_proc)
             _wa_pair_proc = None
 
         session_dir = Path("/root/.hermes/whatsapp/session")
@@ -3313,14 +3358,7 @@ def cancel_wa_pair() -> None:
     global _wa_pair_proc
     with _wa_pair_lock:
         if _wa_pair_proc is not None:
-            try:
-                _wa_pair_proc.terminate()
-                _wa_pair_proc.wait(timeout=2)
-            except Exception:
-                try:
-                    _wa_pair_proc.kill()
-                except Exception:
-                    pass
+            _reap_proc_async(_wa_pair_proc)
             _wa_pair_proc = None
         _wa_pair_state["status"] = "cancelled"
         _wa_pair_state["qr_raw"] = ""
@@ -3447,19 +3485,31 @@ def _effective_platform_block(cfg: dict, platform: str) -> dict:
     return merged
 
 
+RESERVED_ROOT_KEYS = {
+    "platforms",
+    "model",
+    "gateway",
+    "auxiliary",
+    "delegation",
+    "tools",
+    "fallback_providers",
+    "custom_providers",
+}
+
+
 def _set_platform_block(cfg: dict, platform: str, block: dict) -> None:
     """Make ``platforms.<platform>`` the single source of truth for this platform."""
     if not isinstance(cfg.get("platforms"), dict):
         cfg["platforms"] = {}
     cfg["platforms"][platform] = block
-    if platform != "platforms" and isinstance(cfg.get(platform), dict):
+    if platform not in RESERVED_ROOT_KEYS and isinstance(cfg.get(platform), dict):
         del cfg[platform]
 
 
-def _merge_platform_patch(base: dict, patch: dict) -> dict:
+def _merge_platform_patch(base: dict, patch: dict, platform: str = "") -> dict:
     """Apply a Form UI patch: ``null`` removes a key, ``extra`` is merged one level deep."""
     merged = copy.deepcopy(base)
-    wa_keys = {k for k, _, _ in _WHATSAPP_ENV_KEYS}
+    wa_keys = {k for k, _, _ in _WHATSAPP_ENV_KEYS} if platform == "whatsapp" else set()
     for key, value in patch.items():
         if value is None:
             if key in wa_keys:
@@ -3708,9 +3758,12 @@ def _overlay_whatsapp_env(block: dict) -> None:
 
 def _sync_whatsapp_env(block: dict) -> None:
     """Move the Channels-managed keys out of ``block`` into .env (unset/empty ones are removed)."""
+    existing_env = _read_hermes_env()
     set_vars, remove_vars = {}, []
     for key, env_name, is_list in _WHATSAPP_ENV_KEYS:
         if key not in block:
+            if env_name in existing_env:
+                remove_vars.append(env_name)
             continue
         value = block.pop(key, None)
         if is_list and isinstance(value, list):
@@ -3749,7 +3802,7 @@ def _resolve_platform_block(cfg: dict, platform: str, yaml_str: str, merge: bool
         base, err = _parse_platform_yaml(base_yaml, "YAML dasar")
         if base is None:
             return None, err
-    return _merge_platform_patch(base, parsed), ""
+    return _merge_platform_patch(base, parsed, platform=platform), ""
 
 
 def preview_gateway_platform_config(platform: str, yaml_str: str, base_yaml: str | None = None) -> tuple[bool, str]:
@@ -3836,7 +3889,7 @@ def remove_gateway_platform_config(platform: str) -> tuple[bool, str]:
         if platform in platforms:
             del platforms[platform]
             found = True
-        if isinstance(cfg.get(platform), dict):
+        if platform not in RESERVED_ROOT_KEYS and isinstance(cfg.get(platform), dict):
             del cfg[platform]
             found = True
         if not found:
@@ -5020,6 +5073,8 @@ def render_aux_tasks_block() -> str:
         hint = html.escape(t["hint"])
         display_val = html.escape(t["display"])
         val_cls = "mono-sub auto" if t["is_auto"] else "mono-sub custom"
+        safe_key = html.escape(key.replace(chr(92), chr(92)*2).replace(chr(39), chr(92)+chr(39)), quote=True)
+        safe_label = html.escape(t["label"].replace(chr(92), chr(92)*2).replace(chr(39), chr(92)+chr(39)), quote=True)
         rows.append(
             f'<div class="aux-task-row" data-task="{key}" data-label="{label}">'
             f'  <div class="aux-task-info">'
@@ -5029,7 +5084,7 @@ def render_aux_tasks_block() -> str:
             f'    </div>'
             f'    <div class="{val_cls}">{display_val}</div>'
             f'  </div>'
-            f'  <button type="button" class="btn-action-sm" onclick="openAuxPicker(\'{key}\', \'{label}\')">'
+            f'  <button type="button" class="btn-action-sm" onclick="openAuxPicker(\'{safe_key}\', \'{safe_label}\')">'
             f'    Ganti'
             f'  </button>'
             f'</div>'
@@ -6666,7 +6721,7 @@ def build_fragments() -> dict:
                 )
         return (
             f'<div class="model-group" style="margin-bottom:1.15rem">'
-            f'<div class="model-group-title">{title}</div>'
+            f'<div class="model-group-title">{html.escape(title)}</div>'
             f'<div class="models-grid">{"".join(chips)}</div>'
             f'</div>'
         )
@@ -7032,7 +7087,6 @@ def _sse_push_loop():
                 "model": _extract_status(cells.get("model", "")),
                 "router": _extract_status(cells.get("router", "")),
                 "internet": _extract_status(cells.get("internet", "")),
-                "ram": cells.get("ram", ""),
                 "temp": cells.get("temp", ""),
                 "disk": cells.get("disk", ""),
                 "uptime": cells.get("uptime", ""),
@@ -7047,11 +7101,8 @@ def _sse_push_loop():
                 "dash_bot_btns_block": frag.get("dash_bot_btns_block", ""),
                 "aux_tasks_block": frag.get("aux_tasks_block", "")[:100],
                 "backup_models_block": frag.get("backup_models_block", "")[:100],
-                "cpu_pct": frag.get("cpu_pct", 0.0),
                 "processes_table": frag.get("processes_table", "")[:80],
                 "updating": frag.get("updating", False),
-                "cell_load": frag.get("cell_load", ""),
-                "ram_pct": frag.get("ram_pct", 0.0),
                 "gateway_list_block": frag.get("gateway_list_block", "")[:100],
                 "gw_summary_text": frag.get("gw_summary_text", ""),
                 "gw_summary_badge_class": frag.get("gw_summary_badge_class", ""),
@@ -7087,7 +7138,8 @@ def _sse_push_loop():
                         _sse_clients.remove(d)
                     except ValueError:
                         pass
-        except Exception:
+        except Exception as e:
+            sys.stderr.write(f"[panel] SSE push loop error: {e}\n")
             continue
 
 # Start SSE push thread
@@ -7182,18 +7234,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         """Mutations arrive here (UI fetch POST). Query string is parsed the
         same way as GET; body (form-encoded) is merged into qs."""
-        host = self.headers.get("Host")
-        origin = self.headers.get("Origin")
-        referer = self.headers.get("Referer")
-        if origin:
-            if urlparse(origin).netloc != host:
-                self._send_html("<h1>403 — CSRF: Invalid Origin</h1>", 403)
-                return
-        elif referer:
-            if urlparse(referer).netloc != host:
-                self._send_html("<h1>403 — CSRF: Invalid Referer</h1>", 403)
-                return
-
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         try:
@@ -7221,9 +7261,36 @@ class Handler(BaseHTTPRequestHandler):
                 body_qs = parse_qs(body)
                 for k, v in body_qs.items():
                     qs.setdefault(k, v)
+
+        query_token = (qs.get("token") or [""])[0]
+        has_explicit_token = self._token_matches(query_token)
+        is_json_client = parsed.path.startswith("/api/") or "application/json" in self.headers.get("Accept", "")
+
+        if not has_explicit_token:
+            host = (self.headers.get("Host") or "").lower()
+            origin = self.headers.get("Origin")
+            referer = self.headers.get("Referer")
+            if origin:
+                if (urlparse(origin).netloc or "").lower() != host:
+                    if is_json_client:
+                        self._send_json({"ok": False, "error": "CSRF: Invalid Origin"}, code=403)
+                    else:
+                        self._send_html("<h1>403 — CSRF: Invalid Origin</h1>", 403)
+                    return
+            elif referer:
+                if (urlparse(referer).netloc or "").lower() != host:
+                    if is_json_client:
+                        self._send_json({"ok": False, "error": "CSRF: Invalid Referer"}, code=403)
+                    else:
+                        self._send_html("<h1>403 — CSRF: Invalid Referer</h1>", 403)
+                    return
+
         authed, _ = self._authenticate(qs)
         if not authed:
-            self._send_html("<h1>403 — token salah</h1>", 403)
+            if is_json_client:
+                self._send_json({"ok": False, "error": "token salah"}, code=403)
+            else:
+                self._send_html("<h1>403 — token salah</h1>", 403)
             return
         self._handle_mutation(parsed, qs, json_data=json_data)
 
