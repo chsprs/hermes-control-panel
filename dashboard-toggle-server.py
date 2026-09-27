@@ -482,6 +482,7 @@ a.model-chip:active{{transform:scale(.98)}}
 }}
 
 /* Utilities & Modals */
+select option, select optgroup{{background:#161b26;color:#f1f5f9;}}
 .search-input{{width:100%;padding:.65rem .9rem;min-height:42px;border-radius:var(--radius-md);
 font-family:var(--font-mono);font-size:.8rem;background:rgba(255,255,255,0.035);
 border:1px solid var(--border);color:var(--text);outline:none;
@@ -736,8 +737,8 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.4rem;background:rgba(255,255,255,0.02);padding:0.4rem 0.6rem;border-radius:var(--radius-sm);border:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
         <span style="font-size:0.72rem;color:var(--text-muted);font-weight:600">📋 Template:</span>
-        <select id="gw-template-picker" onchange="applyGwSelectedTemplate(this.value)" class="search-input" style="width:auto;margin:0;padding:0.2rem 0.5rem;font-size:0.72rem;background:rgba(255,255,255,0.06);color:var(--accent-light);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-sm);cursor:pointer">
-          <option value="">-- Muat Template Gateway --</option>
+        <select id="gw-template-picker" onchange="applyGwSelectedTemplate(this.value)" class="search-input" style="width:auto;min-height:28px;height:28px;margin:0;padding:0.15rem 0.5rem;font-size:0.72rem;background:rgba(255,255,255,0.06);color:var(--accent-light);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-sm);cursor:pointer">
+          <option value="">-- Pilih Template Gateway --</option>
           <optgroup label="Populer">
             <option value="telegram">Telegram Bot</option>
             <option value="discord">Discord Bot</option>
@@ -768,6 +769,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
             <option value="bluebubbles">BlueBubbles</option>
           </optgroup>
         </select>
+        <button type="button" class="btn-action-sm" onclick="applyGwSelectedTemplate(document.getElementById('gw-template-picker').value)" style="min-height:28px;font-size:0.72rem;padding:0.2rem 0.55rem;background:rgba(59,130,246,0.15);border-color:rgba(59,130,246,0.4);color:var(--accent-light)" title="Muat / terapkan template terpilih ke form &amp; YAML">Terapkan</button>
       </div>
       <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
         <div style="display:flex;gap:0.25rem;background:rgba(255,255,255,0.04);padding:2px;border-radius:var(--radius-sm);border:1px solid var(--border)">
@@ -2412,15 +2414,38 @@ var GW_TEMPLATES = {{
 }};
 
 function applyGwSelectedTemplate(key){{
-  if(!key || !GW_TEMPLATES[key]) return;
-  var yamlEl = document.getElementById('gw-config-yaml');
-  if(!yamlEl) return;
-  var prevTpl = GW_TEMPLATES[currentGwPlatform] || '';
-  var isDirty = _yamlEditedByUser && yamlEl.value.trim() && yamlEl.value.trim() !== prevTpl.trim();
-  if(isDirty && !confirm('Muat template contoh? Teks konfigurasi saat ini akan diganti dengan template pilihan.')){{
-    var tp = document.getElementById('gw-template-picker'); if(tp) tp.value = '';
+  var tp = document.getElementById('gw-template-picker');
+  if(!key || !GW_TEMPLATES[key]){{
+    if(tp) tp.value = currentGwPlatform || '';
     return;
   }}
+  var yamlEl = document.getElementById('gw-config-yaml');
+  if(!yamlEl) return;
+
+  if(!isNewGwPlatform && key !== currentGwPlatform){{
+    alert('Perhatian: Anda sedang mengonfigurasi ' + (GW_PLATFORM_NAMES[currentGwPlatform] || currentGwPlatform) + '. Untuk menambah gateway baru, gunakan tombol "+ Tambah Gateway".');
+    if(tp) tp.value = currentGwPlatform || '';
+    return;
+  }}
+
+  var prevTpl = GW_TEMPLATES[currentGwPlatform] || '';
+  var isFormDirty = false;
+  try {{
+    var cur = gwFormFieldValues(currentGwPlatform);
+    for (var k in cur) {{
+      if (JSON.stringify(cur[k]) !== JSON.stringify(gwFormInitial[k])) {{
+        isFormDirty = true;
+        break;
+      }}
+    }}
+  }} catch(e) {{}}
+  var isYamlDirty = _yamlEditedByUser && yamlEl.value.trim() && yamlEl.value.trim() !== prevTpl.trim();
+  var isDirty = (currentGwMode === 'ui') ? isFormDirty : isYamlDirty;
+  if(isDirty && !confirm('Muat template ' + (GW_PLATFORM_NAMES[key] || key) + '? Konfigurasi saat ini akan diganti dengan template contoh.')){{
+    if(tp) tp.value = currentGwPlatform || '';
+    return;
+  }}
+
   var plat = key;
   if(isNewGwPlatform){{
     var inputEl = document.getElementById('gw-platform-input');
@@ -2436,7 +2461,7 @@ function applyGwSelectedTemplate(key){{
   _yamlEditedByUser = false;
   updateGwGuide(plat);
   populateGwFormFromYaml(GW_TEMPLATES[key], plat);
-  var tp = document.getElementById('gw-template-picker'); if(tp) tp.value = '';
+  if(tp) tp.value = key;
 }}
 
 function selectCatalogPlatform(plat){{
@@ -2444,12 +2469,18 @@ function selectCatalogPlatform(plat){{
   var yamlEl = document.getElementById('gw-config-yaml');
   var titleEl = document.getElementById('gw-config-title');
   var selectEl = document.getElementById('gw-platform-catalog-select');
+  var tp = document.getElementById('gw-template-picker');
 
   if(!plat){{
     if(inputEl) inputEl.value = '';
+    if(tp) tp.value = '';
     return;
   }}
-  if(plat === currentGwPlatform) return;
+  if(plat === currentGwPlatform){{
+    if(selectEl && selectEl.value !== plat) selectEl.value = plat;
+    if(tp && tp.value !== plat) tp.value = plat;
+    return;
+  }}
   var prevTpl = GW_TEMPLATES[currentGwPlatform] || '';
   var isFormDirty = false;
   try {{
@@ -2465,6 +2496,7 @@ function selectCatalogPlatform(plat){{
   var isDirty = (currentGwMode === 'ui') ? isFormDirty : isYamlDirty;
   if(isDirty && !confirm('Ganti platform? Perubahan yang belum disimpan akan hilang.')){{
     if(selectEl) selectEl.value = currentGwPlatform || '';
+    if(tp) tp.value = currentGwPlatform || '';
     return;
   }}
   currentGwPlatform = plat;
@@ -2474,10 +2506,12 @@ function selectCatalogPlatform(plat){{
     if(inputEl){{ inputEl.value = ''; inputEl.focus(); }}
     if(titleEl) titleEl.textContent = 'Tambah Gateway Kustom';
     if(yamlEl && !yamlEl.value.trim()){{ yamlEl.value = 'enabled: true' + String.fromCharCode(10); }}
+    if(tp) tp.value = '';
     return;
   }}
   if(selectEl && selectEl.value !== plat) selectEl.value = plat;
   if(inputEl) inputEl.value = plat;
+  if(tp) tp.value = plat;
 
   var name = GW_PLATFORM_NAMES[plat] || plat.toUpperCase();
   if(titleEl) titleEl.textContent = 'Tambah Gateway: ' + name;
@@ -2508,6 +2542,7 @@ function openGwConfig(platform, title){{
   var selectWrap = document.getElementById('gw-platform-select-wrap');
   var inputEl = document.getElementById('gw-platform-input');
   var catalogSelect = document.getElementById('gw-platform-catalog-select');
+  var tp = document.getElementById('gw-template-picker');
   var yamlEl = document.getElementById('gw-config-yaml');
   var enabledChk = document.getElementById('gw-config-enabled-chk');
   var errEl = document.getElementById('gw-config-error');
@@ -2525,6 +2560,7 @@ function openGwConfig(platform, title){{
     if(selectWrap) selectWrap.style.display = 'block';
     if(catalogSelect) catalogSelect.value = 'telegram';
     if(inputEl){{ inputEl.value = 'telegram'; inputEl.disabled = false; }}
+    if(tp) tp.value = 'telegram';
     if(titleEl) titleEl.textContent = 'Tambah Gateway: Telegram Bot';
     if(yamlEl) yamlEl.value = GW_TEMPLATES['telegram'] || ('enabled: true' + String.fromCharCode(10));
     if(enabledChk) enabledChk.checked = true;
@@ -2533,6 +2569,7 @@ function openGwConfig(platform, title){{
     if(modal) modal.classList.add('show');
   }} else {{
     if(selectWrap) selectWrap.style.display = 'none';
+    if(tp) tp.value = platform || '';
     if(yamlEl) yamlEl.value = 'Memuat konfigurasi…';
     if(saveBtn) saveBtn.disabled = true;
     updateGwGuide(platform);
@@ -2564,6 +2601,8 @@ function closeGwConfig(){{
   currentGwPlatform = '';
   isNewGwPlatform = false;
   _yamlEditedByUser = false;
+  var tp = document.getElementById('gw-template-picker');
+  if(tp) tp.value = '';
 }}
 
 function saveGwConfig(){{

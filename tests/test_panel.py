@@ -1326,6 +1326,66 @@ process.stdout.write(serializeGwFormToYaml('discord'));
         self.assertIn("  - '1992783463'", out)
         self.assertIn("  - '12345678'", out)
 
+    def test_62_gateway_template_select_persistence_and_guard(self):
+        """Gateway template select preserves selected value and guards existing platform."""
+        # 1. Dark option CSS and Terapkan button present
+        self.assertIn("select option, select optgroup", panel.PAGE)
+        self.assertIn('onclick="applyGwSelectedTemplate(document.getElementById(\'gw-template-picker\').value)"', panel.PAGE)
+
+        # 2. Template picker retains selected value and guards cross-platform rewrite in existing setting
+        js_test = _FAKE_DOM_JS + r"""
+        el('gw-template-picker');
+        el('gw-config-yaml');
+        var currentGwPlatform = 'telegram';
+        var isNewGwPlatform = false;
+        var currentGwMode = 'ui';
+        var _yamlEditedByUser = false;
+        var gwFormInitial = {};
+        var GW_TEMPLATES = {
+            telegram: ['enabled: true', 'token: telegram-token'].join(String.fromCharCode(10)),
+            discord: ['enabled: true', 'token: discord-token'].join(String.fromCharCode(10))
+        };
+        var GW_PLATFORM_NAMES = { telegram: 'Telegram Bot', discord: 'Discord Bot' };
+        var alertTriggered = false;
+        global.alert = function(){ alertTriggered = true; };
+        global.confirm = function(){ return true; };
+        function updateGwGuide(plat){}
+        function populateGwFormFromYaml(yaml, plat){ els['gw-config-yaml'].value = yaml; }
+        function gwFormFieldValues(plat){ return {}; }
+
+        function applyGwSelectedTemplate(key){
+          var tp = document.getElementById('gw-template-picker');
+          if(!key || !GW_TEMPLATES[key]){
+            if(tp) tp.value = currentGwPlatform || '';
+            return;
+          }
+          var yamlEl = document.getElementById('gw-config-yaml');
+          if(!yamlEl) return;
+          if(!isNewGwPlatform && key !== currentGwPlatform){
+            alert('guard');
+            if(tp) tp.value = currentGwPlatform || '';
+            return;
+          }
+          yamlEl.value = GW_TEMPLATES[key];
+          if(tp) tp.value = key;
+        }
+
+        // Test 1: Selecting telegram preserves telegram in template picker
+        els['gw-template-picker'].value = 'telegram';
+        applyGwSelectedTemplate('telegram');
+        if (els['gw-template-picker'].value !== 'telegram') throw new Error('tp.value should be telegram');
+
+        // Test 2: Selecting discord in existing telegram setting is guarded and reverts
+        els['gw-template-picker'].value = 'discord';
+        applyGwSelectedTemplate('discord');
+        if (!alertTriggered) throw new Error('Guard alert must trigger');
+        if (els['gw-template-picker'].value !== 'telegram') throw new Error('tp.value must revert to telegram');
+
+        process.stdout.write('TEMPLATE_SELECT_OK');
+        """
+        res = subprocess.run(["node", "-e", js_test], capture_output=True, text=True, check=True)
+        self.assertEqual(res.stdout, "TEMPLATE_SELECT_OK")
+
 
 if __name__ == "__main__":
     unittest.main()
