@@ -864,6 +864,73 @@ class TestHermesControlPanel(unittest.TestCase):
         # 7. Gateway config loading disables save button until response
         self.assertIn("if(saveBtn) saveBtn.disabled = true;", page)
 
+    def test_63_security_audit_hardening(self):
+        """Verify security headers, password URL protection, Sec-Fetch-Site, /events 401, and method handling."""
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+
+        # 1. Security headers on HTML and JSON responses
+        code, headers, _ = self._request("/login")
+        self.assertEqual(code, 200)
+        self.assertEqual(headers.get("X-Frame-Options"), "DENY")
+        self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
+        self.assertEqual(headers.get("Referrer-Policy"), "strict-origin-when-cross-origin")
+        self.assertIn("default-src 'self'", headers.get("Content-Security-Policy", ""))
+
+        code, headers, _ = self._request("/api/status", headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        self.assertEqual(headers.get("X-Frame-Options"), "DENY")
+        self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
+
+        # 2. Password via URL query string is blocked
+        # POST with ?password= query param -> 400
+        code, _, body = self._request(
+            f"/login?password={panel.PASSWORD}",
+            method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data=b"",
+        )
+        self.assertEqual(code, 400)
+        self.assertIn("Password tidak boleh dikirim melalui URL query string", body)
+
+        # GET with ?password= query param -> 302 stripped
+        code, headers, _ = self._request(f"/login?password={panel.PASSWORD}", method="GET")
+        self.assertEqual(code, 302)
+        loc = headers.get("Location", "")
+        self.assertNotIn(panel.PASSWORD, loc)
+        self.assertIn("/login", loc)
+
+        # 3. Sec-Fetch-Site: cross-site POST rejected with 403
+        with mock.patch.object(panel, "restart_bot"):
+            code, _, _ = self._request(
+                "/restart-bot",
+                method="POST",
+                headers={"Cookie": cookie, "Sec-Fetch-Site": "cross-site"},
+            )
+            self.assertEqual(code, 403)
+
+        # 4. Unauthorized /events returns 401
+        code, _, body = self._request("/events", method="GET")
+        self.assertEqual(code, 401)
+        data = json.loads(body)
+        self.assertFalse(data.get("ok"))
+
+        # 5. Method enforcement: PUT/DELETE/PATCH -> 405 with Allow header; OPTIONS -> 204
+        for method in ("PUT", "DELETE", "PATCH"):
+            code, headers, _ = self._request("/restart-bot", method=method, headers={"Cookie": cookie})
+            self.assertEqual(code, 405)
+            self.assertIn("Allow", headers)
+
+        code, headers, _ = self._request("/restart-bot", method="OPTIONS")
+        self.assertEqual(code, 204)
+        self.assertIn("Allow", headers)
+
+        # 6. Failure tracker cleanup & bounding
+        panel._LOGIN_FAILURES.clear()
+        for i in range(600):
+            panel._record_login_failure(f"10.0.0.{i % 250}")
+        self.assertLessEqual(len(panel._LOGIN_FAILURES), 500)
+        panel._LOGIN_FAILURES.clear()
+
 
 
 class TestGatewayConfigSync(unittest.TestCase):

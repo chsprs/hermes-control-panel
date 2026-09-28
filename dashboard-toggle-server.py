@@ -107,10 +107,20 @@ def _login_blocked(ip: str) -> int:
 
 def _record_login_failure(ip: str) -> None:
     with _LOGIN_FAILURES_LOCK:
+        now = time.time()
+        # Clean up expired entries if dictionary grows
+        if len(_LOGIN_FAILURES) > 100:
+            expired = [k for k, (_, last) in _LOGIN_FAILURES.items() if now - last > LOGIN_LOCKOUT_SECONDS]
+            for k in expired:
+                _LOGIN_FAILURES.pop(k, None)
+        # Cap size to prevent memory exhaustion
+        if len(_LOGIN_FAILURES) >= 500:
+            oldest_key = min(_LOGIN_FAILURES.keys(), key=lambda k: _LOGIN_FAILURES[k][1])
+            _LOGIN_FAILURES.pop(oldest_key, None)
         count, last = _LOGIN_FAILURES.get(ip, (0, 0.0))
-        if last and time.time() - last > LOGIN_LOCKOUT_SECONDS:
+        if last and now - last > LOGIN_LOCKOUT_SECONDS:
             count = 0
-        _LOGIN_FAILURES[ip] = (count + 1, time.time())
+        _LOGIN_FAILURES[ip] = (count + 1, now)
 
 
 def _clear_login_failures(ip: str) -> None:
@@ -7806,18 +7816,29 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return False
 
+    def _is_secure_request(self) -> bool:
+        proto = (self.headers.get("X-Forwarded-Proto") or "").lower().strip()
+        if proto == "https":
+            return True
+        forwarded = (self.headers.get("Forwarded") or "").lower()
+        if "proto=https" in forwarded:
+            return True
+        return False
+
     def _set_session_cookie(self) -> None:
         # Session-only cookie (no Max-Age): closing the browser re-asks for
-        # the password.
+        # the password. Include ; Secure if accessed via HTTPS / reverse proxy.
+        sec = "; Secure" if self._is_secure_request() else ""
         self.send_header(
             "Set-Cookie",
-            f"{SESSION_COOKIE_NAME}={SESSION_VALUE}; Path=/; HttpOnly; SameSite=Strict",
+            f"{SESSION_COOKIE_NAME}={SESSION_VALUE}; Path=/; HttpOnly; SameSite=Strict{sec}",
         )
 
     def _clear_session_cookie(self) -> None:
+        sec = "; Secure" if self._is_secure_request() else ""
         self.send_header(
             "Set-Cookie",
-            f"{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
+            f"{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0{sec}",
         )
 
     def _redirect_to_login(self, error: str = "") -> None:
@@ -7827,7 +7848,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    def _handle_login(self, parsed, qs: dict, json_data: dict) -> None:
+    def _handle_login(self, parsed, body_qs: dict, json_data: dict) -> None:
         """Validate the panel password and mint the session cookie."""
         wants_json = (
             parsed.path.startswith("/api/")
@@ -7851,7 +7872,13 @@ class Handler(BaseHTTPRequestHandler):
             _fail("Login password belum diaktifkan di server.", 503)
             return
 
-        candidate = (qs.get("password") or [""])[0] or str(json_data.get("password") or "")
+        # Security check: Password must never be accepted via URL query string
+        url_qs = parse_qs(parsed.query)
+        if "password" in url_qs:
+            _fail("Password tidak boleh dikirim melalui URL query string (gunakan POST form body).", 400)
+            return
+
+        candidate = str(json_data.get("password") or (body_qs.get("password") or [""])[0])
         if not self._password_matches(candidate):
             _record_login_failure(ip)
             time.sleep(0.4)  # blunt brute force without locking the thread pool
@@ -7866,6 +7893,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
             self.end_headers()
             self.wfile.write(body)
             return
@@ -7876,11 +7906,39 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _send_method_not_allowed(self):
-        self._send_html(
+        data = (
             "<h1>405 Method Not Allowed</h1>"
-            "<p>Aksi perubahan hanya lewat POST (atau GET shortcut dengan token eksplisit).</p>",
-            405,
-        )
+            "<p>Aksi perubahan hanya lewat POST (atau GET shortcut dengan token eksplisit).</p>"
+        ).encode("utf-8")
+        self.send_response(405)
+        self.send_header("Allow", "GET, POST, HEAD, OPTIONS")
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_HEAD(self):
+        self.do_GET()
+
+    def do_PUT(self):
+        self._send_method_not_allowed()
+
+    def do_DELETE(self):
+        self._send_method_not_allowed()
+
+    def do_PATCH(self):
+        self._send_method_not_allowed()
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Allow", "GET, POST, HEAD, OPTIONS")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _send_html(self, body: str, code: int = 200):
         data = body.encode("utf-8")
@@ -7890,6 +7948,22 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "img-src 'self' data: https://cdn.jsdelivr.net; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'",
+        )
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         self.end_headers()
         self.wfile.write(data)
 
@@ -7899,6 +7973,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         self.end_headers()
         self.wfile.write(body)
 
@@ -7943,6 +8020,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             length = 0
         json_data = {}
+        body_qs = {}
         if length > 0:
             body = self.rfile.read(length).decode("utf-8", errors="replace")
             content_type = self.headers.get("Content-Type", "")
@@ -7969,6 +8047,14 @@ class Handler(BaseHTTPRequestHandler):
         is_json_client = parsed.path.startswith("/api/") or "application/json" in self.headers.get("Accept", "")
 
         if not has_explicit_token:
+            sec_fetch_site = (self.headers.get("Sec-Fetch-Site") or "").lower().strip()
+            if sec_fetch_site == "cross-site":
+                if is_json_client:
+                    self._send_json({"ok": False, "error": "CSRF: Cross-site request rejected"}, code=403)
+                else:
+                    self._send_html("<h1>403 — CSRF: Cross-site request rejected</h1>", 403)
+                return
+
             client_ip = self.client_address[0] if self.client_address else ""
             raw_host = (self.headers.get("Host") or "").lower().strip()
             forwarded = ""
@@ -8015,7 +8101,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
         if parsed.path == "/login":
-            self._handle_login(parsed, qs, json_data)
+            self._handle_login(parsed, body_qs, json_data)
             return
 
         authed, _ = self._authenticate(qs)
@@ -8044,6 +8130,10 @@ class Handler(BaseHTTPRequestHandler):
         self._bootstrap = bootstrap
 
         if parsed.path == "/login":
+            if "password" in qs:
+                # Strip password query param from GET to keep it out of browser URL and history
+                self._redirect_to_login(error="Password tidak boleh dimasukkan di URL.")
+                return
             if authed:
                 self._redirect_to_status()
                 return
@@ -8051,7 +8141,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if not authed:
-            if parsed.path.startswith("/api/"):
+            if parsed.path.startswith("/api/") or parsed.path == "/events":
                 self._send_json({"ok": False, "error": "unauthorized"}, code=401)
             else:
                 self._redirect_to_login()
@@ -8088,13 +8178,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/status":
-            body = json.dumps(build_fragments()).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_json(build_fragments())
             return
 
         if parsed.path == "/api/gateway-log":
@@ -8104,13 +8188,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 n = 100
             raw_log = tail_gateway_log(n=n)
-            body = json.dumps({"ok": True, "log": redact_sensitive_tokens(raw_log)}).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_json({"ok": True, "log": redact_sensitive_tokens(raw_log)})
             return
 
         if parsed.path == "/api/whatsapp-log":
@@ -8120,46 +8198,22 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 n = 100
             raw_log = tail_whatsapp_bridge_log(n=n)
-            body = json.dumps({"ok": True, "log": redact_sensitive_tokens(raw_log)}).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_json({"ok": True, "log": redact_sensitive_tokens(raw_log)})
             return
 
         if parsed.path == "/api/whatsapp/pair-status":
             st = get_wa_pair_status()
-            body = json.dumps({"ok": True, **st}).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_json({"ok": True, **st})
             return
 
         if parsed.path == "/api/gateway-config":
             plat = (qs.get("platform") or [""])[0].strip().lower()
             data = get_gateway_platform_config(plat)
-            body = json.dumps(data).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_json(data)
             return
 
         if parsed.path in ("/api/models", "/api/available-models"):
-            body = json.dumps(get_available_models_cached()).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_json(get_available_models_cached())
             return
 
         if parsed.path == "/events":
