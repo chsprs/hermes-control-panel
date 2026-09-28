@@ -8,10 +8,9 @@ ExecStart=/usr/bin/python3 /opt/AppData/hermes-native/hermes-data/scripts/dashbo
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
-# Optional overrides:
-# Environment=PANEL_TOKEN=vita-stb-2026
-# Environment=PANEL_PORT=9120
-# Environment=HERMES_CONFIG_PATH=/root/.hermes/config.yaml
+# Credentials live in a 0600 file outside the repo — never in this unit, never
+# committed. Copy .env.example to /etc/hermes-panel.env and fill it in.
+EnvironmentFile=/etc/hermes-panel.env
 
 [Install]
 WantedBy=multi-user.target

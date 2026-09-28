@@ -1,0 +1,19 @@
+#!/bin/sh
+# Block any commit whose staged diff contains a live panel credential.
+# Credentials live only in /etc/hermes-panel.env (mode 600, outside the repo).
+# Enable with: git config core.hooksPath .githooks
+ENV_FILE=/etc/hermes-panel.env
+[ -r "$ENV_FILE" ] || exit 0
+
+secrets=$(sed -n 's/^\(PANEL_PASSWORD\|PANEL_TOKEN\|ROUTER_HOST\)=\(.\+\)$/\2/p' "$ENV_FILE")
+[ -n "$secrets" ] || exit 0
+
+staged=$(git diff --cached -U0)
+for s in $secrets; do
+    if printf '%s' "$staged" | grep -qF -- "$s"; then
+        echo "BLOCKED: staged diff contains a credential from $ENV_FILE" >&2
+        echo "Remove it, then commit again." >&2
+        exit 1
+    fi
+done
+exit 0

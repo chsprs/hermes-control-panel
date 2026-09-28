@@ -23,7 +23,7 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
 ## 🚀 Fitur Utama
 
 - ⚡ **Zero-Dependency & Hemat Resource**: Berjalan di atas Python standard library murni (`http.server`, `threading`, `json`, `urllib`). Tanpa runtime Node.js/frontend bundler, memori stabil di kisaran ~18–22MB RAM.
-- 🔐 **Session Cookie Authentication**: Token tidak lagi menempel permanen di URL. Akses `?token=` sekali → server terbitkan cookie `HttpOnly` + `SameSite=Strict` dan redirect ke URL bersih `/status`. Seluruh mutasi dikunci ke HTTP POST (GET → `405 Method Not Allowed`), kecuali shortcut CasaOS (`/toggle`, `/on`, `/off`) dengan token valid. Tanpa `PANEL_TOKEN` server menolak start.
+- 🔐 **Password Login + Session Cookie**: Buka `:9120/` → form `/login` → masukkan `PANEL_PASSWORD` dari `.env`. Server menerbitkan cookie `HttpOnly` + `SameSite=Strict` (nilai HMAC, bukan password), lalu redirect ke `/status`. Seluruh mutasi dikunci ke HTTP POST (GET → `405 Method Not Allowed`), kecuali shortcut CasaOS (`/toggle`, `/on`, `/off`) dengan `PANEL_TOKEN` valid. Kredensial hanya ada di `/etc/hermes-panel.env` (mode `600`) — di luar repo.
 - 📡 **Manajemen & Konfigurasi Gateway Perpesanan**:
   - **Live Status & Badges**: Menampilkan daftar platform messaging terkonfigurasi di `config.yaml` (Telegram, Webhook, Discord, WhatsApp, Slack, dll.) dengan status live realtime: badge terhubung (`Terhubung`), belum konek (`Menghubungkan…` / `Terputus`), atau badge error (`Error`) beserta detail kode/pesan error.
   - **Kustomisasi Penuh UI (YAML Editor)**: Konfigurasi platform perpesanan langsung dari web UI layaknya mengedit langsung `config.yaml` (mendukung kunci kustom: token, port, allowed chats, channel overrides, hooks). Validasi sintaks YAML otomatis mencegah file rusak.
@@ -86,38 +86,42 @@ sudo ./install.sh
 
 ## ⚙️ Konfigurasi Environment
 
-Service dikelola melalui systemd pada berkas `/etc/systemd/system/hermes-panel.service`. Anda dapat menyesuaikan konfigurasi dengan menambahkan baris `Environment`:
+**Kredensial tidak pernah disimpan di unit systemd maupun di repo.** Semua isi kredensial ada di satu berkas `.env` (`/etc/hermes-panel.env`, mode `600`) yang berada di luar repositori.
+
+```bash
+sudo install -m 600 -o root -g root .env.example /etc/hermes-panel.env
+sudo nano /etc/hermes-panel.env
+```
 
 | Variabel | Default | Keterangan |
 |---|---|---|
-| `PANEL_TOKEN` | *(auto-generate)* | Token autentikasi akses pertama (`?token=...`). **Wajib** — panel menolak start tanpa ini |
+| `PANEL_PASSWORD` | *(kosong)* | Password/PIN untuk form login `/login`. Kosong = login form dimatikan |
+| `PANEL_TOKEN` | *(kosong)* | Token opsional untuk shortcut sekali-klik CasaOS (`?token=...`). Kosong = akses token dimatikan |
 | `PANEL_PORT` | `9120` | Port listening HTTP web panel |
 | `HERMES_CONFIG_PATH` | `/root/.hermes/config.yaml` | Lokasi berkas konfigurasi Hermes |
 | `ROUTER_COMPOSE_DIR` | `/opt/AppData/9router` | Direktori docker-compose 9router |
 | `ROUTER_DB_PATH` | `/DATA/AppData/9router/db/data.sqlite` | Lokasi database SQLite 9router |
 
-Contoh kustomisasi:
-```ini
-[Service]
-Environment=PANEL_TOKEN=rahasia123
-Environment=PANEL_PORT=8080
-```
+Panel menolak start bila `PANEL_PASSWORD` **dan** `PANEL_TOKEN` keduanya kosong.
 
-Setelah mengubah konfigurasi unit systemd:
+Setelah mengubah isi `.env`:
 ```bash
-sudo systemctl daemon-reload
 sudo systemctl restart hermes-panel.service
 ```
 
 ### 🔑 Cara Login Panel
 
-1. Buka `http://<IP_SERVER>:9120/?token=<PANEL_TOKEN>` **satu kali** di browser.
-2. Server menukar token dengan cookie sesi `hermes_panel_session` (HttpOnly, SameSite=Strict), lalu redirect ke URL bersih `/status` — token tidak tersimpan di address bar maupun riwayat browser.
-3. Klik tombol aksi selanjutnya dikirim sebagai HTTP POST oleh JavaScript panel; request GET pada rute mutasi akan ditolak `405`.
+1. Buka `http://<IP_SERVER>:9120/` di browser — langsung diarahkan ke `/login`.
+2. Masukkan `PANEL_PASSWORD` yang ada di `/etc/hermes-panel.env`.
+3. Server menerbitkan cookie sesi `hermes_panel_session` — nilai cookie adalah HMAC, **bukan** password mentah. Cookie bersifat session-only: menutup browser akan meminta password lagi.
+4. Klik tombol aksi selanjutnya dikirim sebagai HTTP POST oleh JavaScript panel; request GET pada rute mutasi akan ditolak `405`.
+5. Logout: buka `http://<IP_SERVER>:9120/logout`.
 
-> ℹ️ Token diambil dari output installer, atau cek kapan pun via:
+Percobaan login gagal dibatasi: 5 kali salah dari satu IP → terkunci 60 detik.
+
+> Baca kredensial kapan pun:
 > ```bash
-> grep PANEL_TOKEN /etc/systemd/system/hermes-panel.service
+> sudo grep -E 'PANEL_(PASSWORD|TOKEN)' /etc/hermes-panel.env
 > ```
 
 ---
