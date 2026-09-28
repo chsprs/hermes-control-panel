@@ -35,6 +35,7 @@ same HTML fragments the initial page uses, so the client never re-implements it.
 
 import copy
 import glob
+import hashlib
 import hmac
 import html
 import json
@@ -60,6 +61,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, quote, urlsplit
 
 TOKEN = os.environ.get("PANEL_TOKEN", "").strip()
+PASSWORD = os.environ.get("PANEL_PASSWORD", "").strip()
 PORT = int(os.environ.get("PANEL_PORT", 9120))
 SERVICE = os.environ.get("HERMES_DASHBOARD_SERVICE", "hermes-dashboard")
 DEBOUNCE_SECONDS = 3.0
@@ -75,6 +77,45 @@ ROUTER_HOST_OVERRIDE = os.environ.get("ROUTER_HOST", "").strip()
 HERMES_DASHBOARD_URL = os.environ.get("HERMES_DASHBOARD_URL", "").strip()
 CONFIG_PATH = os.environ.get("HERMES_CONFIG_PATH", "/root/.hermes/config.yaml")
 SESSION_COOKIE_NAME = "hermes_panel_session"
+# The cookie never carries the credential in the clear: it carries an HMAC of a
+# fixed label keyed by the credential, so a leaked cookie reveals no password.
+AUTH_SECRET = PASSWORD or TOKEN
+SESSION_VALUE = (
+    hmac.new(AUTH_SECRET.encode("utf-8"), b"hermes-panel-session", hashlib.sha256).hexdigest()
+    if AUTH_SECRET
+    else ""
+)
+# Login form lockout: N failed attempts from one IP -> cool down.
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_SECONDS = 60
+_LOGIN_FAILURES = {}  # ip -> (count, last_attempt_ts)
+_LOGIN_FAILURES_LOCK = threading.Lock()
+
+
+def _login_blocked(ip: str) -> int:
+    """Seconds remaining on the lockout for this IP, 0 if not blocked."""
+    with _LOGIN_FAILURES_LOCK:
+        entry = _LOGIN_FAILURES.get(ip)
+    if not entry:
+        return 0
+    count, last = entry
+    if count < LOGIN_MAX_ATTEMPTS:
+        return 0
+    remaining = int(LOGIN_LOCKOUT_SECONDS - (time.time() - last))
+    return max(0, remaining)
+
+
+def _record_login_failure(ip: str) -> None:
+    with _LOGIN_FAILURES_LOCK:
+        count, last = _LOGIN_FAILURES.get(ip, (0, 0.0))
+        if last and time.time() - last > LOGIN_LOCKOUT_SECONDS:
+            count = 0
+        _LOGIN_FAILURES[ip] = (count + 1, time.time())
+
+
+def _clear_login_failures(ip: str) -> None:
+    with _LOGIN_FAILURES_LOCK:
+        _LOGIN_FAILURES.pop(ip, None)
 # CasaOS one-click shortcuts may only mutate state via explicit GET when the
 # URL itself carries a valid token; every other mutation requires POST.
 MUTATING_PATHS = frozenset({
@@ -7672,6 +7713,62 @@ def _sse_push_loop():
 threading.Thread(target=_sse_push_loop, daemon=True).start()
 
 
+def build_login_page(error: str = "") -> str:
+    """Standalone login screen. Plain string — no .format() escaping needed."""
+    err_block = (
+        '<p class="err">' + html.escape(error) + "</p>" if error else ""
+    )
+    return (
+        "<!DOCTYPE html><html lang=\"id\"><head>"
+        "<meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">"
+        "<meta name=\"theme-color\" content=\"#0b0f17\">"
+        "<title>Login — Hermes Control Panel</title>"
+        "<style>"
+        "*{box-sizing:border-box}"
+        "body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;"
+        "background:#0b0f17;color:#f1f5f9;"
+        "font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;padding:1.25rem}"
+        ".card{width:100%;max-width:360px;background:#161b26;border:1px solid #232a3a;"
+        "border-radius:14px;padding:1.6rem 1.4rem}"
+        "h1{margin:0 0 .35rem;font-size:1.15rem;letter-spacing:.01em}"
+        ".sub{margin:0 0 1.2rem;font-size:.82rem;color:#8b95a8}"
+        "label{display:block;font-size:.78rem;color:#8b95a8;margin-bottom:.4rem;"
+        "text-transform:uppercase;letter-spacing:.06em}"
+        "input{width:100%;min-height:46px;padding:.7rem .9rem;border-radius:10px;"
+        "border:1px solid #2b3448;background:#0f1420;color:#f1f5f9;font-size:1rem;"
+        "font-family:inherit;outline:none}"
+        "input:focus{border-color:#60a5fa}"
+        "button{width:100%;min-height:46px;margin-top:1rem;border:0;border-radius:10px;"
+        "background:#2563eb;color:#fff;font-size:.95rem;font-weight:600;"
+        "font-family:inherit;cursor:pointer}"
+        "button:active{background:#1d4ed8}"
+        ".err{margin:0 0 1rem;padding:.6rem .75rem;border-radius:9px;font-size:.84rem;"
+        "background:#3b1e2410;border:1px solid #7f1d1d;color:#fca5a5}"
+        ".foot{margin:1.1rem 0 0;font-size:.72rem;color:#5b6577;text-align:center}"
+        "</style></head><body>"
+        "<form class=\"card\" method=\"POST\" action=\"/login\" autocomplete=\"off\">"
+        "<h1>Hermes Control Panel</h1>"
+        "<p class=\"sub\">Masuk pakai password panel.</p>"
+        + err_block +
+        "<label for=\"pw\">Password</label>"
+        "<input id=\"pw\" name=\"password\" type=\"password\" inputmode=\"text\" "
+        "autocomplete=\"current-password\" autofocus required>"
+        "<button type=\"submit\">Masuk</button>"
+        "<p class=\"foot\">Sesi berakhir saat browser ditutup.</p>"
+        "</form></body></html>"
+    )
+
+
+def build_logout_redirect() -> str:
+    """Clear the session cookie and bounce to the login screen."""
+    return (
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>"
+        "<script>location.replace('/login')</script>"
+        "<p>Keluar… <a href=\"/login\">login</a></p></body></html>"
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # keep it quiet — no noisy access log filling up disk
@@ -7684,20 +7781,99 @@ class Handler(BaseHTTPRequestHandler):
             and hmac.compare_digest(candidate, TOKEN)
         )
 
+    @staticmethod
+    def _password_matches(candidate: str) -> bool:
+        return (
+            bool(PASSWORD)
+            and bool(candidate)
+            and hmac.compare_digest(candidate, PASSWORD)
+        )
+
+    @staticmethod
+    def _session_value_matches(candidate: str) -> bool:
+        return (
+            bool(SESSION_VALUE)
+            and bool(candidate)
+            and hmac.compare_digest(candidate, SESSION_VALUE)
+        )
+
     def _has_valid_session(self) -> bool:
         try:
             cookie = http_cookies.SimpleCookie()
             cookie.load(self.headers.get("Cookie", ""))
             morsel = cookie.get(SESSION_COOKIE_NAME)
-            return bool(morsel) and self._token_matches(morsel.value)
+            return bool(morsel) and self._session_value_matches(morsel.value)
         except Exception:
             return False
 
     def _set_session_cookie(self) -> None:
+        # Session-only cookie (no Max-Age): closing the browser re-asks for
+        # the password.
         self.send_header(
             "Set-Cookie",
-            f"{SESSION_COOKIE_NAME}={TOKEN}; Path=/; HttpOnly; SameSite=Strict",
+            f"{SESSION_COOKIE_NAME}={SESSION_VALUE}; Path=/; HttpOnly; SameSite=Strict",
         )
+
+    def _clear_session_cookie(self) -> None:
+        self.send_header(
+            "Set-Cookie",
+            f"{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
+        )
+
+    def _redirect_to_login(self, error: str = "") -> None:
+        loc = "/login" + (f"?error={quote(error)}" if error else "")
+        self.send_response(302)
+        self.send_header("Location", loc)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _handle_login(self, parsed, qs: dict, json_data: dict) -> None:
+        """Validate the panel password and mint the session cookie."""
+        wants_json = (
+            parsed.path.startswith("/api/")
+            or "application/json" in (self.headers.get("Accept") or "")
+            or "application/json" in (self.headers.get("Content-Type") or "")
+        )
+        ip = self.client_address[0] if self.client_address else ""
+
+        def _fail(message: str, code: int):
+            if wants_json:
+                self._send_json({"ok": False, "error": message}, code=code)
+            else:
+                self._send_html(build_login_page(message), code)
+
+        blocked = _login_blocked(ip)
+        if blocked:
+            _fail(f"Terlalu banyak percobaan. Coba lagi dalam {blocked} detik.", 429)
+            return
+
+        if not PASSWORD:
+            _fail("Login password belum diaktifkan di server.", 503)
+            return
+
+        candidate = (qs.get("password") or [""])[0] or str(json_data.get("password") or "")
+        if not self._password_matches(candidate):
+            _record_login_failure(ip)
+            time.sleep(0.4)  # blunt brute force without locking the thread pool
+            _fail("Password salah.", 403)
+            return
+
+        _clear_login_failures(ip)
+        if wants_json:
+            body = json.dumps({"ok": True}).encode("utf-8")
+            self.send_response(200)
+            self._set_session_cookie()
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(302)
+        self._set_session_cookie()
+        self.send_header("Location", "/status")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _send_method_not_allowed(self):
         self._send_html(
@@ -7838,12 +8014,16 @@ class Handler(BaseHTTPRequestHandler):
                         self._send_html("<h1>403 — CSRF: Invalid Referer</h1>", 403)
                     return
 
+        if parsed.path == "/login":
+            self._handle_login(parsed, qs, json_data)
+            return
+
         authed, _ = self._authenticate(qs)
         if not authed:
             if is_json_client:
-                self._send_json({"ok": False, "error": "token salah"}, code=403)
+                self._send_json({"ok": False, "error": "unauthorized"}, code=403)
             else:
-                self._send_html("<h1>403 — token salah</h1>", 403)
+                self._redirect_to_login()
             return
         self._handle_mutation(parsed, qs, json_data=json_data)
 
@@ -7852,10 +8032,29 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
 
+        if parsed.path == "/logout":
+            self.send_response(302)
+            self._clear_session_cookie()
+            self.send_header("Location", "/login")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
         authed, bootstrap = self._authenticate(qs)
         self._bootstrap = bootstrap
+
+        if parsed.path == "/login":
+            if authed:
+                self._redirect_to_status()
+                return
+            self._send_html(build_login_page((qs.get("error") or [""])[0]))
+            return
+
         if not authed:
-            self._send_html("<h1>403 — token salah</h1>", 403)
+            if parsed.path.startswith("/api/"):
+                self._send_json({"ok": False, "error": "unauthorized"}, code=401)
+            else:
+                self._redirect_to_login()
             return
 
         # Mutation over plain GET is not allowed (CasaOS shortcuts excepted:
@@ -8372,8 +8571,12 @@ class TimeoutThreadingHTTPServer(ThreadingHTTPServer):
 
 
 if __name__ == "__main__":
-    if not TOKEN:
-        print("[ERROR] PANEL_TOKEN is required. Set it in environment.", file=sys.stderr)
+    if not (TOKEN or PASSWORD):
+        print(
+            "[ERROR] Set PANEL_PASSWORD (login form) and/or PANEL_TOKEN "
+            "(CasaOS shortcut URLs) in the environment.",
+            file=sys.stderr,
+        )
         sys.exit(2)
     signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
     server = TimeoutThreadingHTTPServer(("0.0.0.0", PORT), Handler)

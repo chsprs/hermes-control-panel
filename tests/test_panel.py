@@ -15,6 +15,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 os.environ["PANEL_TOKEN"] = "test-token-secret-12345"
+os.environ["PANEL_PASSWORD"] = "test-panel-password"
 import importlib.util
 spec = importlib.util.spec_from_file_location(
     "panel", os.path.join(REPO_ROOT, "dashboard-toggle-server.py")
@@ -83,7 +84,7 @@ class TestHermesControlPanel(unittest.TestCase):
 
     # --- PR 2: Config write failures propagation ---
     def test_02_aux_model_write_failure_returns_500(self):
-        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "set_aux_task_model", return_value=False):
             code, _, body = self._request(
                 "/set-aux-model",
@@ -97,7 +98,7 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn("failed to update config", data.get("reason", ""))
 
     def test_03_fallback_model_write_failure_returns_500(self):
-        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "set_fallback_model", return_value=False):
             code, _, body = self._request(
                 "/set-fallback-model",
@@ -111,7 +112,7 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn("failed to update config", data.get("reason", ""))
 
     def test_04_reset_aux_write_failure_returns_500(self):
-        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "reset_all_aux_tasks", return_value=False):
             code, _, _ = self._request(
                 "/reset-aux",
@@ -121,7 +122,7 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertEqual(code, 500)
 
     def test_05_remove_fallback_write_failure_returns_500(self):
-        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "remove_fallback_model", return_value=False):
             code, _, _ = self._request(
                 "/remove-fallback-model",
@@ -201,14 +202,81 @@ class TestHermesControlPanel(unittest.TestCase):
     # --- PR 6: Authentication & POST mutations ---
     def test_12_server_exits_without_token(self):
         script_path = os.path.join(REPO_ROOT, "dashboard-toggle-server.py")
-        env = {k: v for k, v in os.environ.items() if k != "PANEL_TOKEN"}
+        env = {
+            k: v for k, v in os.environ.items()
+            if k not in ("PANEL_TOKEN", "PANEL_PASSWORD")
+        }
         res = subprocess.run([sys.executable, script_path], env=env, capture_output=True, text=True)
         self.assertEqual(res.returncode, 2)
-        self.assertIn("PANEL_TOKEN is required", res.stderr)
+        self.assertIn("PANEL_PASSWORD", res.stderr)
 
-    def test_13_unauthenticated_request_returns_403(self):
-        code, _, _ = self._request("/status")
+    def test_13_unauthenticated_page_redirects_to_login(self):
+        code, headers, _ = self._request("/status")
+        self.assertEqual(code, 302)
+        self.assertEqual(headers.get("Location"), "/login")
+
+    def test_13b_unauthenticated_api_returns_401(self):
+        code, _, _ = self._request("/api/status")
+        self.assertEqual(code, 401)
+
+    def test_13c_login_page_renders_password_form(self):
+        code, _, body = self._request("/login")
+        self.assertEqual(code, 200)
+        self.assertIn('action="/login"', body)
+        self.assertIn('name="password"', body)
+        self.assertIn('type="password"', body)
+
+    def test_13d_login_wrong_password_is_rejected(self):
+        panel._LOGIN_FAILURES.clear()
+        code, _, body = self._request(
+            "/login", method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data=b"password=nope",
+        )
         self.assertEqual(code, 403)
+        self.assertIn("Password salah", body)
+
+    def test_13e_login_correct_password_mints_session_cookie(self):
+        panel._LOGIN_FAILURES.clear()
+        code, headers, _ = self._request(
+            "/login", method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data=f"password={panel.PASSWORD}".encode(),
+        )
+        self.assertEqual(code, 302)
+        self.assertEqual(headers.get("Location"), "/status")
+        set_cookie = headers.get("Set-Cookie", "")
+        self.assertIn(f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}", set_cookie)
+        self.assertNotIn(panel.PASSWORD, set_cookie)  # raw password never in cookie
+        self.assertIn("HttpOnly", set_cookie)
+        self.assertNotIn("Max-Age", set_cookie)  # session-only by design
+
+    def test_13f_session_cookie_unlocks_the_panel(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        code, _, body = self._request("/status", headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        self.assertIn("Hermes", body)
+
+    def test_13g_login_lockout_after_repeated_failures(self):
+        panel._LOGIN_FAILURES.clear()
+        ip = "127.0.0.1"
+        for _ in range(panel.LOGIN_MAX_ATTEMPTS):
+            panel._record_login_failure(ip)
+        code, _, body = self._request(
+            "/login", method="POST",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data=b"password=nope",
+        )
+        self.assertEqual(code, 429)
+        self.assertIn("Terlalu banyak percobaan", body)
+        panel._LOGIN_FAILURES.clear()
+
+    def test_13h_logout_clears_session_cookie(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        code, headers, _ = self._request("/logout", headers={"Cookie": cookie})
+        self.assertEqual(code, 302)
+        self.assertEqual(headers.get("Location"), "/login")
+        self.assertIn("Max-Age=0", headers.get("Set-Cookie", ""))
 
     def test_14_bootstrap_sets_cookie_and_redirects(self):
         code, headers, _ = self._request(f"/status?token={panel.TOKEN}")
@@ -220,7 +288,7 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertEqual(headers.get("Location"), "/status")
 
     def test_15_mutation_method_enforcement(self):
-        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "restart_bot") as mock_restart, \
              mock.patch.object(panel.subprocess, "run") as mock_run:
             # 1. GET to mutating route without shortcut -> 405 Method Not Allowed
@@ -475,7 +543,7 @@ class TestHermesControlPanel(unittest.TestCase):
 
     def test_23_gateway_platform_http_endpoints(self):
         """HTTP endpoints /api/gateway-config and mutations work with proper auth."""
-        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
 
         # 1. GET /api/gateway-config
         code, headers, body = self._request("/api/gateway-config?platform=telegram", method="GET", headers={"Cookie": cookie})
@@ -513,7 +581,7 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("gatewayLogDismissed", card_html)
 
         # 3. GET /api/gateway-log
-        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         code, _, body = self._request("/api/gateway-log?n=20", method="GET", headers={"Cookie": cookie})
         self.assertEqual(code, 200)
         data = json.loads(body if isinstance(body, str) else body.decode("utf-8"))
@@ -538,7 +606,7 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn('openWaPairModal', page_html)
 
         # 4. GET /api/whatsapp-log
-        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         code, _, body = self._request("/api/whatsapp-log?n=20", method="GET", headers={"Cookie": cookie})
         self.assertEqual(code, 200)
         data = json.loads(body if isinstance(body, str) else body.decode("utf-8"))
@@ -575,7 +643,7 @@ class TestHermesControlPanel(unittest.TestCase):
 
     def test_41_regressions_tick_http(self):
         """Regression tests for token strip on logged in GET and CSRF IPv6/port enforcement."""
-        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         # 1. GET /status?token=... redirects to strip token even when valid session cookie exists
         code, headers, _ = self._request(f"/status?token={panel.TOKEN}", method="GET", headers={"Cookie": cookie})
         self.assertEqual(code, 302)
@@ -621,7 +689,7 @@ class TestHermesControlPanel(unittest.TestCase):
 
     def test_58_regressions_tick_audit(self):
         """Regression tests for audit tick: CSRF port 80/443 bypass, 9router cache typo, modern Discord token redaction, boolean string coercion, and TRUTHY 'on'."""
-        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
 
         # 1. CSRF: Port 80 Origin (no port in Origin header) must be rejected when Host has port 9120
         code, _, _ = self._request(
@@ -681,7 +749,7 @@ class TestHermesControlPanel(unittest.TestCase):
 
     def test_59_regressions_pasca_8270425_audit(self):
         """Regression tests for audit fixes: IPv6 CSRF port normalization, /switch-model JSON, dynamic 9router port, proc reap in watcher, and extra allow_all_users."""
-        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.TOKEN}"
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
 
         # 1. CSRF: IPv6 Host without port matching Origin with default port 80
         with mock.patch.object(panel, "restart_bot"):
