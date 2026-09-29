@@ -140,6 +140,8 @@ MUTATING_PATHS = frozenset({
     "/save-gateway-platform", "/toggle-gateway-platform", "/remove-gateway-platform",
     "/api/gateway-config-preview",
     "/api/whatsapp/pair-start", "/api/whatsapp/pair-cancel", "/api/whatsapp/pair-apply",
+    "/set-active-profile", "/create-profile", "/delete-profile", "/rename-profile",
+    "/save-profile-soul", "/set-profile-model",
 })
 LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off"})
 ROUTER_URL = "http://{host}:20128/"
@@ -285,6 +287,7 @@ ICON_NETWORK = _icon('<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="
 ICON_GLOBE = _icon('<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>', size=16)
 ICON_BOT = _icon('<rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8.01" y2="16"/><line x1="16" y1="16" x2="16.01" y2="16"/>', size=16)
 ICON_ROUTER = _icon('<rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6" y2="14"/><line x1="18" y1="6" x2="18" y2="14"/><line x1="6" y1="18" x2="6.01" y2="18"/><line x1="10" y1="18" x2="10.01" y2="18"/>', size=16)
+ICON_USERS = _icon('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', size=16)
 ICON_HERMES = _icon('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>', size=16)
 ICON_TRASH = _icon('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>', size=16)
 ICON_SHIELD = _icon('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', size=16)
@@ -572,9 +575,9 @@ opacity:0;pointer-events:none;transition:opacity .15s var(--ease);z-index:200}}
 border-top-color:var(--accent-light);border-radius:50%;animation:spin .7s linear infinite}}
 #navloader span{{color:var(--text-muted);font-size:.82rem;font-family:var(--font-mono)}}
 /* Confirm modal */
-#confirm-modal, #aux-picker-modal, #gw-config-modal, #wa-pair-modal{{position:fixed;inset:0;background:rgba(7,9,14,0.85);backdrop-filter:blur(8px);
+#confirm-modal, #aux-picker-modal, #gw-config-modal, #wa-pair-modal, #create-profile-modal, #soul-modal, #rename-profile-modal{{position:fixed;inset:0;background:rgba(7,9,14,0.85);backdrop-filter:blur(8px);
 display:none;align-items:center;justify-content:center;z-index:300;padding:1.5rem}}
-#confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show, #wa-pair-modal.show{{display:flex}}
+#confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show, #wa-pair-modal.show, #create-profile-modal.show, #soul-modal.show, #rename-profile-modal.show{{display:flex}}
 .confirm-box{{background:rgba(22,27,38,0.95);border:1px solid var(--border-hover);
 border-radius:var(--radius-xl);padding:1.6rem 1.5rem;max-width:360px;width:100%;
 box-shadow:0 12px 48px rgba(0,0,0,0.7)}}
@@ -1031,6 +1034,72 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     </div>
   </div>
 </div>
+<div id="create-profile-modal">
+  <div class="confirm-box" style="max-width:480px;width:92%;max-height:85vh;display:flex;flex-direction:column;padding:1.4rem;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+      <h3 style="margin:0;font-size:1.05rem">Buat Profil Agent Baru</h3>
+      <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeCreateProfileModal()">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0.75rem">
+      <div>
+        <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Nama Profil (ID unik)</label>
+        <input type="text" id="create-profile-name" class="search-input" placeholder="contoh: coder, researcher" style="width:100%">
+        <span style="font-size:0.68rem;color:var(--text-dim);display:block;margin-top:0.2rem">Huruf kecil, angka, '-' atau '_', maks 64 karakter.</span>
+      </div>
+      <div>
+        <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Salin Konfigurasi Dari (Clone)</label>
+        <select id="create-profile-clone" class="search-input" style="width:100%;background:rgba(255,255,255,0.06);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer">
+          <option value="">-- Tanpa Clone (Mulai Baru) --</option>
+          <option value="default">default (Profil Utama)</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Deskripsi Peran (Opsional)</label>
+        <textarea id="create-profile-desc" class="search-input" placeholder="Tuliskan spesialisasi atau peran profil ini..." style="width:100%;height:68px;resize:vertical;font-family:inherit"></textarea>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.5rem">
+        <button type="button" class="btn" style="width:auto" onclick="closeCreateProfileModal()">Batal</button>
+        <button type="button" class="btn btn-on" style="width:auto" onclick="submitCreateProfile()">Buat Profil</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="soul-modal">
+  <div class="confirm-box" style="max-width:640px;width:94%;max-height:90vh;display:flex;flex-direction:column;padding:1.4rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+      <div>
+        <h3 id="soul-modal-title" style="margin:0;font-size:1.05rem">Edit SOUL.md</h3>
+        <span style="font-size:0.72rem;color:var(--text-dim)">Instruksi sistem / persona khusus profil agent ini.</span>
+      </div>
+      <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeProfileSoulModal()">✕</button>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;margin-top:0.5rem;gap:0.5rem">
+      <textarea id="soul-content" class="search-input" style="flex:1;min-height:280px;max-height:55vh;width:100%;font-family:var(--font-mono);font-size:0.8rem;line-height:1.45;resize:vertical;background:#0d1117;color:#f0f6fc;padding:0.75rem"></textarea>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+        <button type="button" class="btn" style="width:auto" onclick="closeProfileSoulModal()">Batal</button>
+        <button type="button" class="btn btn-on" style="width:auto" onclick="submitProfileSoul()">Simpan SOUL.md</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="rename-profile-modal">
+  <div class="confirm-box" style="max-width:420px;width:92%;padding:1.4rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+      <h3 style="margin:0;font-size:1.05rem">Ubah Nama Profil</h3>
+      <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeRenameProfileModal()">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0.75rem">
+      <div>
+        <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Nama Profil Baru</label>
+        <input type="text" id="rename-profile-new-name" class="search-input" style="width:100%">
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+        <button type="button" class="btn" style="width:auto" onclick="closeRenameProfileModal()">Batal</button>
+        <button type="button" class="btn btn-on" style="width:auto" onclick="submitRenameProfile()">Simpan</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="header">
   <div class="header-brand">
     <img src="https://cdn.jsdelivr.net/gh/selfhst/icons/webp/hermes-agent-light.webp" class="header-logo" alt="Hermes Logo">
@@ -1045,6 +1114,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   <div class="tab" onclick="switchTab('performance', this)">{icon_cpu} Performa</div>
   <div class="tab" onclick="switchTab('control', this)">{icon_layers} Layanan</div>
   <div class="tab" onclick="switchTab('auxiliary', this)">{icon_bot} Tugas AI</div>
+  <div class="tab" onclick="switchTab('profiles', this)">{icon_users} Profil Agent</div>
 </div>
 
 <div class="content-wrapper">
@@ -1299,6 +1369,23 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     </div>
   </div>
 </div>
+<!-- TAB PROFILES -->
+<div class="tab-panel" id="tab-profiles">
+  <div class="card card-status" style="padding:1.25rem">
+    <div class="aux-header">
+      <div class="card-title" style="margin-bottom:0">{icon_users} Hermes Agent Profile</div>
+      <button type="button" class="btn btn-on" style="width:auto;min-height:34px;padding:0.35rem 0.85rem;font-size:0.75rem;margin:0" onclick="openCreateProfileModal()">
+        + Profil Baru
+      </button>
+    </div>
+    <div class="aux-desc">
+      Kelola instance profil mandiri Hermes Agent. Setiap profil memiliki direktori tersendiri di <code>~/.hermes/profiles/&lt;nama&gt;</code> dengan konfigurasi model, API key (.env), persona instruksi sistem (SOUL.md), sesi, dan skills terisolasi.
+    </div>
+    <div id="profiles-slot">
+      {profiles_block}
+    </div>
+  </div>
+</div>
 </div> <!-- .content-wrapper -->
 
 {nav_script}
@@ -1367,6 +1454,7 @@ function closeAuxPicker(){{
   if(modal) modal.classList.remove('show');
   currentAuxTask = '';
   currentFallbackIndex = null;
+  currentProfileModelTarget = '';
 }}
 
 function filterAuxPicker(q){{
@@ -1485,6 +1573,13 @@ function renderAuxPickerItems(q){{
 }}
 
 function selectAuxModel(provider, model){{
+  if(currentProfileModelTarget){{
+    var prof = currentProfileModelTarget;
+    currentProfileModelTarget = '';
+    closeAuxPicker();
+    setProfileModel(prof, provider, model);
+    return;
+  }}
   if(!currentAuxTask) return;
   var task = currentAuxTask;
   closeAuxPicker();
@@ -1559,13 +1654,222 @@ if(activeTabFromUrl){{
   if(btn) switchTab(activeTabFromUrl, btn);
 }} else {{
   var saved = safeStore('getItem', 'activeTab');
-  if(saved && ['status','performance','control','auxiliary'].indexOf(saved) !== -1){{
+  if(saved && ['status','performance','control','auxiliary','profiles'].indexOf(saved) !== -1){{
     var btn = document.querySelector('.tab[onclick*="' + saved + '"]');
     if(btn) switchTab(saved, btn);
   }}
 }}
 restorePatchPages();
 syncGwLogTabUI();
+
+var currentEditingSoulProfile = '';
+var currentRenamingProfile = '';
+var currentProfileModelTarget = '';
+
+function openCreateProfileModal(){{
+  var modal = document.getElementById('create-profile-modal');
+  if(!modal) return;
+  document.getElementById('create-profile-name').value = '';
+  document.getElementById('create-profile-desc').value = '';
+  var sel = document.getElementById('create-profile-clone');
+  if(sel){{
+    sel.innerHTML = '<option value="">-- Tanpa Clone (Mulai Baru) --</option><option value="default">default (Profil Utama)</option>';
+    fetch('/api/profiles')
+      .then(function(r){{ return r.json(); }})
+      .then(function(res){{
+        if(res && res.profiles){{
+          sel.innerHTML = '<option value="">-- Tanpa Clone (Mulai Baru) --</option>';
+          res.profiles.forEach(function(p){{
+            var opt = document.createElement('option');
+            opt.value = p.name;
+            opt.textContent = p.name + (p.is_default ? ' (Profil Utama)' : '');
+            sel.appendChild(opt);
+          }});
+        }}
+      }})
+      .catch(function(){{}});
+  }}
+  modal.classList.add('show');
+}}
+
+function closeCreateProfileModal(){{
+  var modal = document.getElementById('create-profile-modal');
+  if(modal) modal.classList.remove('show');
+}}
+
+function submitCreateProfile(){{
+  var name = (document.getElementById('create-profile-name').value || '').trim();
+  if(!name){{ alert('Nama profil tidak boleh kosong'); return; }}
+  var clone = document.getElementById('create-profile-clone').value || '';
+  var desc = (document.getElementById('create-profile-desc').value || '').trim();
+  closeCreateProfileModal();
+  var body = new URLSearchParams({{ name: name, clone_from: clone, description: desc, ajax: '1' }});
+  fetch('/create-profile', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
+    body: body.toString()
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?just=profile-created&tab=profiles';
+    }} else {{
+      alert('Gagal membuat profil: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function setActiveProfile(name){{
+  if(!confirm('Aktifkan profil "' + name + '" sebagai profil default Hermes?')) return;
+  var body = new URLSearchParams({{ profile: name, ajax: '1' }});
+  fetch('/set-active-profile', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
+    body: body.toString()
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?just=profile-active&tab=profiles';
+    }} else {{
+      alert('Gagal mengaktifkan profil: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function deleteProfile(name){{
+  if(!confirm('Hapus profil "' + name + '" secara permanen beserta semua datanya?')) return;
+  var body = new URLSearchParams({{ profile: name, ajax: '1' }});
+  fetch('/delete-profile', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
+    body: body.toString()
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?just=profile-deleted&tab=profiles';
+    }} else {{
+      alert('Gagal menghapus profil: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function openRenameProfileModal(name){{
+  currentRenamingProfile = name;
+  var inp = document.getElementById('rename-profile-new-name');
+  if(inp) inp.value = name;
+  var modal = document.getElementById('rename-profile-modal');
+  if(modal) modal.classList.add('show');
+}}
+
+function closeRenameProfileModal(){{
+  var modal = document.getElementById('rename-profile-modal');
+  if(modal) modal.classList.remove('show');
+}}
+
+function submitRenameProfile(){{
+  var newName = (document.getElementById('rename-profile-new-name').value || '').trim();
+  if(!newName || newName === currentRenamingProfile){{ closeRenameProfileModal(); return; }}
+  var oldName = currentRenamingProfile;
+  closeRenameProfileModal();
+  var body = new URLSearchParams({{ old_name: oldName, new_name: newName, ajax: '1' }});
+  fetch('/rename-profile', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
+    body: body.toString()
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?just=profile-renamed&tab=profiles';
+    }} else {{
+      alert('Gagal mengubah nama profil: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function openProfileSoulModal(name){{
+  currentEditingSoulProfile = name;
+  var title = document.getElementById('soul-modal-title');
+  if(title) title.textContent = 'Edit SOUL.md - Profil ' + name;
+  var txt = document.getElementById('soul-content');
+  if(txt) txt.value = 'Memuat SOUL.md…';
+  var modal = document.getElementById('soul-modal');
+  if(modal) modal.classList.add('show');
+  fetch('/api/profile-soul?profile=' + encodeURIComponent(name))
+    .then(function(r){{ return r.json(); }})
+    .then(function(res){{
+      if(txt) txt.value = (res && res.content) || '';
+    }})
+    .catch(function(err){{
+      if(txt) txt.value = '';
+      alert('Gagal memuat SOUL.md: ' + err);
+    }});
+}}
+
+function closeProfileSoulModal(){{
+  var modal = document.getElementById('soul-modal');
+  if(modal) modal.classList.remove('show');
+}}
+
+function submitProfileSoul(){{
+  var name = currentEditingSoulProfile;
+  var content = document.getElementById('soul-content').value;
+  closeProfileSoulModal();
+  var body = new URLSearchParams({{ profile: name, content: content, ajax: '1' }});
+  fetch('/save-profile-soul', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
+    body: body.toString()
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?just=profile-soul&tab=profiles';
+    }} else {{
+      alert('Gagal menyimpan SOUL.md: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function openProfileModelPicker(name){{
+  currentProfileModelTarget = name;
+  currentAuxTask = '';
+  currentFallbackIndex = null;
+  var title = document.getElementById('aux-picker-title');
+  if(title) title.textContent = 'Pilih Model untuk Profil: ' + name;
+  var input = document.getElementById('aux-model-search');
+  if(input) input.value = '';
+  var modal = document.getElementById('aux-picker-modal');
+  if(modal) modal.classList.add('show');
+  ensureAvailableModels(function(){{
+    renderAuxPickerItems('');
+  }});
+}}
+
+function setProfileModel(profileName, provider, model){{
+  var body = new URLSearchParams({{ profile: profileName, provider: provider, model: model, ajax: '1' }});
+  fetch('/set-profile-model', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
+    body: body.toString()
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?just=profile-model&tab=profiles';
+    }} else {{
+      alert('Gagal memperbarui model profil: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
 
 var currentGwPlatform = '';
 var isNewGwPlatform = false;
@@ -4805,7 +5109,9 @@ var MUTATING_PREFIXES = [
   '/set-fallback-model', '/remove-fallback-model',
   '/set-reasoning-effort',
   '/process-action', '/switch-model',
-  '/save-gateway-platform', '/toggle-gateway-platform', '/remove-gateway-platform'
+  '/save-gateway-platform', '/toggle-gateway-platform', '/remove-gateway-platform',
+  '/set-active-profile', '/create-profile', '/delete-profile', '/rename-profile',
+  '/save-profile-soul', '/set-profile-model'
 ];
 var CONFIRM_ROUTES = [
   {match:'/update-hermes', title:'Perbarui Hermes Agent', msg:'Perbarui Hermes via git pull + install dependency + mulai ulang gateway. Bot tidak bisa dibalas selama proses (beberapa menit). Lanjutkan?'},
@@ -5911,6 +6217,405 @@ def render_backup_models_block() -> str:
             f'</div>'
         )
     return "".join(rows)
+
+
+# --- Hermes Agent Profile Management ---
+_PROFILE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def get_hermes_root() -> Path:
+    """Return the root Hermes directory (~/.hermes)."""
+    return Path(CONFIG_PATH).resolve().parent
+
+
+def get_active_profile_name() -> str:
+    """Read the sticky active profile name (default if unset or missing)."""
+    path = get_hermes_root() / "active_profile"
+    try:
+        if path.is_file():
+            name = path.read_text(encoding="utf-8-sig").strip()
+            if name and _PROFILE_NAME_RE.match(name):
+                return name
+    except Exception:
+        pass
+    return "default"
+
+
+def set_active_profile_name(name: str) -> bool:
+    """Set the active profile. 'default' unlinks the active_profile file."""
+    name = (name or "").strip().lower()
+    root = get_hermes_root()
+    path = root / "active_profile"
+    if name == "default":
+        try:
+            if path.exists():
+                path.unlink()
+            return True
+        except Exception:
+            return False
+    if not _PROFILE_NAME_RE.match(name):
+        return False
+    target_dir = root / "profiles" / name
+    if not target_dir.is_dir():
+        return False
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(root), prefix=".active_profile.tmp.")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(name + "\n")
+        os.replace(tmp, str(path))
+        return True
+    except Exception:
+        return False
+
+
+def _count_skills_in_dir(skills_dir: Path) -> int:
+    """Count skills in a directory up to 2 levels deep without unbounded recursion."""
+    if not skills_dir.is_dir():
+        return 0
+    count = 0
+    try:
+        for entry in skills_dir.iterdir():
+            if entry.is_dir():
+                if (entry / "SKILL.md").is_file():
+                    count += 1
+                else:
+                    for sub in entry.iterdir():
+                        if sub.is_dir() and (sub / "SKILL.md").is_file():
+                            count += 1
+    except Exception:
+        pass
+    return count
+
+
+def list_agent_profiles() -> list[dict]:
+    """Return list of all Hermes profiles (default + named profiles)."""
+    root = get_hermes_root()
+    active = get_active_profile_name()
+    profiles = []
+
+    # 1. Default profile
+    default_cfg_path = root / "config.yaml"
+    def_model = ""
+    def_provider = ""
+    try:
+        if default_cfg_path.is_file():
+            with open(default_cfg_path, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            m = cfg.get("model", {})
+            if isinstance(m, dict):
+                def_model = str(m.get("default") or "").strip()
+                def_provider = str(m.get("provider") or "").strip()
+    except Exception:
+        pass
+
+    def_desc = ""
+    def_meta_path = root / "meta.json"
+    try:
+        if def_meta_path.is_file():
+            meta = json.loads(def_meta_path.read_text(encoding="utf-8"))
+            if isinstance(meta, dict):
+                def_desc = str(meta.get("description") or "").strip()
+    except Exception:
+        pass
+
+    profiles.append({
+        "name": "default",
+        "path": str(root),
+        "is_default": True,
+        "is_active": active == "default",
+        "model": def_model,
+        "provider": def_provider,
+        "has_env": (root / ".env").is_file(),
+        "has_soul": (root / "SOUL.md").is_file(),
+        "skill_count": _count_skills_in_dir(root / "skills"),
+        "description": def_desc,
+    })
+
+    # 2. Named profiles under <root>/profiles/
+    profiles_root = root / "profiles"
+    if profiles_root.is_dir():
+        try:
+            for entry in sorted(profiles_root.iterdir()):
+                if not entry.is_dir() or entry.name == "default" or not _PROFILE_NAME_RE.match(entry.name):
+                    continue
+                prof_cfg_path = entry / "config.yaml"
+                p_model = ""
+                p_provider = ""
+                try:
+                    if prof_cfg_path.is_file():
+                        with open(prof_cfg_path, encoding="utf-8") as f:
+                            cfg = yaml.safe_load(f) or {}
+                        m = cfg.get("model", {})
+                        if isinstance(m, dict):
+                            p_model = str(m.get("default") or "").strip()
+                            p_provider = str(m.get("provider") or "").strip()
+                except Exception:
+                    pass
+
+                p_desc = ""
+                p_meta_path = entry / "meta.json"
+                try:
+                    if p_meta_path.is_file():
+                        meta = json.loads(p_meta_path.read_text(encoding="utf-8"))
+                        if isinstance(meta, dict):
+                            p_desc = str(meta.get("description") or "").strip()
+                except Exception:
+                    pass
+
+                profiles.append({
+                    "name": entry.name,
+                    "path": str(entry),
+                    "is_default": False,
+                    "is_active": active == entry.name,
+                    "model": p_model or def_model,
+                    "provider": p_provider or def_provider,
+                    "has_env": (entry / ".env").is_file(),
+                    "has_soul": (entry / "SOUL.md").is_file(),
+                    "skill_count": _count_skills_in_dir(entry / "skills"),
+                    "description": p_desc,
+                })
+        except Exception:
+            pass
+
+    return profiles
+
+
+def create_agent_profile(name: str, clone_from: str = "", description: str = "") -> tuple[bool, str]:
+    """Create a new named profile."""
+    name = (name or "").strip()
+    if not name or name.lower() == "default" or not _PROFILE_NAME_RE.match(name):
+        return False, "Nama profil tidak valid. Gunakan huruf kecil, angka, '-' atau '_', maksimal 64 karakter."
+    name = name.lower()
+    root = get_hermes_root()
+    target_dir = root / "profiles" / name
+    if target_dir.exists():
+        return False, f"Profil '{name}' sudah ada."
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if clone_from:
+            clone_src = root if clone_from == "default" else (root / "profiles" / clone_from)
+            if clone_src.is_dir():
+                for fname in ("config.yaml", "SOUL.md", "meta.json"):
+                    src_f = clone_src / fname
+                    if src_f.is_file():
+                        shutil.copy2(src_f, target_dir / fname)
+        if not (target_dir / "config.yaml").is_file():
+            main_cfg = root / "config.yaml"
+            model_info = {}
+            if main_cfg.is_file():
+                try:
+                    with open(main_cfg, encoding="utf-8") as f:
+                        c = yaml.safe_load(f) or {}
+                    model_info = c.get("model", {})
+                except Exception:
+                    pass
+            cfg_content = yaml.safe_dump({"model": model_info}, default_flow_style=False)
+            (target_dir / "config.yaml").write_text(cfg_content, encoding="utf-8")
+            os.chmod(target_dir / "config.yaml", 0o600)
+        if description:
+            meta = {"description": description.strip(), "description_auto": False}
+            (target_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        return True, f"Profil '{name}' berhasil dibuat."
+    except Exception as e:
+        return False, f"Gagal membuat profil: {e}"
+
+
+def delete_agent_profile(name: str) -> tuple[bool, str]:
+    """Delete a named profile (default cannot be deleted)."""
+    name = (name or "").strip().lower()
+    if not name or name == "default":
+        return False, "Profil default tidak dapat dihapus."
+    root = get_hermes_root()
+    target_dir = root / "profiles" / name
+    if not target_dir.is_dir():
+        return False, f"Profil '{name}' tidak ditemukan."
+    try:
+        active = get_active_profile_name()
+        if active == name:
+            set_active_profile_name("default")
+        shutil.rmtree(target_dir)
+        return True, f"Profil '{name}' berhasil dihapus."
+    except Exception as e:
+        return False, f"Gagal menghapus profil: {e}"
+
+
+def rename_agent_profile(old_name: str, new_name: str) -> tuple[bool, str]:
+    """Rename a named profile."""
+    old_name = (old_name or "").strip().lower()
+    new_name = (new_name or "").strip()
+    if not old_name or old_name == "default":
+        return False, "Profil default tidak dapat di-rename."
+    if not new_name or new_name.lower() == "default" or not _PROFILE_NAME_RE.match(new_name):
+        return False, "Nama profil baru tidak valid."
+    new_name = new_name.lower()
+    root = get_hermes_root()
+    src_dir = root / "profiles" / old_name
+    dst_dir = root / "profiles" / new_name
+    if not src_dir.is_dir():
+        return False, f"Profil '{old_name}' tidak ditemukan."
+    if dst_dir.exists():
+        return False, f"Profil '{new_name}' sudah ada."
+    try:
+        src_dir.rename(dst_dir)
+        active = get_active_profile_name()
+        if active == old_name:
+            set_active_profile_name(new_name)
+        return True, f"Profil '{old_name}' berhasil diubah menjadi '{new_name}'."
+    except Exception as e:
+        return False, f"Gagal mengubah nama profil: {e}"
+
+
+def get_agent_profile_soul(name: str) -> str:
+    """Read SOUL.md of profile."""
+    name = (name or "").strip().lower()
+    root = get_hermes_root()
+    target_file = (root / "SOUL.md") if name == "default" else (root / "profiles" / name / "SOUL.md")
+    try:
+        if target_file.is_file():
+            return target_file.read_text(encoding="utf-8-sig")
+    except Exception:
+        pass
+    return ""
+
+
+def save_agent_profile_soul(name: str, content: str) -> tuple[bool, str]:
+    """Atomically write SOUL.md with 0644 mode."""
+    name = (name or "").strip().lower()
+    root = get_hermes_root()
+    target_dir = root if name == "default" else (root / "profiles" / name)
+    if not target_dir.is_dir():
+        return False, f"Direktori profil '{name}' tidak ditemukan."
+    target_file = target_dir / "SOUL.md"
+    try:
+        fd, tmp = tempfile.mkstemp(dir=str(target_dir), prefix=".SOUL.md.tmp.")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, str(target_file))
+        return True, "SOUL.md berhasil disimpan."
+    except Exception as e:
+        return False, f"Gagal menyimpan SOUL.md: {e}"
+
+
+def set_agent_profile_model(name: str, provider: str, model: str) -> tuple[bool, str]:
+    """Update model assignment in a profile's config.yaml."""
+    name = (name or "").strip().lower()
+    root = get_hermes_root()
+    cfg_file = (root / "config.yaml") if name == "default" else (root / "profiles" / name / "config.yaml")
+    if not cfg_file.parent.is_dir():
+        return False, f"Direktori profil '{name}' tidak ditemukan."
+    try:
+        cfg = {}
+        if cfg_file.is_file():
+            with open(cfg_file, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+        m = cfg.setdefault("model", {})
+        if not isinstance(m, dict):
+            m = cfg["model"] = {}
+        if model:
+            m["default"] = model
+        if provider:
+            m["provider"] = provider
+        fd, tmp = tempfile.mkstemp(dir=str(cfg_file.parent), prefix=".config.yaml.tmp.")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, str(cfg_file))
+        return True, "Model profil berhasil diperbarui."
+    except Exception as e:
+        return False, f"Gagal memperbarui model profil: {e}"
+
+
+def render_profiles_block() -> str:
+    """Render profile cards and active banner."""
+    profiles = list_agent_profiles()
+    active_name = get_active_profile_name()
+
+    banner = (
+        f'<div class="card card-status" style="padding:0.9rem 1.1rem;margin-bottom:1rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem">'
+        f'  <div style="display:flex;align-items:center;gap:0.6rem">'
+        f'    <span class="live-badge badge-up" style="padding:0.25rem 0.55rem">AKTIF</span>'
+        f'    <span style="font-size:0.88rem;color:var(--text)">Profil Saat Ini: <strong style="color:var(--accent);font-family:var(--font-mono)">{html.escape(active_name)}</strong></span>'
+        f'  </div>'
+        f'  <button type="button" class="btn btn-on" style="width:auto;min-height:34px;padding:0.35rem 0.85rem;font-size:0.75rem;margin:0" onclick="openCreateProfileModal()">'
+        f'    + Profil Baru'
+        f'  </button>'
+        f'</div>'
+    )
+
+    cards = []
+    for p in profiles:
+        name = p["name"]
+        safe_name = html.escape(name.replace("\\", "\\\\").replace("'", "\\'"), quote=True)
+        is_act = p["is_active"]
+        is_def = p["is_default"]
+        model = p["model"] or "mengikuti default"
+        prov = p["provider"] or "custom:9router"
+        desc = p.get("description", "")
+        skills_cnt = p.get("skill_count", 0)
+        has_env = p.get("has_env", False)
+        has_soul = p.get("has_soul", False)
+
+        act_badge = '<span class="live-badge badge-up" style="font-size:0.65rem;padding:0.15rem 0.45rem">AKTIF</span>' if is_act else ''
+        type_badge = '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">Default</span>' if is_def else '<span class="badge" style="background:rgba(59,130,246,0.12);color:var(--accent);font-size:0.65rem">Custom</span>'
+        env_badge = '<span class="badge" style="background:rgba(16,185,129,0.12);color:var(--success);font-size:0.65rem">.env ✓</span>' if has_env else '<span class="badge" style="background:rgba(255,255,255,0.04);color:var(--text-dim);font-size:0.65rem">.env -</span>'
+        soul_badge = '<span class="badge" style="background:rgba(168,85,247,0.15);color:#c084fc;font-size:0.65rem">SOUL.md ✓</span>' if has_soul else '<span class="badge" style="background:rgba(255,255,255,0.04);color:var(--text-dim);font-size:0.65rem">SOUL.md -</span>'
+
+        act_btn = (
+            f'<button type="button" class="btn" disabled style="width:auto;min-height:30px;padding:0.25rem 0.65rem;font-size:0.72rem;opacity:0.6;cursor:default">'
+            f'  Aktif'
+            f'</button>'
+        ) if is_act else (
+            f'<button type="button" class="btn btn-on" style="width:auto;min-height:30px;padding:0.25rem 0.65rem;font-size:0.72rem" onclick="setActiveProfile(\'{safe_name}\')">'
+            f'  Aktifkan'
+            f'</button>'
+        )
+
+        rename_btn = '' if is_def else f'<button type="button" class="btn" style="width:auto;min-height:30px;padding:0.25rem 0.65rem;font-size:0.72rem" onclick="openRenameProfileModal(\'{safe_name}\')">Rename</button>'
+        delete_btn = '' if is_def else f'<button type="button" class="btn btn-off" style="width:auto;min-height:30px;padding:0.25rem 0.65rem;font-size:0.72rem" onclick="deleteProfile(\'{safe_name}\')">Hapus</button>'
+
+        desc_html = f'<div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.4rem;line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">{html.escape(desc)}</div>' if desc else ''
+
+        card_html = (
+            f'<div class="card card-status profile-card" style="padding:1rem;display:flex;flex-direction:column;justify-content:space-between;margin-bottom:0.75rem">'
+            f'  <div>'
+            f'    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">'
+            f'      <div style="display:flex;align-items:center;gap:0.45rem">'
+            f'        <strong style="font-family:var(--font-mono);font-size:0.95rem;color:var(--text)">{html.escape(name)}</strong>'
+            f'        {type_badge}'
+            f'      </div>'
+            f'      {act_badge}'
+            f'    </div>'
+            f'    <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:0.5rem 0.65rem;margin-bottom:0.5rem">'
+            f'      <div style="display:flex;align-items:center;justify-content:space-between;font-size:0.75rem">'
+            f'        <span style="color:var(--text-dim)">Model:</span>'
+            f'        <button type="button" class="btn-action-sm" onclick="openProfileModelPicker(\'{safe_name}\')">Ganti</button>'
+            f'      </div>'
+            f'      <div style="font-family:var(--font-mono);font-size:0.8rem;color:var(--accent);font-weight:600;margin-top:0.2rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{html.escape(model)}</div>'
+            f'      <div style="font-size:0.68rem;color:var(--text-dim);margin-top:0.1rem">{html.escape(prov)}</div>'
+            f'    </div>'
+            f'    <div style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-top:0.4rem">'
+            f'      <span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">{skills_cnt} skills</span>'
+            f'      {env_badge}'
+            f'      {soul_badge}'
+            f'    </div>'
+            f'    {desc_html}'
+            f'  </div>'
+            f'  <div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.85rem;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:0.65rem">'
+            f'    {act_btn}'
+            f'    <button type="button" class="btn" style="width:auto;min-height:30px;padding:0.25rem 0.65rem;font-size:0.72rem" onclick="openProfileSoulModal(\'{safe_name}\')">Edit SOUL</button>'
+            f'    {rename_btn}'
+            f'    {delete_btn}'
+            f'  </div>'
+            f'</div>'
+        )
+        cards.append(card_html)
+
+    grid = f'<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(290px, 1fr));gap:0.85rem">{"".join(cards)}</div>'
+    return banner + grid
 
 
 def restart_bot() -> None:
@@ -7622,13 +8327,14 @@ def build_fragments() -> dict:
         "cpu_pct": cpu_pct,
         "ram_pct": round(ram_pct, 1),
         "cell_load": cell_load,
+        "profiles_block": render_profiles_block(),
         "updating": updating,
         "dash_active": dash_active,
         "gw_active": gw_active,
     }
 
 
-VALID_TABS = {"status", "performance", "control", "auxiliary"}
+VALID_TABS = {"status", "performance", "control", "auxiliary", "profiles"}
 
 
 def _to_bool(val, default: bool = False) -> bool:
@@ -7711,6 +8417,31 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
             f'<div class="hint">{ICON_CHECK}Daftar model Hermes Agent berhasil diambil dan disinkronkan! '
             'Katalog cache telah diperbarui sehingga /model tidak akan timeout.</div>'
         )
+    elif just == "profile-active":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Profil aktif berhasil diganti ke '
+            f'<strong>{html.escape(get_active_profile_name())}</strong>!</div>'
+        )
+    elif just == "profile-created":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Profil baru berhasil dibuat dan siap digunakan!</div>'
+        )
+    elif just == "profile-renamed":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Nama profil berhasil diubah!</div>'
+        )
+    elif just == "profile-deleted":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Profil berhasil dihapus.</div>'
+        )
+    elif just == "profile-soul":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}SOUL.md profil berhasil diperbarui!</div>'
+        )
+    elif just == "profile-model":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Model profil berhasil diperbarui!</div>'
+        )
     else:
         countdown_block = ""
 
@@ -7744,6 +8475,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         hermes_update_block=frag["hermes_update_block"],
         aux_tasks_block=frag["aux_tasks_block"],
         backup_models_block=frag["backup_models_block"],
+        profiles_block=frag.get("profiles_block", ""),
         processes_table=frag["processes_table"],
         cpu_pct=frag["cpu_pct"],
         ram_pct=frag["ram_pct"],
@@ -7779,6 +8511,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         icon_globe=ICON_GLOBE,
         icon_bot=ICON_BOT,
         icon_router=ICON_ROUTER,
+        icon_users=ICON_USERS,
         icon_hermes=ICON_HERMES,
         icon_activity=ICON_ACTIVITY,
     )
@@ -8397,6 +9130,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(get_available_models_cached())
             return
 
+        if parsed.path == "/api/profiles":
+            self._send_json({"ok": True, "active": get_active_profile_name(), "profiles": list_agent_profiles()})
+            return
+
+        if parsed.path == "/api/profile-soul":
+            prof = (qs.get("profile") or ["default"])[0]
+            self._send_json({"ok": True, "profile": prof, "content": get_agent_profile_soul(prof)})
+            return
+
         if parsed.path == "/events":
             # SSE endpoint: stream updates to client
             self.send_response(200)
@@ -8532,6 +9274,84 @@ class Handler(BaseHTTPRequestHandler):
             restart_gw = _to_bool(json_data.get("restart_gw") if "restart_gw" in json_data else (qs.get("restart_gw") or ["1"])[0], default=True)
             ok, msg = apply_wa_pair(restart_gw=restart_gw)
             self._send_json({"ok": ok, "message": msg, **get_wa_pair_status()})
+            return
+
+        if parsed.path == "/set-active-profile":
+            prof = str(json_data.get("profile") or (qs.get("profile") or [""])[0]).strip().lower()
+            ok = set_active_profile_name(prof)
+            if is_ajax:
+                self._send_json({"ok": ok, "active": get_active_profile_name(), "error": "" if ok else "Gagal mengaktifkan profil"}, code=200 if ok else 400)
+                return
+            if not ok:
+                self._send_html("<h1>400 — Gagal mengaktifkan profil</h1>", 400)
+                return
+            self._redirect_to_status(just="profile-active", tab="profiles")
+            return
+
+        if parsed.path == "/create-profile":
+            name = str(json_data.get("name") or (qs.get("name") or [""])[0]).strip().lower()
+            clone_from = str(json_data.get("clone_from") or (qs.get("clone_from") or [""])[0]).strip().lower()
+            desc = str(json_data.get("description") or (qs.get("description") or [""])[0]).strip()
+            ok, msg = create_agent_profile(name, clone_from=clone_from, description=desc)
+            if is_ajax:
+                self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
+                return
+            if not ok:
+                self._send_html(f"<h1>400 — {html.escape(msg)}</h1>", 400)
+                return
+            self._redirect_to_status(just="profile-created", tab="profiles")
+            return
+
+        if parsed.path == "/delete-profile":
+            prof = str(json_data.get("profile") or (qs.get("profile") or [""])[0]).strip().lower()
+            ok, msg = delete_agent_profile(prof)
+            if is_ajax:
+                self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
+                return
+            if not ok:
+                self._send_html(f"<h1>400 — {html.escape(msg)}</h1>", 400)
+                return
+            self._redirect_to_status(just="profile-deleted", tab="profiles")
+            return
+
+        if parsed.path == "/rename-profile":
+            old_name = str(json_data.get("old_name") or (qs.get("old_name") or [""])[0]).strip().lower()
+            new_name = str(json_data.get("new_name") or (qs.get("new_name") or [""])[0]).strip().lower()
+            ok, msg = rename_agent_profile(old_name, new_name)
+            if is_ajax:
+                self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
+                return
+            if not ok:
+                self._send_html(f"<h1>400 — {html.escape(msg)}</h1>", 400)
+                return
+            self._redirect_to_status(just="profile-renamed", tab="profiles")
+            return
+
+        if parsed.path == "/save-profile-soul":
+            prof = str(json_data.get("profile") or (qs.get("profile") or [""])[0]).strip().lower()
+            content = str(json_data.get("content") if "content" in json_data else (qs.get("content") or [""])[0])
+            ok, msg = save_agent_profile_soul(prof, content)
+            if is_ajax:
+                self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
+                return
+            if not ok:
+                self._send_html(f"<h1>400 — {html.escape(msg)}</h1>", 400)
+                return
+            self._redirect_to_status(just="profile-soul", tab="profiles")
+            return
+
+        if parsed.path == "/set-profile-model":
+            prof = str(json_data.get("profile") or (qs.get("profile") or [""])[0]).strip().lower()
+            provider = str(json_data.get("provider") or (qs.get("provider") or [""])[0]).strip()
+            model = str(json_data.get("model") or (qs.get("model") or [""])[0]).strip()
+            ok, msg = set_agent_profile_model(prof, provider, model)
+            if is_ajax:
+                self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
+                return
+            if not ok:
+                self._send_html(f"<h1>400 — {html.escape(msg)}</h1>", 400)
+                return
+            self._redirect_to_status(just="profile-model", tab="profiles")
             return
         """Execute an already-authenticated action route, then redirect."""
         global _last_action_at, _last_model_switch_at, _last_aux_model_at

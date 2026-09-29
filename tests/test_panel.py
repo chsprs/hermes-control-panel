@@ -1028,6 +1028,40 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertNotEqual(code, 302)
         self.assertIn("offline", body)
 
+    def test_69_profiles_http_api_and_auth(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        # 1. GET /api/profiles without auth -> 401
+        code, _, _ = self._request("/api/profiles", method="GET")
+        self.assertEqual(code, 401)
+
+        # 2. GET /api/profiles with auth -> 200 JSON
+        code, _, body = self._request("/api/profiles", method="GET", headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        data = json.loads(body)
+        self.assertTrue(data.get("ok"))
+        self.assertIn("profiles", data)
+
+        # 3. GET /api/profile-soul with auth -> 200 JSON
+        code, _, body = self._request("/api/profile-soul?profile=default", method="GET", headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        self.assertTrue(json.loads(body).get("ok"))
+
+        # 4. POST /set-active-profile without auth -> 302 to /login (or 403 for json client)
+        code, headers, _ = self._request("/set-active-profile", method="POST", data=b"profile=default")
+        self.assertEqual(code, 302)
+        self.assertEqual(headers.get("Location"), "/login")
+
+        code, _, _ = self._request("/set-active-profile", method="POST",
+                                   headers={"Accept": "application/json"}, data=b"profile=default")
+        self.assertEqual(code, 403)
+
+        # 5. POST /set-active-profile with auth (ajax) -> 200
+        code, _, body = self._request("/set-active-profile", method="POST",
+                                      headers={"Cookie": cookie, "Content-Type": "application/x-www-form-urlencoded"},
+                                      data=b"profile=default&ajax=1")
+        self.assertEqual(code, 200)
+        self.assertTrue(json.loads(body).get("ok"))
+
 
 class TestGatewayConfigSync(unittest.TestCase):
     """Panel edits must land where Hermes' gateway loader actually reads them.
@@ -1616,6 +1650,127 @@ process.stdout.write(serializeGwFormToYaml('discord'));
         """
         res = subprocess.run(["node", "-e", js_test], capture_output=True, text=True, check=True)
         self.assertEqual(res.stdout, "TEMPLATE_SELECT_OK")
+
+
+class TestAgentProfiles(unittest.TestCase):
+    """Test suite for Hermes Agent Profile management and config sync."""
+
+    def setUp(self):
+        import tempfile
+        import shutil
+        from pathlib import Path
+        self.tmpdir = tempfile.mkdtemp(prefix="hermes-profiles-test-")
+        self.root = Path(self.tmpdir)
+        self.config_path = self.root / "config.yaml"
+        self.config_path.write_text(
+            "model:\n  default: ag-gemini-3.8-flash-high\n  provider: custom:9router\n",
+            encoding="utf-8",
+        )
+        self._orig_config_path = panel.CONFIG_PATH
+        panel.CONFIG_PATH = str(self.config_path)
+
+    def tearDown(self):
+        import shutil
+        panel.CONFIG_PATH = self._orig_config_path
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_01_default_profile_always_present(self):
+        active = panel.get_active_profile_name()
+        self.assertEqual(active, "default")
+        profiles = panel.list_agent_profiles()
+        self.assertEqual(len(profiles), 1)
+        self.assertEqual(profiles[0]["name"], "default")
+        self.assertTrue(profiles[0]["is_active"])
+        self.assertTrue(profiles[0]["is_default"])
+        self.assertEqual(profiles[0]["model"], "ag-gemini-3.8-flash-high")
+
+    def test_02_create_and_list_profile(self):
+        ok, msg = panel.create_agent_profile("coder", clone_from="default", description="Coding assistant")
+        self.assertTrue(ok, msg)
+        prof_dir = self.root / "profiles" / "coder"
+        self.assertTrue(prof_dir.is_dir())
+        self.assertTrue((prof_dir / "config.yaml").is_file())
+        self.assertTrue((prof_dir / "meta.json").is_file())
+
+        profiles = panel.list_agent_profiles()
+        names = [p["name"] for p in profiles]
+        self.assertIn("default", names)
+        self.assertIn("coder", names)
+        coder_info = next(p for p in profiles if p["name"] == "coder")
+        self.assertEqual(coder_info["description"], "Coding assistant")
+        self.assertFalse(coder_info["is_active"])
+
+    def test_03_create_invalid_name_fails(self):
+        for bad in ("default", "UPPER", "space name", "slash/name", "-start", ""):
+            ok, msg = panel.create_agent_profile(bad)
+            self.assertFalse(ok, f"Expected failure for {bad!r}")
+
+    def test_04_set_active_profile_and_reset(self):
+        panel.create_agent_profile("writer")
+        ok = panel.set_active_profile_name("writer")
+        self.assertTrue(ok)
+        self.assertEqual(panel.get_active_profile_name(), "writer")
+        self.assertTrue((self.root / "active_profile").is_file())
+        self.assertEqual((self.root / "active_profile").read_text(encoding="utf-8").strip(), "writer")
+
+        # Switching back to default deletes active_profile file (Hermes spec)
+        ok = panel.set_active_profile_name("default")
+        self.assertTrue(ok)
+        self.assertEqual(panel.get_active_profile_name(), "default")
+        self.assertFalse((self.root / "active_profile").exists())
+
+    def test_05_profile_soul_read_and_write(self):
+        panel.create_agent_profile("researcher")
+        initial = panel.get_agent_profile_soul("researcher")
+        self.assertEqual(initial, "")
+
+        ok, msg = panel.save_agent_profile_soul("researcher", "You are an expert researcher.")
+        self.assertTrue(ok, msg)
+        self.assertEqual(panel.get_agent_profile_soul("researcher"), "You are an expert researcher.")
+        soul_file = self.root / "profiles" / "researcher" / "SOUL.md"
+        self.assertTrue(soul_file.is_file())
+        self.assertEqual(soul_file.stat().st_mode & 0o777, 0o644)
+
+    def test_06_set_profile_model(self):
+        panel.create_agent_profile("speedy")
+        ok, msg = panel.set_agent_profile_model("speedy", "custom:9router", "claude-3-5-haiku")
+        self.assertTrue(ok, msg)
+        coder_cfg = panel.yaml.safe_load((self.root / "profiles" / "speedy" / "config.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(coder_cfg.get("model", {}).get("default"), "claude-3-5-haiku")
+        self.assertEqual(coder_cfg.get("model", {}).get("provider"), "custom:9router")
+
+    def test_07_rename_profile(self):
+        panel.create_agent_profile("analyst")
+        panel.set_active_profile_name("analyst")
+        ok, msg = panel.rename_agent_profile("analyst", "data-analyst")
+        self.assertTrue(ok, msg)
+        self.assertFalse((self.root / "profiles" / "analyst").exists())
+        self.assertTrue((self.root / "profiles" / "data-analyst").exists())
+        # Active profile should follow the rename
+        self.assertEqual(panel.get_active_profile_name(), "data-analyst")
+
+        # Cannot rename default
+        ok_def, _ = panel.rename_agent_profile("default", "primary")
+        self.assertFalse(ok_def)
+
+    def test_08_delete_profile_and_active_fallback(self):
+        panel.create_agent_profile("temporary")
+        panel.set_active_profile_name("temporary")
+        ok, msg = panel.delete_agent_profile("temporary")
+        self.assertTrue(ok, msg)
+        self.assertFalse((self.root / "profiles" / "temporary").exists())
+        # Active profile must fallback to default
+        self.assertEqual(panel.get_active_profile_name(), "default")
+        self.assertFalse((self.root / "active_profile").exists())
+
+        # Cannot delete default
+        ok_def, _ = panel.delete_agent_profile("default")
+        self.assertFalse(ok_def)
+
+    def test_09_ui_profiles_tab_presence(self):
+        self.assertIn("profiles", panel.VALID_TABS)
+        self.assertIn('id="tab-profiles"', panel.PAGE)
+        self.assertIn("switchTab('profiles'", panel.PAGE)
 
 
 if __name__ == "__main__":
