@@ -596,6 +596,10 @@ display:none;align-items:center;justify-content:center;z-index:300;padding:1.5re
 .kanban-card.is-selected{{border-color:var(--accent);box-shadow:0 0 0 2px rgba(59,130,246,0.35);background:rgba(30,41,59,0.85)}}
 .kanban-bulk-bar{{display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.6rem 0.85rem;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-sm);margin-top:0.75rem;margin-bottom:0.25rem}}
 .kanban-filter-bar{{display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem;margin-bottom:0.25rem}}
+.kanban-trash-dropzone{{display:flex;align-items:center;justify-content:center;gap:0.45rem;border:1px dashed rgba(239,68,68,0.38);background:rgba(239,68,68,0.04);color:var(--danger);border-radius:var(--radius-sm);padding:0.48rem 0.85rem;font-size:0.75rem;font-weight:500;transition:all 0.18s ease;margin-top:0.5rem;user-select:none;-webkit-user-select:none;cursor:default}}
+.kanban-trash-dropzone:hover{{background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.55)}}
+.kanban-trash-dropzone.active-drag{{border-color:rgba(239,68,68,0.7);background:rgba(239,68,68,0.10);box-shadow:0 0 12px rgba(239,68,68,0.25)}}
+.kanban-trash-dropzone.drag-over{{background:rgba(239,68,68,0.25) !important;border:2px dashed #ef4444 !important;color:#fff !important;box-shadow:0 0 20px rgba(239,68,68,0.5);transform:scale(1.01)}}
 .confirm-box{{background:rgba(22,27,38,0.95);border:1px solid var(--border-hover);
 border-radius:var(--radius-xl);padding:1.6rem 1.5rem;max-width:360px;width:100%;
 box-shadow:0 12px 48px rgba(0,0,0,0.7)}}
@@ -1623,6 +1627,10 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         <option value="normal">Normal (= 0)</option>
       </select>
     </div>
+    <div id="kanban-trash-dropzone" class="kanban-trash-dropzone" ondragover="handleKanbanTrashDragOver(event)" ondragenter="handleKanbanTrashDragEnter(event)" ondragleave="handleKanbanTrashDragLeave(event)" ondrop="handleKanbanTrashDrop(event)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+      <span>Kotak Sampah &bull; Tarik tugas ke sini untuk langsung menghapus</span>
+    </div>
     <div id="kanban-bulk-bar" class="kanban-bulk-bar" style="display:none">
       <div style="display:flex;align-items:center;gap:0.5rem">
         <span id="kanban-selected-count" style="font-weight:600;font-size:0.8rem;color:var(--text)">0 tugas dipilih</span>
@@ -2174,6 +2182,8 @@ function handleKanbanDragStart(e, taskId) {{
     draggedSourceStatus = card.getAttribute('data-status');
     card.classList.add('is-dragging');
   }}
+  var trash = document.getElementById('kanban-trash-dropzone');
+  if(trash) trash.classList.add('active-drag');
   if(e.dataTransfer) {{
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', taskId);
@@ -2188,9 +2198,76 @@ function handleKanbanDragEnd(e) {{
   document.querySelectorAll('.kanban-col-cards').forEach(function(c) {{
     c.classList.remove('drag-over');
   }});
+  var trash = document.getElementById('kanban-trash-dropzone');
+  if(trash) {{
+    trash.classList.remove('active-drag');
+    trash.classList.remove('drag-over');
+  }}
   isDraggingKanban = false;
   draggedCardId = null;
   draggedSourceStatus = null;
+}}
+
+function handleKanbanTrashDragOver(e) {{
+  e.preventDefault();
+  if(e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+}}
+
+function handleKanbanTrashDragEnter(e) {{
+  e.preventDefault();
+  var trash = document.getElementById('kanban-trash-dropzone');
+  if(trash) trash.classList.add('drag-over');
+}}
+
+function handleKanbanTrashDragLeave(e) {{
+  var trash = document.getElementById('kanban-trash-dropzone');
+  if(trash && !trash.contains(e.relatedTarget)) {{
+    trash.classList.remove('drag-over');
+  }}
+}}
+
+function handleKanbanTrashDrop(e) {{
+  e.preventDefault();
+  var trash = document.getElementById('kanban-trash-dropzone');
+  if(trash) {{
+    trash.classList.remove('drag-over');
+    trash.classList.remove('active-drag');
+  }}
+
+  var taskId = (e.dataTransfer ? e.dataTransfer.getData('text/plain') : '') || draggedCardId;
+  if(!taskId) return;
+
+  if(!confirm('Hapus tugas ' + taskId + ' secara permanen?')) {{
+    refreshKanbanBoard(true);
+    return;
+  }}
+
+  var card = document.getElementById('card-' + taskId);
+  if(card) card.remove();
+  updateColumnCounters();
+
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : '';
+
+  fetch('/api/kanban/task/delete', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ task_id: taskId, board: board }})
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      showKanbanToast('Tugas ' + taskId + ' berhasil dihapus');
+      refreshKanbanBoard(true);
+    }} else {{
+      alert('Gagal menghapus tugas: ' + (res && res.error ? res.error : 'unknown'));
+      refreshKanbanBoard(true);
+    }}
+  }})
+  .catch(function(err){{
+    alert('Error: ' + err);
+    refreshKanbanBoard(true);
+  }});
 }}
 
 function handleKanbanDragOver(e) {{

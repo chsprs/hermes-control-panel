@@ -1977,6 +1977,8 @@ class TestKanbanBoard(unittest.TestCase):
         self.assertIn("kanban", panel.VALID_TABS)
         self.assertIn('id="tab-kanban"', panel.PAGE)
         self.assertIn("switchTab('kanban'", panel.PAGE)
+        self.assertIn('id="kanban-trash-dropzone"', panel.PAGE)
+        self.assertIn("handleKanbanTrashDrop", panel.PAGE)
 
 
 if __name__ == "__main__":
