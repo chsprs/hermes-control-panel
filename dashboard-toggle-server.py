@@ -2479,7 +2479,6 @@ function renderKanbanCards(tasks) {{
 
   (tasks || []).forEach(function(t) {{
     var st = t.status || 'todo';
-    if(st === 'completed') st = 'done';
     if(colTasks[st]) {{
       colTasks[st].push(t);
     }} else if(st === 'scheduled') {{
@@ -2795,7 +2794,7 @@ function openViewTaskModal(taskId){{
       document.getElementById('view-task-id').textContent = t.id;
       document.getElementById('view-task-title').textContent = t.title;
       document.getElementById('view-task-body').textContent = t.body || '(Tidak ada deskripsi)';
-      var st = t.status === 'completed' ? 'done' : t.status;
+      var st = KANBAN_COLS.some(function(c){{ return c.id === t.status; }}) ? t.status : 'todo';
       document.getElementById('view-task-move-status').value = st;
 
       var bBadge = document.getElementById('view-task-status-badge');
@@ -8008,8 +8007,8 @@ def list_kanban_tasks(board: str = "", status: str = None, assignee: str = None)
         query = "SELECT * FROM tasks WHERE 1=1"
         params = []
         if status:
-            if status == "done":
-                query += " AND status IN ('done', 'completed')"
+            if status == "todo":
+                query += " AND status IN ('todo', 'completed', 'scheduled')"
             else:
                 query += " AND status = ?"
                 params.append(status)
@@ -8026,9 +8025,6 @@ def list_kanban_tasks(board: str = "", status: str = None, assignee: str = None)
         tasks = []
         for r in rows:
             d = dict(r)
-            # Normalize 'completed' to 'done' for UI
-            if d.get("status") == "completed":
-                d["status"] = "done"
             tasks.append(d)
         return tasks
     except Exception:
@@ -8050,8 +8046,6 @@ def get_kanban_task(task_id: str, board: str = "") -> dict | None:
         if not r:
             return None
         t = dict(r)
-        if t.get("status") == "completed":
-            t["status"] = "done"
 
         comments = [dict(c) for c in con.execute(
             "SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at ASC", (task_id,)
@@ -8110,7 +8104,7 @@ def create_kanban_task(
             """, (
                 task_id, title, body or None, assignee, status, int(priority), "web-panel", now,
                 now if status == "running" else None,
-                now if status in ("done", "completed") else None,
+                now if status == "done" else None,
                 model_override,
                 json.dumps(skills) if skills else None
             ))
@@ -8146,11 +8140,11 @@ def update_kanban_task_status(
             if not row:
                 return False, f"Tugas '{task_id}' tidak ditemukan."
 
-            db_status = "completed" if new_status == "done" else new_status
+            db_status = new_status
             started_at = row["started_at"]
             if new_status == "running" and not started_at:
                 started_at = now
-            completed_at = now if new_status in ("done", "completed") else None
+            completed_at = now if new_status == "done" else None
 
             # If moving out of running, release locks
             claim_lock = None if new_status != "running" else None
@@ -8397,10 +8391,8 @@ def render_kanban_board_block(board_slug: str = "") -> str:
         st = t.get("status", "todo")
         if st in col_tasks:
             col_tasks[st].append(t)
-        elif st in ("completed", "done"):
-            col_tasks["done"].append(t)
-        elif st == "triage":
-            col_tasks["triage"].append(t)
+        elif st == "scheduled":
+            col_tasks["todo"].append(t)
         else:
             col_tasks["todo"].append(t)
 
