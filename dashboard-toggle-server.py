@@ -585,11 +585,17 @@ border-top-color:var(--accent-light);border-radius:50%;animation:spin .7s linear
 display:none;align-items:center;justify-content:center;z-index:300;padding:1.5rem}}
 #confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show, #wa-pair-modal.show, #create-profile-modal.show, #soul-modal.show, #rename-profile-modal.show, #create-kanban-task-modal.show, #create-kanban-board-modal.show, #view-kanban-task-modal.show, #kanban-config-modal.show{{display:flex}}
 .kanban-board{{display:flex;gap:0.85rem;overflow-x:auto;padding-bottom:1rem;margin-top:0.75rem;-webkit-overflow-scrolling:touch}}
-.kanban-column{{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-md);min-width:260px;max-width:320px;flex:1;display:flex;flex-direction:column;max-height:calc(100vh - 280px)}}
+.kanban-column{{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-md);min-width:260px;max-width:320px;flex:1;display:flex;flex-direction:column;max-height:calc(100vh - 260px)}}
 .kanban-col-header{{padding:0.75rem 0.85rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.015)}}
-.kanban-col-cards{{padding:0.6rem;display:flex;flex-direction:column;gap:0.6rem;overflow-y:auto;flex:1;min-height:80px}}
-.kanban-card{{background:rgba(22,27,38,0.7);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.75rem;cursor:pointer;transition:border-color 0.15s, transform 0.15s;display:flex;flex-direction:column;gap:0.45rem}}
+.kanban-col-cards{{padding:0.6rem;display:flex;flex-direction:column;gap:0.6rem;overflow-y:auto;flex:1;min-height:90px;transition:background 0.15s, border-color 0.15s}}
+.kanban-col-cards.drag-over{{background:rgba(59,130,246,0.08);outline:2px dashed var(--accent);outline-offset:-3px;border-radius:var(--radius-sm)}}
+.kanban-card{{background:rgba(22,27,38,0.75);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.75rem;cursor:pointer;transition:border-color 0.15s, transform 0.15s, box-shadow 0.15s;display:flex;flex-direction:column;gap:0.45rem}}
 .kanban-card:hover{{border-color:var(--border-hover);transform:translateY(-1px)}}
+.kanban-card[draggable="true"]{{cursor:grab;user-select:none;-webkit-user-select:none}}
+.kanban-card.is-dragging{{opacity:0.35;cursor:grabbing;border:1px dashed var(--accent);transform:scale(0.98)}}
+.kanban-card.is-selected{{border-color:var(--accent);box-shadow:0 0 0 2px rgba(59,130,246,0.35);background:rgba(30,41,59,0.85)}}
+.kanban-bulk-bar{{display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.6rem 0.85rem;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-sm);margin-top:0.75rem;margin-bottom:0.25rem}}
+.kanban-filter-bar{{display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem;margin-bottom:0.25rem}}
 .confirm-box{{background:rgba(22,27,38,0.95);border:1px solid var(--border-hover);
 border-radius:var(--radius-xl);padding:1.6rem 1.5rem;max-width:360px;width:100%;
 box-shadow:0 12px 48px rgba(0,0,0,0.7)}}
@@ -1580,8 +1586,11 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+        <button type="button" id="btn-sync-kanban" class="btn" style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem;margin:0" onclick="manualSyncKanban()">
+          &#x21bb; Sinkronkan
+        </button>
         <button type="button" class="btn" style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem;margin:0" onclick="openKanbanConfigModal()">
-          ⚙ Konfigurasi
+          &#x2699; Konfigurasi
         </button>
         <button type="button" class="btn" style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem;margin:0" onclick="openCreateBoardModal()">
           + Papan Baru
@@ -1595,8 +1604,43 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <div>
         Papan tugas terdistribusi multi-agent SQLite Hermes. Worker profil mengklaim tugas secara atomik dan menjalankan eksekusi dalam workspace terisolasi.
       </div>
-      <div id="kanban-dispatcher-badge">
-        {kanban_dispatcher_badge}
+      <div style="display:flex;align-items:center;gap:0.6rem">
+        <span id="kanban-sync-status" style="font-size:0.7rem;color:var(--text-dim);font-family:var(--font-mono)">Sinkron Otomatis (Live)</span>
+        <div id="kanban-dispatcher-badge">
+          {kanban_dispatcher_badge}
+        </div>
+      </div>
+    </div>
+    <div class="kanban-filter-bar">
+      <input type="text" id="kanban-search-input" class="search-input" placeholder="Cari ID atau judul tugas..." oninput="filterKanbanCards()" style="flex:1;min-width:180px;height:32px;font-size:0.76rem">
+      <select id="kanban-filter-assignee" onchange="filterKanbanCards()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.75rem;height:32px">
+        <option value="">Semua Assignee</option>
+      </select>
+      <select id="kanban-filter-priority" onchange="filterKanbanCards()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.75rem;height:32px">
+        <option value="">Semua Prioritas</option>
+        <option value="urgent">Urgent (&ge; 2)</option>
+        <option value="high">High (= 1)</option>
+        <option value="normal">Normal (= 0)</option>
+      </select>
+    </div>
+    <div id="kanban-bulk-bar" class="kanban-bulk-bar" style="display:none">
+      <div style="display:flex;align-items:center;gap:0.5rem">
+        <span id="kanban-selected-count" style="font-weight:600;font-size:0.8rem;color:var(--text)">0 tugas dipilih</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
+        <span style="font-size:0.72rem;color:var(--text-muted)">Pindah ke:</span>
+        <select id="kanban-bulk-status" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0.2rem 0.4rem;font-size:0.75rem">
+          <option value="triage">Triage</option>
+          <option value="todo">To Do</option>
+          <option value="ready">Ready</option>
+          <option value="running">Running</option>
+          <option value="blocked">Blocked</option>
+          <option value="review">Review</option>
+          <option value="done">Done</option>
+        </select>
+        <button type="button" class="btn btn-action-sm btn-on" onclick="applyBulkStatus()">Terapkan</button>
+        <button type="button" class="btn btn-action-sm btn-danger" onclick="applyBulkDelete()">Hapus</button>
+        <button type="button" class="btn btn-action-sm" onclick="clearKanbanSelection()">Batal</button>
       </div>
     </div>
     <div id="kanban-board-slot">
@@ -1604,6 +1648,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     </div>
   </div>
 </div>
+<div id="kanban-toast" style="position:fixed;bottom:24px;right:24px;background:rgba(16,185,129,0.92);color:#fff;padding:0.6rem 1rem;border-radius:6px;font-size:0.8rem;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,0.5);display:none;transition:opacity 0.3s;pointer-events:none"></div>
 </div> <!-- .content-wrapper -->
 
 {nav_script}
@@ -2091,6 +2136,454 @@ function setProfileModel(profileName, provider, model){{
 
 // --- Kanban UI JavaScript ---
 var currentViewingTaskId = '';
+var selectedTaskIds = new Set();
+var kanbanSyncTimer = null;
+var isDraggingKanban = false;
+var draggedCardId = null;
+var draggedSourceStatus = null;
+
+var KANBAN_COLS = [
+  {{ id: 'triage', title: 'Triage', bg: 'rgba(168,85,247,0.15)', color: '#c084fc' }},
+  {{ id: 'todo', title: 'To Do', bg: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }},
+  {{ id: 'ready', title: 'Ready', bg: 'rgba(59,130,246,0.15)', color: 'var(--accent)' }},
+  {{ id: 'running', title: 'Running', bg: 'rgba(16,185,129,0.15)', color: 'var(--success)' }},
+  {{ id: 'blocked', title: 'Blocked', bg: 'rgba(239,68,68,0.15)', color: 'var(--danger)' }},
+  {{ id: 'review', title: 'Review', bg: 'rgba(245,158,11,0.15)', color: '#fbbf24' }},
+  {{ id: 'done', title: 'Done', bg: 'rgba(16,185,129,0.22)', color: 'var(--success)' }}
+];
+
+function showKanbanToast(msg, isError) {{
+  var toast = document.getElementById('kanban-toast');
+  if(!toast) return;
+  toast.textContent = msg;
+  toast.style.background = isError ? 'rgba(239,68,68,0.92)' : 'rgba(16,185,129,0.92)';
+  toast.style.display = 'block';
+  toast.style.opacity = '1';
+  if(toast._timer) clearTimeout(toast._timer);
+  toast._timer = setTimeout(function() {{
+    toast.style.opacity = '0';
+    setTimeout(function() {{ toast.style.display = 'none'; }}, 300);
+  }}, 2500);
+}}
+
+function handleKanbanDragStart(e, taskId) {{
+  isDraggingKanban = true;
+  draggedCardId = taskId;
+  var card = document.getElementById('card-' + taskId);
+  if(card) {{
+    draggedSourceStatus = card.getAttribute('data-status');
+    card.classList.add('is-dragging');
+  }}
+  if(e.dataTransfer) {{
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', taskId);
+  }}
+}}
+
+function handleKanbanDragEnd(e) {{
+  if(draggedCardId) {{
+    var card = document.getElementById('card-' + draggedCardId);
+    if(card) card.classList.remove('is-dragging');
+  }}
+  document.querySelectorAll('.kanban-col-cards').forEach(function(c) {{
+    c.classList.remove('drag-over');
+  }});
+  isDraggingKanban = false;
+  draggedCardId = null;
+  draggedSourceStatus = null;
+}}
+
+function handleKanbanDragOver(e) {{
+  e.preventDefault();
+  if(e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+}}
+
+function handleKanbanDragEnter(e) {{
+  e.preventDefault();
+  var col = e.currentTarget.closest('.kanban-col-cards');
+  if(col) col.classList.add('drag-over');
+}}
+
+function handleKanbanDragLeave(e) {{
+  var col = e.currentTarget.closest('.kanban-col-cards');
+  if(col && !col.contains(e.relatedTarget)) {{
+    col.classList.remove('drag-over');
+  }}
+}}
+
+function handleKanbanDrop(e, targetStatus) {{
+  e.preventDefault();
+  var col = e.currentTarget.closest('.kanban-col-cards');
+  if(col) col.classList.remove('drag-over');
+
+  var taskId = (e.dataTransfer ? e.dataTransfer.getData('text/plain') : '') || draggedCardId;
+  if(!taskId) return;
+
+  var card = document.getElementById('card-' + taskId);
+  if(!card) return;
+
+  var sourceStatus = card.getAttribute('data-status');
+  if(sourceStatus === targetStatus) return;
+
+  var targetCol = document.getElementById('col-cards-' + targetStatus);
+  if(targetCol) {{
+    var emptyNotice = targetCol.querySelector('.kanban-empty-notice');
+    if(emptyNotice) emptyNotice.remove();
+    card.setAttribute('data-status', targetStatus);
+    targetCol.appendChild(card);
+    updateColumnCounters();
+  }}
+
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : '';
+
+  fetch('/api/kanban/task/status', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ task_id: taskId, status: targetStatus, board: board }})
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      showKanbanToast('Tugas ' + taskId + ' dipindah ke ' + targetStatus);
+    }} else {{
+      alert('Gagal memindahkan tugas: ' + (res && res.error ? res.error : 'unknown'));
+      refreshKanbanBoard(true);
+    }}
+  }})
+  .catch(function(err){{
+    alert('Error: ' + err);
+    refreshKanbanBoard(true);
+  }});
+}}
+
+function updateColumnCounters() {{
+  KANBAN_COLS.forEach(function(col) {{
+    var colCards = document.getElementById('col-cards-' + col.id);
+    var count = 0;
+    if(colCards) {{
+      var cards = colCards.querySelectorAll('.kanban-card');
+      count = cards.length;
+      if(count === 0 && !colCards.querySelector('.kanban-empty-notice')) {{
+        var empty = document.createElement('div');
+        empty.className = 'kanban-empty-notice';
+        empty.style.cssText = 'font-size:0.72rem;color:var(--text-dim);font-style:italic;padding:0.5rem;text-align:center';
+        empty.textContent = 'Kosong';
+        colCards.appendChild(empty);
+      }}
+    }}
+    var badge = document.getElementById('badge-count-' + col.id);
+    if(badge) badge.textContent = count;
+  }});
+}}
+
+function selectKanbanTask(taskId, e) {{
+  if(e && e.target && e.target.classList.contains('kanban-task-check')) return;
+  document.querySelectorAll('.kanban-card').forEach(function(c){{ c.classList.remove('is-selected'); }});
+  var card = document.getElementById('card-' + taskId);
+  if(card) card.classList.add('is-selected');
+  openViewTaskModal(taskId);
+}}
+
+function updateKanbanSelectionUI() {{
+  selectedTaskIds.clear();
+  document.querySelectorAll('.kanban-task-check:checked').forEach(function(cb) {{
+    var tid = cb.getAttribute('data-task-id');
+    if(tid) selectedTaskIds.add(tid);
+  }});
+
+  document.querySelectorAll('.kanban-card').forEach(function(card) {{
+    var tid = card.getAttribute('data-task-id');
+    if(tid && selectedTaskIds.has(tid)) {{
+      card.classList.add('is-selected');
+    }} else if(!currentViewingTaskId || card.getAttribute('data-task-id') !== currentViewingTaskId) {{
+      card.classList.remove('is-selected');
+    }}
+  }});
+
+  var bulkBar = document.getElementById('kanban-bulk-bar');
+  var countEl = document.getElementById('kanban-selected-count');
+  if(bulkBar) {{
+    if(selectedTaskIds.size > 0) {{
+      bulkBar.style.display = 'flex';
+      if(countEl) countEl.textContent = selectedTaskIds.size + ' tugas dipilih';
+    }} else {{
+      bulkBar.style.display = 'none';
+    }}
+  }}
+}}
+
+function clearKanbanSelection() {{
+  document.querySelectorAll('.kanban-task-check').forEach(function(cb) {{ cb.checked = false; }});
+  selectedTaskIds.clear();
+  updateKanbanSelectionUI();
+}}
+
+function applyBulkStatus() {{
+  if(selectedTaskIds.size === 0) return;
+  var sel = document.getElementById('kanban-bulk-status');
+  var targetStatus = sel ? sel.value : 'todo';
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : '';
+
+  var ids = Array.from(selectedTaskIds);
+  var promises = ids.map(function(tid) {{
+    return fetch('/api/kanban/task/status', {{
+      method: 'POST',
+      headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ task_id: tid, status: targetStatus, board: board }})
+    }}).then(function(r){{ return r.json(); }});
+  }});
+
+  Promise.all(promises).then(function() {{
+    clearKanbanSelection();
+    refreshKanbanBoard(true);
+    showKanbanToast('Status ' + ids.length + ' tugas berhasil diperbarui ke ' + targetStatus);
+  }}).catch(function(err) {{
+    alert('Error bulk update: ' + err);
+    refreshKanbanBoard(true);
+  }});
+}}
+
+function applyBulkDelete() {{
+  if(selectedTaskIds.size === 0) return;
+  if(!confirm('Hapus ' + selectedTaskIds.size + ' tugas terpilih secara permanen?')) return;
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : '';
+
+  var ids = Array.from(selectedTaskIds);
+  var promises = ids.map(function(tid) {{
+    return fetch('/api/kanban/task/delete', {{
+      method: 'POST',
+      headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ task_id: tid, board: board }})
+    }}).then(function(r){{ return r.json(); }});
+  }});
+
+  Promise.all(promises).then(function() {{
+    clearKanbanSelection();
+    refreshKanbanBoard(true);
+    showKanbanToast(ids.length + ' tugas berhasil dihapus');
+  }}).catch(function(err) {{
+    alert('Error bulk delete: ' + err);
+    refreshKanbanBoard(true);
+  }});
+}}
+
+function filterKanbanCards() {{
+  var q = (document.getElementById('kanban-search-input') ? document.getElementById('kanban-search-input').value : '').toLowerCase().trim();
+  var assignee = (document.getElementById('kanban-filter-assignee') ? document.getElementById('kanban-filter-assignee').value : '').toLowerCase().trim();
+  var priority = document.getElementById('kanban-filter-priority') ? document.getElementById('kanban-filter-priority').value : '';
+
+  document.querySelectorAll('.kanban-card').forEach(function(card) {{
+    var tid = (card.getAttribute('data-task-id') || '').toLowerCase();
+    var title = (card.getAttribute('data-title') || '').toLowerCase();
+    var cardAss = (card.getAttribute('data-assignee') || '').toLowerCase();
+    var pri = parseInt(card.getAttribute('data-priority') || '0', 10);
+
+    var matchQ = !q || tid.indexOf(q) !== -1 || title.indexOf(q) !== -1;
+    var matchAss = !assignee || cardAss === assignee;
+    var matchPri = true;
+    if(priority === 'urgent') matchPri = pri >= 2;
+    else if(priority === 'high') matchPri = pri === 1;
+    else if(priority === 'normal') matchPri = pri === 0;
+
+    if(matchQ && matchAss && matchPri) {{
+      card.style.display = 'flex';
+    }} else {{
+      card.style.display = 'none';
+    }}
+  }});
+}}
+
+function renderKanbanCards(tasks) {{
+  var colTasks = {{}};
+  KANBAN_COLS.forEach(function(c) {{ colTasks[c.id] = []; }});
+
+  (tasks || []).forEach(function(t) {{
+    var st = t.status || 'todo';
+    if(st === 'completed') st = 'done';
+    if(colTasks[st]) {{
+      colTasks[st].push(t);
+    }} else if(st === 'scheduled') {{
+      colTasks['todo'].push(t);
+    }} else {{
+      colTasks['todo'].push(t);
+    }}
+  }});
+
+  KANBAN_COLS.forEach(function(col) {{
+    var colContainer = document.getElementById('col-cards-' + col.id);
+    if(!colContainer) return;
+    while(colContainer.firstChild){{ colContainer.removeChild(colContainer.firstChild); }}
+
+    var items = colTasks[col.id] || [];
+    if(items.length === 0) {{
+      var empty = document.createElement('div');
+      empty.className = 'kanban-empty-notice';
+      empty.style.cssText = 'font-size:0.72rem;color:var(--text-dim);font-style:italic;padding:0.5rem;text-align:center';
+      empty.textContent = 'Kosong';
+      colContainer.appendChild(empty);
+    }} else {{
+      items.forEach(function(t) {{
+        var card = document.createElement('div');
+        card.className = 'kanban-card' + (selectedTaskIds.has(t.id) ? ' is-selected' : '');
+        card.id = 'card-' + t.id;
+        card.setAttribute('draggable', 'true');
+        card.setAttribute('data-task-id', t.id);
+        card.setAttribute('data-status', col.id);
+        card.setAttribute('data-assignee', t.assignee || '');
+        card.setAttribute('data-priority', t.priority || 0);
+        card.setAttribute('data-title', t.title || '');
+
+        card.ondragstart = function(e) {{ handleKanbanDragStart(e, t.id); }};
+        card.ondragend = function(e) {{ handleKanbanDragEnd(e); }};
+        card.onclick = function(e) {{ selectKanbanTask(t.id, e); }};
+
+        // Header row
+        var header = document.createElement('div');
+        header.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
+
+        var left = document.createElement('div');
+        left.style.cssText = 'display:flex;align-items:center;gap:0.35rem';
+
+        var check = document.createElement('input');
+        check.type = 'checkbox';
+        check.className = 'kanban-task-check';
+        check.setAttribute('data-task-id', t.id);
+        check.checked = selectedTaskIds.has(t.id);
+        check.style.cssText = 'cursor:pointer;accent-color:var(--accent);margin:0';
+        check.onclick = function(e) {{ e.stopPropagation(); updateKanbanSelectionUI(); }};
+
+        var idSpan = document.createElement('span');
+        idSpan.style.cssText = 'font-family:var(--font-mono);font-size:0.7rem;color:var(--accent);font-weight:600';
+        idSpan.textContent = t.id;
+
+        left.appendChild(check);
+        left.appendChild(idSpan);
+
+        var badges = document.createElement('div');
+        badges.style.cssText = 'display:flex;gap:0.3rem;align-items:center';
+        if(t.priority >= 2) {{
+          var pBadge = document.createElement('span');
+          pBadge.className = 'badge';
+          pBadge.style.cssText = 'background:rgba(239,68,68,0.18);color:var(--danger);font-size:0.62rem';
+          pBadge.textContent = 'Urgent';
+          badges.appendChild(pBadge);
+        }} else if(t.priority === 1) {{
+          var pBadge = document.createElement('span');
+          pBadge.className = 'badge';
+          pBadge.style.cssText = 'background:rgba(245,158,11,0.15);color:#fbbf24;font-size:0.62rem';
+          pBadge.textContent = 'High';
+          badges.appendChild(pBadge);
+        }}
+        if(col.id === 'running') {{
+          var rBadge = document.createElement('span');
+          rBadge.className = 'live-badge badge-up';
+          rBadge.style.cssText = 'font-size:0.6rem;padding:0.1rem 0.35rem';
+          rBadge.textContent = 'RUNNING';
+          badges.appendChild(rBadge);
+        }}
+
+        header.appendChild(left);
+        header.appendChild(badges);
+
+        // Title row
+        var titleDiv = document.createElement('div');
+        titleDiv.style.cssText = 'font-size:0.82rem;font-weight:500;color:var(--text);line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical';
+        titleDiv.textContent = t.title || '(Tanpa Judul)';
+
+        // Footer row
+        var footer = document.createElement('div');
+        footer.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-top:0.2rem';
+
+        if(t.assignee) {{
+          var aSpan = document.createElement('span');
+          aSpan.className = 'badge';
+          aSpan.style.cssText = 'background:rgba(255,255,255,0.06);color:var(--text);font-size:0.62rem;font-family:var(--font-mono)';
+          aSpan.textContent = '@' + t.assignee;
+          footer.appendChild(aSpan);
+        }} else {{
+          footer.appendChild(document.createElement('span'));
+        }}
+
+        var dSpan = document.createElement('span');
+        dSpan.style.cssText = 'font-size:0.65rem;color:var(--text-dim)';
+        dSpan.textContent = 'detail →';
+        footer.appendChild(dSpan);
+
+        card.appendChild(header);
+        card.appendChild(titleDiv);
+        card.appendChild(footer);
+
+        colContainer.appendChild(card);
+      }});
+    }}
+
+    var bCount = document.getElementById('badge-count-' + col.id);
+    if(bCount) bCount.textContent = items.length;
+  }});
+
+  filterKanbanCards();
+}}
+
+function refreshKanbanBoard(silent) {{
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : 'default';
+  var btnSync = document.getElementById('btn-sync-kanban');
+  if(!silent && btnSync) btnSync.classList.add('is-loading');
+
+  fetch('/api/kanban/tasks?board=' + encodeURIComponent(board))
+    .then(function(r){{ return r.json(); }})
+    .then(function(res){{
+      if(!silent && btnSync) btnSync.classList.remove('is-loading');
+      if(res && res.ok && Array.isArray(res.tasks)){{
+        renderKanbanCards(res.tasks);
+        var syncEl = document.getElementById('kanban-sync-status');
+        if(syncEl){{
+          var d = new Date();
+          syncEl.textContent = 'Tersinkron ' + d.toLocaleTimeString();
+        }}
+      }}
+    }})
+    .catch(function(err){{
+      if(!silent && btnSync) btnSync.classList.remove('is-loading');
+    }});
+}}
+
+function manualSyncKanban() {{
+  refreshKanbanBoard(false);
+  showKanbanToast('Menyinkronkan data tugas...');
+}}
+
+function startKanbanAutoSync() {{
+  if(kanbanSyncTimer) clearInterval(kanbanSyncTimer);
+  kanbanSyncTimer = setInterval(function() {{
+    var tab = document.getElementById('tab-kanban');
+    if(!tab || !tab.classList.contains('active') || document.hidden || isDraggingKanban) return;
+    var viewModal = document.getElementById('view-kanban-task-modal');
+    if(viewModal && viewModal.classList.contains('show')) return;
+    refreshKanbanBoard(true);
+  }}, 4000);
+}}
+
+// Initialize assignee filter and auto-sync
+setTimeout(function() {{
+  startKanbanAutoSync();
+  fetch('/api/profiles')
+    .then(function(r){{ return r.json(); }})
+    .then(function(res){{
+      var fSel = document.getElementById('kanban-filter-assignee');
+      if(fSel && res && res.profiles){{
+        res.profiles.forEach(function(p){{
+          var opt = document.createElement('option');
+          opt.value = p.name;
+          opt.textContent = '@' + p.name;
+          fSel.appendChild(opt);
+        }});
+      }}
+    }}).catch(function(){{}});
+}}, 500);
 
 function openCreateTaskModal(){{
   var modal = document.getElementById('create-kanban-task-modal');
@@ -2145,7 +2638,8 @@ function submitCreateTask(){{
   .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
-      window.location.href = '/status?just=kanban-task-created&tab=kanban';
+      refreshKanbanBoard(true);
+      showKanbanToast('Tugas baru berhasil dibuat (' + res.task_id + ')');
     }} else {{
       alert('Gagal membuat tugas: ' + (res && res.error ? res.error : 'unknown'));
     }}
@@ -2196,7 +2690,9 @@ function switchKanbanBoard(slug){{
   .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
-      window.location.href = '/status?tab=kanban';
+      clearKanbanSelection();
+      refreshKanbanBoard(false);
+      showKanbanToast('Papan diganti ke ' + slug);
     }} else {{
       alert('Gagal mengganti papan: ' + (res && res.error ? res.error : 'unknown'));
     }}
@@ -2222,20 +2718,21 @@ function openViewTaskModal(taskId){{
       document.getElementById('view-task-id').textContent = t.id;
       document.getElementById('view-task-title').textContent = t.title;
       document.getElementById('view-task-body').textContent = t.body || '(Tidak ada deskripsi)';
-      document.getElementById('view-task-move-status').value = t.status;
+      var st = t.status === 'completed' ? 'done' : t.status;
+      document.getElementById('view-task-move-status').value = st;
 
       var bBadge = document.getElementById('view-task-status-badge');
       if(bBadge){{
         bBadge.className = 'badge';
-        bBadge.textContent = t.status.toUpperCase();
-        if(t.status === 'running') bBadge.className = 'live-badge badge-up';
-        else if(t.status === 'done' || t.status === 'completed') bBadge.style.background = 'rgba(16,185,129,0.18)';
-        else if(t.status === 'blocked') bBadge.className = 'live-badge badge-down';
+        bBadge.textContent = st.toUpperCase();
+        if(st === 'running') bBadge.className = 'live-badge badge-up';
+        else if(st === 'done') bBadge.style.background = 'rgba(16,185,129,0.18)';
+        else if(st === 'blocked') bBadge.className = 'live-badge badge-down';
       }}
 
       var btnReclaim = document.getElementById('btn-reclaim-task');
       if(btnReclaim){{
-        btnReclaim.style.display = (t.status === 'running' || t.claim_lock) ? 'inline-block' : 'none';
+        btnReclaim.style.display = (st === 'running' || t.claim_lock) ? 'inline-block' : 'none';
       }}
 
       var meta = document.getElementById('view-task-meta');
@@ -2319,7 +2816,9 @@ function moveCurrentTaskStatus(newStatus){{
   .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
-      window.location.href = '/status?just=kanban-status-updated&tab=kanban';
+      closeViewTaskModal();
+      refreshKanbanBoard(true);
+      showKanbanToast('Status tugas diperbarui ke ' + newStatus);
     }} else {{
       alert('Gagal memindahkan status: ' + (res && res.error ? res.error : 'unknown'));
     }}
@@ -2340,7 +2839,9 @@ function reclaimCurrentTask(){{
   .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
-      window.location.href = '/status?just=kanban-reclaimed&tab=kanban';
+      closeViewTaskModal();
+      refreshKanbanBoard(true);
+      showKanbanToast('Tugas berhasil di-reclaim');
     }} else {{
       alert('Gagal reclaim tugas: ' + (res && res.error ? res.error : 'unknown'));
     }}
@@ -2361,7 +2862,9 @@ function deleteCurrentTask(){{
   .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
-      window.location.href = '/status?just=kanban-deleted&tab=kanban';
+      closeViewTaskModal();
+      refreshKanbanBoard(true);
+      showKanbanToast('Tugas berhasil dihapus');
     }} else {{
       alert('Gagal menghapus tugas: ' + (res && res.error ? res.error : 'unknown'));
     }}
@@ -2387,6 +2890,7 @@ function submitCurrentTaskComment(){{
     if(res && res.ok){{
       if(input) input.value = '';
       openViewTaskModal(currentViewingTaskId);
+      showKanbanToast('Komentar ditambahkan');
     }} else {{
       alert('Gagal mengirim komentar: ' + (res && res.error ? res.error : 'unknown'));
     }}
@@ -7842,9 +8346,15 @@ def render_kanban_board_block(board_slug: str = "") -> str:
             running_badge = '<span class="live-badge badge-up" style="font-size:0.6rem;padding:0.1rem 0.35rem">RUNNING</span>' if col_id == "running" else ''
 
             card_html = (
-                f'<div class="kanban-card" onclick="openViewTaskModal(\'{html.escape(tid)}\')">'
+                f'<div class="kanban-card" id="card-{html.escape(tid)}" data-task-id="{html.escape(tid)}" data-status="{col_id}" '
+                f'data-assignee="{html.escape(assignee)}" data-priority="{pri}" data-title="{html.escape(title)}" '
+                f'draggable="true" ondragstart="handleKanbanDragStart(event, \'{html.escape(tid)}\')" ondragend="handleKanbanDragEnd(event)" '
+                f'onclick="selectKanbanTask(\'{html.escape(tid)}\', event)">'
                 f'  <div style="display:flex;justify-content:space-between;align-items:center">'
-                f'    <span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--accent);font-weight:600">{html.escape(tid)}</span>'
+                f'    <div style="display:flex;align-items:center;gap:0.35rem">'
+                f'      <input type="checkbox" class="kanban-task-check" data-task-id="{html.escape(tid)}" onclick="event.stopPropagation(); updateKanbanSelectionUI()" style="cursor:pointer;accent-color:var(--accent);margin:0">'
+                f'      <span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--accent);font-weight:600">{html.escape(tid)}</span>'
+                f'    </div>'
                 f'    <div style="display:flex;gap:0.3rem;align-items:center">{pri_badge}{running_badge}</div>'
                 f'  </div>'
                 f'  <div style="font-size:0.82rem;font-weight:500;color:var(--text);line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'
@@ -7858,17 +8368,17 @@ def render_kanban_board_block(board_slug: str = "") -> str:
             )
             card_items.append(card_html)
 
-        cards_body = "".join(card_items) if card_items else '<div style="font-size:0.72rem;color:var(--text-dim);font-style:italic;padding:0.5rem;text-align:center">Kosong</div>'
+        cards_body = "".join(card_items) if card_items else '<div class="kanban-empty-notice" style="font-size:0.72rem;color:var(--text-dim);font-style:italic;padding:0.5rem;text-align:center">Kosong</div>'
 
         col_markup = (
-            f'<div class="kanban-column">'
+            f'<div class="kanban-column" data-status="{col_id}">'
             f'  <div class="kanban-col-header">'
             f'    <div style="display:flex;align-items:center;gap:0.45rem">'
             f'      <span style="font-size:0.82rem;font-weight:600;color:var(--text)">{col_title}</span>'
-            f'      <span class="badge" style="background:{bg_color};color:{text_color};font-size:0.68rem;padding:0.1rem 0.4rem">{len(items)}</span>'
+            f'      <span class="badge col-badge-{col_id}" id="badge-count-{col_id}" style="background:{bg_color};color:{text_color};font-size:0.68rem;padding:0.1rem 0.4rem">{len(items)}</span>'
             f'    </div>'
             f'  </div>'
-            f'  <div class="kanban-col-cards">{cards_body}</div>'
+            f'  <div class="kanban-col-cards" id="col-cards-{col_id}" data-status="{col_id}" ondragover="handleKanbanDragOver(event)" ondragenter="handleKanbanDragEnter(event)" ondragleave="handleKanbanDragLeave(event)" ondrop="handleKanbanDrop(event, \'{col_id}\')">{cards_body}</div>'
             f'</div>'
         )
         col_htmls.append(col_markup)
