@@ -23,7 +23,7 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
 ## 🚀 Fitur Utama
 
 - ⚡ **Zero-Dependency & Hemat Resource**: Berjalan di atas Python standard library murni (`http.server`, `threading`, `json`, `urllib`). Tanpa runtime Node.js/frontend bundler, memori stabil di kisaran ~18–22MB RAM.
-- 🔐 **Password Login + Session Cookie**: Buka `:9120/` → form `/login` → masukkan `PANEL_PASSWORD` dari `.env`. Server menerbitkan cookie `HttpOnly` + `SameSite=Strict` (nilai HMAC, bukan password), lalu redirect ke `/status`. Seluruh mutasi dikunci ke HTTP POST (GET → `405 Method Not Allowed`), kecuali shortcut CasaOS (`/toggle`, `/on`, `/off`) dengan `PANEL_TOKEN` valid. Kredensial hanya ada di `/etc/hermes-panel.env` (mode `600`) — di luar repo.
+- 🔐 **Password Login + Session Cookie**: Buka `:9120/` → form `/login` → masukkan `PANEL_PASSWORD` dari `.env`. Server menerbitkan cookie `HttpOnly` + `SameSite=Strict` (nilai HMAC, bukan password), lalu redirect ke `/status`. Seluruh mutasi dikunci ke HTTP POST (GET → `405 Method Not Allowed`). Installer tidak mengaktifkan `PANEL_TOKEN` (runtime lama masih mendukung token jika diatur manual). Kredensial hanya ada di `/etc/hermes-panel.env` (mode `600`) — di luar repo.
 - 📡 **Manajemen & Konfigurasi Gateway Perpesanan**:
   - **Live Status & Badges**: Menampilkan daftar platform messaging terkonfigurasi di `config.yaml` (Telegram, Webhook, Discord, WhatsApp, Slack, dll.) dengan status live realtime: badge terhubung (`Terhubung`), belum konek (`Menghubungkan…` / `Terputus`), atau badge error (`Error`) beserta detail kode/pesan error.
   - **Kustomisasi Penuh UI (YAML Editor)**: Konfigurasi platform perpesanan langsung dari web UI layaknya mengedit langsung `config.yaml` (mendukung kunci kustom: token, port, allowed chats, channel overrides, hooks). Validasi sintaks YAML otomatis mencegah file rusak.
@@ -49,20 +49,24 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
 
 ---
 
-## 📥 Instalasi Cepat (One-Liner)
+## 📥 Instalasi Cepat
 
-Jalankan perintah berikut di terminal server Linux (sebagai root / sudo):
+Jalankan installer lokal agar password bisa dimasukkan lewat prompt tersembunyi:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chsprs/hermes-control-panel/main/install.sh | sudo bash
+git clone https://github.com/chsprs/hermes-control-panel.git /opt/hermes-control-panel
+cd /opt/hermes-control-panel
+sudo ./install.sh
 ```
+
+`curl ... | sudo bash` tidak dipakai karena prompt password tidak tersedia pada stdin yang digunakan skrip. Untuk noninteraktif, set `PANEL_PASSWORD` di file 0600 terlebih dahulu.
 
 Installer otomatis:
 1. Memasang dependensi sistem (`python3`, `python3-yaml`, `curl`, `git`, `lsof`).
 2. Memasang **Hermes Agent** resmi jika belum terpasang di sistem.
 3. Mengonfigurasi `loginctl enable-linger` agar service gateway aktif saat boot tanpa sesi SSH terbuka.
 4. Menyalin skrip control panel dan mendaftarkan unit service `hermes-panel.service`.
-5. Menjalankan service otomatis di port `9120`.
+5. Menyimpan `PANEL_PASSWORD` di `/etc/hermes-panel.env` (mode `600`) dan menjalankan service pada port `9120`. Instal ulang mempertahankan password dan pengaturan lain dari berkas tersebut, tetapi menghapus `PANEL_TOKEN` lama.
 
 ---
 
@@ -95,14 +99,13 @@ sudo nano /etc/hermes-panel.env
 
 | Variabel | Default | Keterangan |
 |---|---|---|
-| `PANEL_PASSWORD` | *(kosong)* | Password/PIN untuk form login `/login`. Kosong = login form dimatikan |
-| `PANEL_TOKEN` | *(kosong)* | Token opsional untuk shortcut sekali-klik CasaOS (`?token=...`). Kosong = akses token dimatikan |
+| `PANEL_PASSWORD` | *(wajib)* | Password untuk form login `/login`; installer meminta lewat prompt tersembunyi |
 | `PANEL_PORT` | `9120` | Port listening HTTP web panel |
 | `HERMES_CONFIG_PATH` | `/root/.hermes/config.yaml` | Lokasi berkas konfigurasi Hermes |
 | `ROUTER_COMPOSE_DIR` | `/opt/AppData/9router` | Direktori docker-compose 9router |
 | `ROUTER_DB_PATH` | `/DATA/AppData/9router/db/data.sqlite` | Lokasi database SQLite 9router |
 
-Panel menolak start bila `PANEL_PASSWORD` **dan** `PANEL_TOKEN` keduanya kosong.
+Installer mewajibkan `PANEL_PASSWORD` dan tidak membuat `PANEL_TOKEN`. Runtime masih mendukung token lama bila diatur manual; installer baru tidak mengaktifkannya.
 
 Setelah mengubah isi `.env`:
 ```bash
@@ -119,22 +122,19 @@ sudo systemctl restart hermes-panel.service
 
 Percobaan login gagal dibatasi: 5 kali salah dari satu IP → terkunci 60 detik.
 
-> Baca kredensial kapan pun:
-> ```bash
-> sudo grep -E 'PANEL_(PASSWORD|TOKEN)' /etc/hermes-panel.env
-> ```
+> Untuk memastikan berkas credential ada tanpa menampilkan nilainya: `sudo stat -c '%a %n' /etc/hermes-panel.env`.
 
 ---
 
 ## 🧪 Test Suite
 
-Repositori menyertakan unit test tanpa dependensi eksternal:
+Repositori menyertakan unit test panel dan installer sandbox:
 
 ```bash
-python3 -m unittest -v tests/test_panel.py
+python3 -m unittest -q tests.test_install tests.test_panel
 ```
 
-Mencakup 16 skenario: updater error handling, propagasi gagal tulis config (HTTP 500), deduplikasi request model API, deteksi eMMC portable, hostname dinamis, auth cookie/session (403/302/200), penegakan 405/POST, dan TTL cache probe.
+Tes installer mensimulasikan instalasi ulang tanpa menyentuh service atau kredensial asli.
 
 ---
 

@@ -29,14 +29,36 @@ TARGET_USER="${SUDO_USER:-root}"
 INSTALL_DIR="/opt/AppData/hermes-native/hermes-data/scripts"
 SECONDARY_DIR="/DATA/AppData/hermes-native/hermes-data/scripts"
 SERVICE_FILE="/etc/systemd/system/hermes-panel.service"
+ENV_FILE="/etc/hermes-panel.env"
 REPO_URL="https://github.com/chsprs/hermes-control-panel.git"
 RAW_BASE_URL="https://raw.githubusercontent.com/chsprs/hermes-control-panel/main"
 
-# Generate random secure token if not supplied via environment
-if [ -z "${PANEL_TOKEN:-}" ]; then
-    PANEL_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
-fi
+# Password-only login. Reuse existing password on reinstall; never print it.
 PANEL_PORT="${PANEL_PORT:-9120}"
+if [ -z "${PANEL_PASSWORD:-}" ] && [ -f "${ENV_FILE}" ]; then
+    PANEL_PASSWORD=$(python3 - "${ENV_FILE}" <<'PY'
+import shlex, sys
+with open(sys.argv[1], encoding="utf-8") as env_file:
+    for line in env_file:
+        if line.startswith("PANEL_PASSWORD="):
+            value = line.partition("=")[2].strip()
+            print(shlex.split(value)[0] if value else "")
+            break
+PY
+)
+fi
+if [ -z "${PANEL_PASSWORD:-}" ]; then
+    if [ ! -t 0 ]; then
+        echo -e "${RED}Error: set PANEL_PASSWORD in environment for non-interactive install.${NC}" >&2
+        exit 1
+    fi
+    read -r -s -p "Password Control Panel: " PANEL_PASSWORD
+    printf '\n'
+fi
+if [ -z "${PANEL_PASSWORD}" ] || [[ "${PANEL_PASSWORD}" == *$'\n'* ]] || [[ "${PANEL_PASSWORD}" == *$'\r'* ]]; then
+    echo -e "${RED}Error: PANEL_PASSWORD must be non-empty and single-line.${NC}" >&2
+    exit 1
+fi
 
 echo -e "${GREEN}* Memeriksa dan memasang dependensi sistem...${NC}"
 if command -v apt-get >/dev/null 2>&1; then
@@ -90,7 +112,25 @@ fi
 
 chmod +x "${INSTALL_DIR}/dashboard-toggle-server.py"
 
-# 5. Setup Systemd Service
+# 5. Store password outside world-readable service unit. Preserve unrelated settings.
+PANEL_PASSWORD="${PANEL_PASSWORD}" python3 - "${ENV_FILE}" "${PANEL_PORT}" <<'PY'
+import json, os, pathlib, sys, tempfile
+path = pathlib.Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+lines = [line for line in lines if not line.startswith(("PANEL_PASSWORD=", "PANEL_PORT=", "PANEL_TOKEN="))]
+lines += [f"PANEL_PORT={sys.argv[2]}", "PANEL_PASSWORD=" + json.dumps(os.environ["PANEL_PASSWORD"], ensure_ascii=False)]
+fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".hermes-panel.env.")
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+finally:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+PY
+
+# 6. Setup Systemd Service
 echo -e "${GREEN}* Memasang systemd service (${SERVICE_FILE})...${NC}"
 cat <<EOF > "${SERVICE_FILE}"
 [Unit]
@@ -103,8 +143,7 @@ ExecStart=/usr/bin/python3 ${INSTALL_DIR}/dashboard-toggle-server.py
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
-Environment=PANEL_TOKEN=${PANEL_TOKEN}
-Environment=PANEL_PORT=${PANEL_PORT}
+EnvironmentFile=${ENV_FILE}
 
 [Install]
 WantedBy=multi-user.target
@@ -137,7 +176,7 @@ echo -e "\n${BOLD}${GREEN}=====================================================$
 echo -e "${BOLD}${GREEN}       Instalasi Berhasil Selesai!                   ${NC}"
 echo -e "${BOLD}${GREEN}=====================================================${NC}"
 echo -e "${BOLD}Buka browser di:${NC}"
-echo -e "  ${BLUE}http://${PRIMARY_IP}:${PANEL_PORT}/?token=${PANEL_TOKEN}${NC}"
+echo -e "  ${BLUE}http://${PRIMARY_IP}:${PANEL_PORT}/${NC}"
 echo -e "\n${BOLD}Manajemen Service:${NC}"
 echo -e "  Status : systemctl status hermes-panel.service"
 echo -e "  Restart: systemctl restart hermes-panel.service"
