@@ -132,9 +132,10 @@ MUTATING_PATHS = frozenset({
     "/toggle", "/on", "/off", "/restart-bot", "/bot-toggle",
     "/switch-model", "/update-router", "/check-update",
     "/check-hermes-update", "/update-hermes",
-    "/clean-junk", "/fetch-models", "/reload-panel-config",
+    "/clean-junk", "/fetch-models", "/fetch-hermes-models", "/reload-panel-config",
     "/set-aux-model", "/reset-aux",
     "/set-fallback-model", "/remove-fallback-model",
+    "/set-reasoning-effort",
     "/process-action",
     "/save-gateway-platform", "/toggle-gateway-platform", "/remove-gateway-platform",
     "/api/gateway-config-preview",
@@ -1133,6 +1134,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
       <div class="card-title" style="margin-bottom:0">{icon_layers} Model 9router</div>
     </div>
+    {reasoning_control}
     <input type="text" id="model-search" class="search-input" placeholder="Cari model… (saring)" oninput="filterModels(this.value)">
     <div id="model-chips">{model_chips}</div>
   </div>
@@ -4798,9 +4800,10 @@ var MUTATING_PREFIXES = [
   '/update-router', '/check-update',
   '/check-hermes-update', '/update-hermes',
   '/clean-junk',
-  '/fetch-models', '/reload-panel-config',
+  '/fetch-models', '/fetch-hermes-models', '/reload-panel-config',
   '/set-aux-model', '/reset-aux',
   '/set-fallback-model', '/remove-fallback-model',
+  '/set-reasoning-effort',
   '/process-action', '/switch-model',
   '/save-gateway-platform', '/toggle-gateway-platform', '/remove-gateway-platform'
 ];
@@ -5261,6 +5264,40 @@ def get_current_model() -> str:
         return "?"
 
 
+REASONING_EFFORT_LEVELS = ("none", "minimal", "low", "medium", "high", "xhigh", "ultra")
+
+
+def get_reasoning_effort() -> str:
+    """Read reasoning_effort under agent from config.yaml."""
+    try:
+        data = get_parsed_config()
+        effort = str(data.get("agent", {}).get("reasoning_effort") or "none").strip().lower()
+        if effort in REASONING_EFFORT_LEVELS:
+            return effort
+        return "none"
+    except Exception:
+        return "none"
+
+
+def set_reasoning_effort(effort: str) -> bool:
+    """Update agent.reasoning_effort in config.yaml atomically."""
+    effort_clean = str(effort or "").strip().lower()
+    if effort_clean not in REASONING_EFFORT_LEVELS:
+        return False
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        agent = cfg.setdefault("agent", {})
+        if not isinstance(agent, dict):
+            agent = cfg["agent"] = {}
+        agent["reasoning_effort"] = effort_clean
+        _write_config_atomic(cfg)
+        return True
+    except Exception as e:
+        sys.stderr.write(f"[panel] set_reasoning_effort error: {e}\n")
+        return False
+
+
 def get_router_api_key() -> str:
     """Read 9router credentials from the active parsed config.
 
@@ -5295,9 +5332,10 @@ def get_router_api_key() -> str:
     return ""
 
 
-def _group_available_models(data: dict) -> dict:
+def _group_available_models(data: dict, combo_names: set | None = None) -> dict:
     """Group a /v1/models response by provider without performing I/O."""
     result = {}
+    combo_set = set(combo_names) if combo_names else set()
 
     for item in data.get("data", []):
         if not isinstance(item, dict):
@@ -5309,7 +5347,7 @@ def _group_available_models(data: dict) -> dict:
 
         ob = str(item.get("owned_by", "")).lower()
 
-        if ob == "combo":
+        if ob == "combo" or mid in combo_set:
             group = "9router (Kombo)"
         elif ob == "ag" or mid.startswith("ag/"):
             group = "Antigravity (ag)"
@@ -5349,33 +5387,138 @@ def _group_available_models(data: dict) -> dict:
     return ordered_result
 
 
-def fetch_remote_models() -> dict:
-    """Explicitly query 9router's /v1/models endpoint, refresh cache, return status."""
+def sync_hermes_provider_cache(all_model_ids: list[str]) -> bool:
+    """Populate Hermes Agent's provider_models_cache.json with fresh catalog and timestamp.
+    Prevents /model --refresh from failing on 1.5s cold-picker timeout."""
+    try:
+        cfg = get_parsed_config()
+        hermes_home = os.environ.get("HERMES_HOME")
+        if not hermes_home:
+            for cand in ("/root/.hermes", "/opt/AppData/hermes-native/hermes-data"):
+                if os.path.isdir(cand):
+                    hermes_home = cand
+                    break
+        if not hermes_home:
+            return False
+
+        cache_path = os.path.join(hermes_home, "provider_models_cache.json")
+        cache = {}
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    cache = json.load(f)
+            except Exception:
+                cache = {}
+
+        if not all_model_ids:
+            return False
+        now = time.time()
+        updated = False
+
+        cps = cfg.get("custom_providers") or []
+        for cp in cps:
+            if not isinstance(cp, dict):
+                continue
+            burl = cp.get("base_url", "")
+            if not burl:
+                continue
+            if "20128" in burl or "9router" in burl or "127.0.0.1" in burl:
+                key = cp.get("api_key") or ""
+                api_mode = cp.get("api_mode") or ""
+                headers = cp.get("extra_headers") or {}
+                blob = "|".join((key, api_mode, json.dumps(headers, sort_keys=True)))
+                fp = hashlib.blake2b(blob.encode("utf-8", errors="replace"), digest_size=8).hexdigest()
+                norm_url = burl.strip().rstrip("/").lower()
+                ckey = f"custom:{norm_url}#{fp}"
+                cache[ckey] = {
+                    "fp": fp,
+                    "at": now,
+                    "models": all_model_ids,
+                    "native_catalog": False,
+                }
+                updated = True
+
+        if not updated:
+            return False
+        dir_name = os.path.dirname(os.path.abspath(cache_path))
+        fd, tmp_c = tempfile.mkstemp(dir=dir_name, prefix=".prov_cache.tmp.")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(cache, f)
+            os.replace(tmp_c, cache_path)
+            return True
+        except Exception:
+            try:
+                os.unlink(tmp_c)
+            except Exception:
+                pass
+    except Exception as e:
+        sys.stderr.write(f"[panel] sync_hermes_provider_cache error: {e}\n")
+    return False
+
+
+def fetch_hermes_agent_models(sync_hermes: bool = True) -> dict:
+    """Fetch 9router models, auto-group combo and non-combo, and sync Hermes Agent cache.
+    Solves the 1.5s cold-picker timeout in Telegram /model --refresh."""
     host = get_9router_host()
     port = get_9router_port()
     url = f"http://{host}:{port}/v1/models"
+    api_key = get_router_api_key()
     try:
         headers = {"Accept": "application/json"}
-        api_key = get_router_api_key()
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=MODELS_TIMEOUT) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
-        grouped = _group_available_models(data)
+        combo_names = set()
+        if os.path.exists(ROUTER_DB_PATH):
+            try:
+                import sqlite3
+                with sqlite3.connect(ROUTER_DB_PATH, timeout=1.0) as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT name FROM combos")
+                    combo_names.update(r[0] for r in cur.fetchall())
+            except Exception as e:
+                sys.stderr.write(f"[panel] Read 9router combos DB warning: {e}\n")
 
+        all_ids = []
+        combos = []
+        non_combos = []
+        for item in data.get("data", []):
+            if isinstance(item, dict):
+                mid = item.get("id")
+                if mid:
+                    all_ids.append(mid)
+                    ob = str(item.get("owned_by", "")).lower()
+                    if ob == "combo" or mid in combo_names:
+                        combos.append(mid)
+                    else:
+                        non_combos.append(mid)
+
+        grouped = _group_available_models(data, combo_names=combo_names)
         with _models_cache_lock:
             _models_cache["val"] = grouped
             _models_cache["at"] = time.time()
 
+        synced = sync_hermes_provider_cache(all_ids) if sync_hermes else False
+
         return {
             "status": "success",
             "count": sum(len(models) for models in grouped.values()),
+            "combos_count": len(combos),
+            "non_combos_count": len(non_combos),
+            "hermes_synced": synced,
             "host": host,
         }
     except Exception as exc:
         return {"status": "failed", "error": str(exc), "host": host}
+
+
+def fetch_remote_models() -> dict:
+    """Explicitly query 9router's /v1/models endpoint, refresh cache, return status."""
+    return fetch_hermes_agent_models(sync_hermes=False)
 
 
 def reload_panel_config() -> dict:
@@ -7228,6 +7371,10 @@ def build_fragments() -> dict:
         "gw_platforms": cell_gw_platforms,
     }
 
+    fetch_hermes_btn = (
+        f'<a class="toggle restart" style="width:auto;flex:1;min-height:38px;padding:.4rem .8rem;font-size:.76rem" href="/fetch-hermes-models">'
+        f'{ICON_REFRESH}Fetch Model Hermes</a>'
+    )
     fetch_btn = (
         f'<a class="toggle restart" style="width:auto;flex:1;min-height:38px;padding:.4rem .8rem;font-size:.76rem" href="/fetch-models">'
         f'{ICON_REFRESH}Ambil Daftar Model</a>'
@@ -7237,8 +7384,29 @@ def build_fragments() -> dict:
         f'{ICON_REFRESH}Muat Ulang Konfig</a>'
     )
     action_hdr = (
-        f'<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;width:100%">'
-        f'{fetch_btn}{reload_btn}</div>'
+        f'<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;width:100%;flex-wrap:wrap">'
+        f'{fetch_hermes_btn}{fetch_btn}{reload_btn}</div>'
+    )
+
+    cur_effort = get_reasoning_effort()
+    effort_chips = []
+    for lvl in REASONING_EFFORT_LEVELS:
+        if lvl == cur_effort:
+            effort_chips.append(
+                f'<span class="model-chip active" style="font-size:.74rem;padding:.22rem .55rem">{html.escape(lvl)}</span>'
+            )
+        else:
+            effort_chips.append(
+                f'<a class="model-chip" style="font-size:.74rem;padding:.22rem .55rem" href="/set-reasoning-effort?effort={quote(lvl)}">{html.escape(lvl)}</a>'
+            )
+    reasoning_control_html = (
+        f'<div style="margin-bottom:1rem;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:.65rem .85rem">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.45rem">'
+        f'<span style="font-size:.78rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em">Reasoning Effort (Agent)</span>'
+        f'<span style="font-size:.72rem;color:var(--accent);font-family:var(--font-mono)">aktif: {html.escape(cur_effort)}</span>'
+        f'</div>'
+        f'<div style="display:flex;gap:6px;flex-wrap:wrap">{"".join(effort_chips)}</div>'
+        f'</div>'
     )
 
     def render_chips_group(title: str, models: list[str]) -> str:
@@ -7434,6 +7602,7 @@ def build_fragments() -> dict:
 
     return {
         "cells": cells,
+        "reasoning_control": reasoning_control_html,
         "model_chips": model_chips,
         "rate_limit_card": rate_limit_card,
         "update_block": update_block,
@@ -7531,6 +7700,17 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
             seconds=60,
             message="Hermes sedang update dan restart...",
         )
+    elif just == "reasoning":
+        effort = get_reasoning_effort()
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Reasoning effort berhasil disinkronkan ke config.yaml: '
+            f'<strong>{html.escape(effort)}</strong>.</div>'
+        )
+    elif just == "fetch-hermes":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Daftar model Hermes Agent berhasil diambil dan disinkronkan! '
+            'Katalog cache telah diperbarui sehingga /model tidak akan timeout.</div>'
+        )
     else:
         countdown_block = ""
 
@@ -7555,6 +7735,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         cell_lan=frag["cells"]["lan"],
         cell_ts=frag["cells"]["ts"],
         cell_internet=frag["cells"]["internet"],
+        reasoning_control=frag.get("reasoning_control", ""),
         model_chips=frag["model_chips"],
         rate_limit_card=frag["rate_limit_card"],
         log_card=frag["log_card"],
@@ -8380,6 +8561,21 @@ class Handler(BaseHTTPRequestHandler):
             self._redirect_to_status()
             return
 
+        if parsed.path == "/set-reasoning-effort":
+            effort = str(json_data.get("effort") or (qs.get("effort") or [""])[0]).strip().lower()
+            saved = set_reasoning_effort(effort)
+            if not saved:
+                if is_ajax:
+                    self._send_json({"ok": False, "error": f"Level reasoning effort tidak valid: {effort}"}, code=400)
+                    return
+                self._send_html("<h1>400 — level reasoning effort tidak valid atau gagal simpan</h1>", 400)
+                return
+            if is_ajax:
+                self._send_json({"ok": True, "effort": effort})
+                return
+            self._redirect_to_status(just="reasoning", tab="status")
+            return
+
         if parsed.path == "/set-aux-model":
             task = str(json_data.get("task") or (qs.get("task") or [""])[0]).strip()
             provider = str(json_data.get("provider") or (qs.get("provider") or [""])[0]).strip()
@@ -8530,7 +8726,8 @@ class Handler(BaseHTTPRequestHandler):
         VALID_POST_ACTIONS = {
             "/toggle", "/on", "/off", "/restart-bot", "/bot-toggle",
             "/update-router", "/check-update", "/clean-junk",
-            "/check-hermes-update", "/update-hermes", "/fetch-models", "/reload-panel-config"
+            "/check-hermes-update", "/update-hermes", "/fetch-models",
+            "/fetch-hermes-models", "/reload-panel-config"
         }
         if parsed.path not in VALID_POST_ACTIONS:
             self._send_html("<h1>404</h1>", 404)
@@ -8598,6 +8795,13 @@ class Handler(BaseHTTPRequestHandler):
                 elif parsed.path == "/fetch-models":
                     fetch_remote_models()
                     just = "model"
+                    target_tab = "status"
+                elif parsed.path == "/fetch-hermes-models":
+                    result = fetch_hermes_agent_models()
+                    if result.get("status") != "success" or not result.get("hermes_synced"):
+                        self._send_json({"ok": False, "error": result.get("error") or "Sinkronisasi cache Hermes gagal"}, code=502)
+                        return
+                    just = "fetch-hermes"
                     target_tab = "status"
                 elif parsed.path == "/reload-panel-config":
                     reload_panel_config()

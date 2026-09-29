@@ -931,6 +931,102 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertLessEqual(len(panel._LOGIN_FAILURES), 500)
         panel._LOGIN_FAILURES.clear()
 
+    def test_64_reasoning_effort_config_and_route(self):
+        """Reasoning effort must sync with config.yaml agent.reasoning_effort."""
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        import tempfile
+        import yaml
+        def read_test_config():
+            with open(panel.CONFIG_PATH, encoding="utf-8") as f:
+                return yaml.safe_load(f)
+        with tempfile.TemporaryDirectory() as directory, \
+             mock.patch.object(panel, "CONFIG_PATH", os.path.join(directory, "config.yaml")), \
+             mock.patch.object(panel, "get_parsed_config", side_effect=read_test_config):
+            with open(panel.CONFIG_PATH, "w", encoding="utf-8") as f:
+                f.write("agent:\n  reasoning_effort: none\n")
+            self.assertTrue(panel.set_reasoning_effort("high"))
+            self.assertEqual(panel.get_reasoning_effort(), "high")
+            self.assertFalse(panel.set_reasoning_effort("invalid-tier"))
+            self.assertEqual(panel.get_reasoning_effort(), "high")
+            code, headers, _ = self._request(
+                "/set-reasoning-effort?effort=ultra", method="POST", headers={"Cookie": cookie}
+            )
+            self.assertEqual(code, 302)
+            self.assertIn("just=reasoning", headers.get("Location", ""))
+            self.assertEqual(panel.get_reasoning_effort(), "ultra")
+            code, _, body = self._request(
+                "/set-reasoning-effort?effort=medium&ajax=1", method="POST", headers={"Cookie": cookie}
+            )
+            self.assertEqual(code, 200)
+            self.assertTrue(json.loads(body).get("ok"))
+            self.assertEqual(panel.get_reasoning_effort(), "medium")
+
+    def test_65_fetch_hermes_agent_models(self):
+        """fetch_hermes_agent_models must categorize combos vs non-combos and sync cache."""
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        fake_data = {
+            "data": [
+                {"id": "combo-chat", "owned_by": "combo"},
+                {"id": "ag/gemini-3.8-flash-high", "owned_by": "ag"},
+                {"id": "openrouter/free", "owned_by": "openrouter"},
+            ]
+        }
+        cm = mock.MagicMock()
+        cm.read.return_value = json.dumps(fake_data).encode("utf-8")
+        cm.__enter__.return_value = cm
+        cm.__exit__.return_value = None
+
+        with mock.patch.object(panel, "get_router_api_key", return_value="dummy-key"), \
+             mock.patch.object(panel.urllib.request, "urlopen", return_value=cm), \
+             mock.patch.object(panel, "sync_hermes_provider_cache", return_value=True) as mock_sync:
+            res = panel.fetch_hermes_agent_models()
+            self.assertEqual(res.get("status"), "success")
+            self.assertEqual(res.get("combos_count"), 1)
+            self.assertEqual(res.get("non_combos_count"), 2)
+            self.assertTrue(res.get("hermes_synced"))
+            mock_sync.assert_called_once()
+            self.assertIn("combo-chat", panel._models_cache["val"].get("9router (Kombo)", []))
+
+        # Test HTTP route
+        with mock.patch.object(panel, "fetch_hermes_agent_models", return_value={"status": "success", "hermes_synced": True}):
+            code, headers, _ = self._request(
+                "/fetch-hermes-models",
+                method="POST",
+                headers={"Cookie": cookie}
+            )
+            self.assertEqual(code, 302)
+            self.assertIn("just=fetch-hermes", headers.get("Location", ""))
+    def test_66_sync_only_matching_credential_cache(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as home, mock.patch.dict(os.environ, {"HERMES_HOME": home}):
+            path = os.path.join(home, "provider_models_cache.json")
+            cp = {"base_url": "http://127.0.0.1:20128/v1", "api_key": "test-key", "api_mode": "chat_completions"}
+            other = "custom:http://127.0.0.1:20128/v1#different-credentials"
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({other: {"fp": "different-credentials", "at": 1, "models": ["private-model"]}}, f)
+            with mock.patch.object(panel, "get_parsed_config", return_value={"custom_providers": [cp]}):
+                self.assertTrue(panel.sync_hermes_provider_cache(["public-model"]))
+            with open(path, encoding="utf-8") as f:
+                cache = json.load(f)
+            self.assertEqual(cache[other]["models"], ["private-model"])
+            self.assertIn(["public-model"], [entry["models"] for entry in cache.values()])
+
+    def test_67_panel_fetch_does_not_sync_hermes_cache(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b'{"data":[{"id":"model-a","owned_by":"combo"}]}'
+        with mock.patch.object(panel, "get_router_api_key", return_value="test-key"), \
+             mock.patch.object(panel.urllib.request, "urlopen", return_value=response), \
+             mock.patch.object(panel, "sync_hermes_provider_cache") as sync:
+            self.assertEqual(panel.fetch_remote_models()["status"], "success")
+            sync.assert_not_called()
+
+    def test_68_failed_hermes_sync_never_shows_success(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        with mock.patch.object(panel, "fetch_hermes_agent_models", return_value={"status": "failed", "error": "offline"}):
+            code, _, body = self._request("/fetch-hermes-models", method="POST", headers={"Cookie": cookie, "Accept": "application/json"})
+        self.assertNotEqual(code, 302)
+        self.assertIn("offline", body)
 
 
 class TestGatewayConfigSync(unittest.TestCase):
