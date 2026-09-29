@@ -45,6 +45,7 @@ import re
 import signal
 import socket
 import queue
+import secrets
 import sqlite3
 import tempfile
 import shlex
@@ -142,6 +143,10 @@ MUTATING_PATHS = frozenset({
     "/api/whatsapp/pair-start", "/api/whatsapp/pair-cancel", "/api/whatsapp/pair-apply",
     "/set-active-profile", "/create-profile", "/delete-profile", "/rename-profile",
     "/save-profile-soul", "/set-profile-model",
+    "/api/kanban/boards/switch", "/api/kanban/boards/create",
+    "/api/kanban/task/create", "/api/kanban/task/update",
+    "/api/kanban/task/status", "/api/kanban/task/delete",
+    "/api/kanban/task/reclaim", "/api/kanban/task/comment",
 })
 LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off"})
 ROUTER_URL = "http://{host}:20128/"
@@ -288,6 +293,7 @@ ICON_GLOBE = _icon('<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22"
 ICON_BOT = _icon('<rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8.01" y2="16"/><line x1="16" y1="16" x2="16.01" y2="16"/>', size=16)
 ICON_ROUTER = _icon('<rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6" y2="14"/><line x1="18" y1="6" x2="18" y2="14"/><line x1="6" y1="18" x2="6.01" y2="18"/><line x1="10" y1="18" x2="10.01" y2="18"/>', size=16)
 ICON_USERS = _icon('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', size=16)
+ICON_KANBAN = _icon('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 7v7"/><path d="M12 7v4"/><path d="M16 7v9"/>', size=16)
 ICON_HERMES = _icon('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>', size=16)
 ICON_TRASH = _icon('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>', size=16)
 ICON_SHIELD = _icon('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', size=16)
@@ -575,9 +581,15 @@ opacity:0;pointer-events:none;transition:opacity .15s var(--ease);z-index:200}}
 border-top-color:var(--accent-light);border-radius:50%;animation:spin .7s linear infinite}}
 #navloader span{{color:var(--text-muted);font-size:.82rem;font-family:var(--font-mono)}}
 /* Confirm modal */
-#confirm-modal, #aux-picker-modal, #gw-config-modal, #wa-pair-modal, #create-profile-modal, #soul-modal, #rename-profile-modal{{position:fixed;inset:0;background:rgba(7,9,14,0.85);backdrop-filter:blur(8px);
+#confirm-modal, #aux-picker-modal, #gw-config-modal, #wa-pair-modal, #create-profile-modal, #soul-modal, #rename-profile-modal, #create-kanban-task-modal, #create-kanban-board-modal, #view-kanban-task-modal, #kanban-config-modal{{position:fixed;inset:0;background:rgba(7,9,14,0.85);backdrop-filter:blur(8px);
 display:none;align-items:center;justify-content:center;z-index:300;padding:1.5rem}}
-#confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show, #wa-pair-modal.show, #create-profile-modal.show, #soul-modal.show, #rename-profile-modal.show{{display:flex}}
+#confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show, #wa-pair-modal.show, #create-profile-modal.show, #soul-modal.show, #rename-profile-modal.show, #create-kanban-task-modal.show, #create-kanban-board-modal.show, #view-kanban-task-modal.show, #kanban-config-modal.show{{display:flex}}
+.kanban-board{{display:flex;gap:0.85rem;overflow-x:auto;padding-bottom:1rem;margin-top:0.75rem;-webkit-overflow-scrolling:touch}}
+.kanban-column{{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-md);min-width:260px;max-width:320px;flex:1;display:flex;flex-direction:column;max-height:calc(100vh - 280px)}}
+.kanban-col-header{{padding:0.75rem 0.85rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.015)}}
+.kanban-col-cards{{padding:0.6rem;display:flex;flex-direction:column;gap:0.6rem;overflow-y:auto;flex:1;min-height:80px}}
+.kanban-card{{background:rgba(22,27,38,0.7);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.75rem;cursor:pointer;transition:border-color 0.15s, transform 0.15s;display:flex;flex-direction:column;gap:0.45rem}}
+.kanban-card:hover{{border-color:var(--border-hover);transform:translateY(-1px)}}
 .confirm-box{{background:rgba(22,27,38,0.95);border:1px solid var(--border-hover);
 border-radius:var(--radius-xl);padding:1.6rem 1.5rem;max-width:360px;width:100%;
 box-shadow:0 12px 48px rgba(0,0,0,0.7)}}
@@ -1100,6 +1112,173 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     </div>
   </div>
 </div>
+<div id="create-kanban-task-modal">
+  <div class="confirm-box" style="max-width:520px;width:94%;max-height:90vh;display:flex;flex-direction:column;padding:1.4rem;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+      <h3 style="margin:0;font-size:1.05rem">Buat Tugas Kanban Baru</h3>
+      <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeCreateTaskModal()">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0.75rem">
+      <div>
+        <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Judul Tugas</label>
+        <input type="text" id="kanban-task-title" class="search-input" placeholder="contoh: Implementasi Auth JWT" style="width:100%">
+      </div>
+      <div>
+        <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Deskripsi / Acceptance Criteria</label>
+        <textarea id="kanban-task-body" class="search-input" placeholder="Rincian instruksi yang harus dikerjakan worker agent..." style="width:100%;height:80px;resize:vertical;font-family:inherit"></textarea>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem">
+        <div>
+          <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Assignee (Profil)</label>
+          <select id="kanban-task-assignee" class="search-input" style="width:100%;background:rgba(255,255,255,0.06);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm)">
+            <option value="">-- Tanpa Assignee --</option>
+            <option value="default">default</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Kolom Awal</label>
+          <select id="kanban-task-status" class="search-input" style="width:100%;background:rgba(255,255,255,0.06);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm)">
+            <option value="todo">To Do (Antrean)</option>
+            <option value="ready">Ready (Siap Dispatch)</option>
+            <option value="triage">Triage (Inbox)</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem">
+        <div>
+          <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Prioritas</label>
+          <select id="kanban-task-priority" class="search-input" style="width:100%;background:rgba(255,255,255,0.06);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm)">
+            <option value="0">Normal (0)</option>
+            <option value="1">High (1)</option>
+            <option value="2">Urgent (2)</option>
+            <option value="3">Critical (3)</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Model Override (Opsional)</label>
+          <input type="text" id="kanban-task-model" class="search-input" placeholder="contoh: gpt-5.6-sol" style="width:100%">
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.5rem">
+        <button type="button" class="btn" style="width:auto" onclick="closeCreateTaskModal()">Batal</button>
+        <button type="button" class="btn btn-on" style="width:auto" onclick="submitCreateTask()">Buat Tugas</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="create-kanban-board-modal">
+  <div class="confirm-box" style="max-width:420px;width:92%;padding:1.4rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+      <h3 style="margin:0;font-size:1.05rem">Buat Papan Kanban Baru</h3>
+      <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeCreateBoardModal()">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0.75rem">
+      <div>
+        <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Slug Papan (ID unik)</label>
+        <input type="text" id="create-board-slug" class="search-input" placeholder="contoh: simantu-app, audit-system" style="width:100%">
+        <span style="font-size:0.68rem;color:var(--text-dim);display:block;margin-top:0.2rem">Huruf kecil, angka, '-' atau '_'.</span>
+      </div>
+      <div>
+        <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Nama Papan (Tampilan)</label>
+        <input type="text" id="create-board-name" class="search-input" placeholder="contoh: SIMANTU Mobile App" style="width:100%">
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+        <button type="button" class="btn" style="width:auto" onclick="closeCreateBoardModal()">Batal</button>
+        <button type="button" class="btn btn-on" style="width:auto" onclick="submitCreateBoard()">Buat Papan</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="view-kanban-task-modal">
+  <div class="confirm-box" style="max-width:680px;width:95%;max-height:90vh;display:flex;flex-direction:column;padding:1.4rem;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem">
+      <div>
+        <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.25rem">
+          <span id="view-task-id" style="font-family:var(--font-mono);font-size:0.82rem;color:var(--accent);font-weight:600"></span>
+          <span id="view-task-status-badge"></span>
+        </div>
+        <h3 id="view-task-title" style="margin:0;font-size:1.15rem;line-height:1.3"></h3>
+      </div>
+      <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeViewTaskModal()">✕</button>
+    </div>
+    <div id="view-task-meta" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.75rem;font-size:0.78rem;display:flex;flex-wrap:wrap;gap:0.8rem;margin-bottom:0.75rem"></div>
+    <div style="margin-bottom:0.75rem">
+      <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.3rem">Deskripsi / Acceptance Criteria</div>
+      <div id="view-task-body" style="font-size:0.82rem;line-height:1.5;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:6px;padding:0.65rem;white-space:pre-wrap;max-height:160px;overflow-y:auto"></div>
+    </div>
+    <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;padding:0.5rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:0.75rem">
+      <span style="font-size:0.75rem;color:var(--text-dim)">Pindahkan Kolom:</span>
+      <select id="view-task-move-status" onchange="moveCurrentTaskStatus(this.value)" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.5rem;font-size:0.75rem">
+        <option value="triage">Triage</option>
+        <option value="todo">To Do</option>
+        <option value="ready">Ready</option>
+        <option value="running">Running</option>
+        <option value="blocked">Blocked</option>
+        <option value="review">Review</option>
+        <option value="done">Done</option>
+        <option value="archived">Archived</option>
+      </select>
+      <button type="button" id="btn-reclaim-task" class="btn btn-action-sm" onclick="reclaimCurrentTask()" style="display:none;background:rgba(234,179,8,0.15);color:#facc15;border-color:rgba(234,179,8,0.4)">Reclaim Lock</button>
+      <button type="button" class="btn btn-off" style="width:auto;min-height:28px;padding:0.2rem 0.55rem;font-size:0.7rem;margin-left:auto" onclick="deleteCurrentTask()">Hapus Tugas</button>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:0.5rem">
+      <div style="font-size:0.75rem;font-weight:600;color:var(--text)">Komentar (<span id="view-task-comments-count">0</span>)</div>
+      <div id="view-task-comments-list" style="display:flex;flex-direction:column;gap:0.4rem;max-height:150px;overflow-y:auto;padding-right:0.3rem"></div>
+      <div style="display:flex;gap:0.4rem;margin-top:0.3rem">
+        <input type="text" id="view-task-new-comment" class="search-input" placeholder="Tulis komentar atau update progres..." style="flex:1" onkeydown="if(event.key==='Enter')submitCurrentTaskComment()">
+        <button type="button" class="btn btn-on" style="width:auto;min-height:34px;padding:0.25rem 0.75rem;font-size:0.75rem;margin:0" onclick="submitCurrentTaskComment()">Kirim</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="kanban-config-modal">
+  <div class="confirm-box" style="max-width:520px;width:94%;max-height:90vh;display:flex;flex-direction:column;padding:1.4rem;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+      <h3 style="margin:0;font-size:1.05rem">Konfigurasi Kanban Hermes</h3>
+      <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeKanbanConfigModal()">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0.85rem">
+      <div style="display:flex;flex-direction:column;gap:0.45rem">
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;cursor:pointer">
+          <input type="checkbox" id="cfg-kb-dispatch-gw"> Dispatcher di Gateway (Otomatis claim &amp; spawn worker)
+        </label>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;cursor:pointer">
+          <input type="checkbox" id="cfg-kb-notify-gw"> Notifikasi Gateway (Kirim progres ke chat)
+        </label>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;cursor:pointer">
+          <input type="checkbox" id="cfg-kb-review-dispatch"> Review Dispatch (Otomatis review worker)
+        </label>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;cursor:pointer">
+          <input type="checkbox" id="cfg-kb-auto-decompose"> Auto-Decompose Triage Tasks
+        </label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem">
+        <div>
+          <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Interval Dispatch (Detik)</label>
+          <input type="number" id="cfg-kb-interval" class="search-input" min="5" max="3600" style="width:100%">
+        </div>
+        <div>
+          <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Batas Kegagalan (Failure Limit)</label>
+          <input type="number" id="cfg-kb-failure-limit" class="search-input" min="1" max="10" style="width:100%">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem">
+        <div>
+          <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Maks Worker Simultan (Host)</label>
+          <input type="number" id="cfg-kb-max-progress" class="search-input" min="1" max="16" placeholder="Otomatis" style="width:100%">
+        </div>
+        <div>
+          <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem">Default Assignee</label>
+          <input type="text" id="cfg-kb-default-assignee" class="search-input" placeholder="contoh: default" style="width:100%">
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.5rem">
+        <button type="button" class="btn" style="width:auto" onclick="closeKanbanConfigModal()">Batal</button>
+        <button type="button" class="btn btn-on" style="width:auto" onclick="submitKanbanConfig()">Simpan Konfigurasi</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="header">
   <div class="header-brand">
     <img src="https://cdn.jsdelivr.net/gh/selfhst/icons/webp/hermes-agent-light.webp" class="header-logo" alt="Hermes Logo">
@@ -1115,6 +1294,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   <div class="tab" onclick="switchTab('control', this)">{icon_layers} Layanan</div>
   <div class="tab" onclick="switchTab('auxiliary', this)">{icon_bot} Tugas AI</div>
   <div class="tab" onclick="switchTab('profiles', this)">{icon_users} Profil Agent</div>
+  <div class="tab" onclick="switchTab('kanban', this)">{icon_kanban} Kanban</div>
 </div>
 
 <div class="content-wrapper">
@@ -1386,6 +1566,44 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     </div>
   </div>
 </div>
+<!-- TAB KANBAN -->
+<div class="tab-panel" id="tab-kanban">
+  <div class="card card-status" style="padding:1.25rem">
+    <div class="aux-header">
+      <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+        <div class="card-title" style="margin-bottom:0">{icon_kanban} Kanban Multi-Agent Board</div>
+        <div style="display:flex;align-items:center;gap:0.4rem">
+          <label style="font-size:0.75rem;color:var(--text-dim)">Papan:</label>
+          <select id="kanban-board-select" onchange="switchKanbanBoard(this.value)" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.75rem;font-family:var(--font-mono)">
+            {kanban_board_options}
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+        <button type="button" class="btn" style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem;margin:0" onclick="openKanbanConfigModal()">
+          ⚙ Konfigurasi
+        </button>
+        <button type="button" class="btn" style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem;margin:0" onclick="openCreateBoardModal()">
+          + Papan Baru
+        </button>
+        <button type="button" class="btn btn-on" style="width:auto;min-height:32px;padding:0.25rem 0.75rem;font-size:0.75rem;margin:0" onclick="openCreateTaskModal()">
+          + Tugas Baru
+        </button>
+      </div>
+    </div>
+    <div class="aux-desc" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem">
+      <div>
+        Papan tugas terdistribusi multi-agent SQLite Hermes. Worker profil mengklaim tugas secara atomik dan menjalankan eksekusi dalam workspace terisolasi.
+      </div>
+      <div id="kanban-dispatcher-badge">
+        {kanban_dispatcher_badge}
+      </div>
+    </div>
+    <div id="kanban-board-slot">
+      {kanban_board_block}
+    </div>
+  </div>
+</div>
 </div> <!-- .content-wrapper -->
 
 {nav_script}
@@ -1654,7 +1872,7 @@ if(activeTabFromUrl){{
   if(btn) switchTab(activeTabFromUrl, btn);
 }} else {{
   var saved = safeStore('getItem', 'activeTab');
-  if(saved && ['status','performance','control','auxiliary','profiles'].indexOf(saved) !== -1){{
+  if(saved && ['status','performance','control','auxiliary','profiles','kanban'].indexOf(saved) !== -1){{
     var btn = document.querySelector('.tab[onclick*="' + saved + '"]');
     if(btn) switchTab(saved, btn);
   }}
@@ -1866,6 +2084,366 @@ function setProfileModel(profileName, provider, model){{
       window.location.href = '/status?just=profile-model&tab=profiles';
     }} else {{
       alert('Gagal memperbarui model profil: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+// --- Kanban UI JavaScript ---
+var currentViewingTaskId = '';
+
+function openCreateTaskModal(){{
+  var modal = document.getElementById('create-kanban-task-modal');
+  if(!modal) return;
+  document.getElementById('kanban-task-title').value = '';
+  document.getElementById('kanban-task-body').value = '';
+  document.getElementById('kanban-task-model').value = '';
+  document.getElementById('kanban-task-priority').value = '0';
+  document.getElementById('kanban-task-status').value = 'todo';
+  var sel = document.getElementById('kanban-task-assignee');
+  if(sel){{
+    fetch('/api/profiles')
+      .then(function(r){{ return r.json(); }})
+      .then(function(res){{
+        if(res && res.profiles){{
+          sel.innerHTML = '<option value="">-- Tanpa Assignee --</option>';
+          res.profiles.forEach(function(p){{
+            var opt = document.createElement('option');
+            opt.value = p.name;
+            opt.textContent = p.name + (p.is_default ? ' (default)' : '');
+            sel.appendChild(opt);
+          }});
+        }}
+      }})
+      .catch(function(){{}});
+  }}
+  modal.classList.add('show');
+}}
+
+function closeCreateTaskModal(){{
+  var modal = document.getElementById('create-kanban-task-modal');
+  if(modal) modal.classList.remove('show');
+}}
+
+function submitCreateTask(){{
+  var title = (document.getElementById('kanban-task-title').value || '').trim();
+  if(!title){{ alert('Judul tugas tidak boleh kosong'); return; }}
+  var body = (document.getElementById('kanban-task-body').value || '').trim();
+  var assignee = document.getElementById('kanban-task-assignee').value || '';
+  var status = document.getElementById('kanban-task-status').value || 'todo';
+  var priority = parseInt(document.getElementById('kanban-task-priority').value || '0', 10);
+  var model = (document.getElementById('kanban-task-model').value || '').trim();
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : '';
+
+  closeCreateTaskModal();
+  fetch('/api/kanban/task/create', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ title: title, body: body, assignee: assignee, status: status, priority: priority, model_override: model, board: board }})
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?just=kanban-task-created&tab=kanban';
+    }} else {{
+      alert('Gagal membuat tugas: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function openCreateBoardModal(){{
+  var modal = document.getElementById('create-kanban-board-modal');
+  if(!modal) return;
+  document.getElementById('create-board-slug').value = '';
+  document.getElementById('create-board-name').value = '';
+  modal.classList.add('show');
+}}
+
+function closeCreateBoardModal(){{
+  var modal = document.getElementById('create-kanban-board-modal');
+  if(modal) modal.classList.remove('show');
+}}
+
+function submitCreateBoard(){{
+  var slug = (document.getElementById('create-board-slug').value || '').trim();
+  if(!slug){{ alert('Slug papan tidak boleh kosong'); return; }}
+  var name = (document.getElementById('create-board-name').value || '').trim();
+  closeCreateBoardModal();
+  fetch('/api/kanban/boards/create', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ slug: slug, name: name }})
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?just=kanban-board-created&tab=kanban';
+    }} else {{
+      alert('Gagal membuat papan: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function switchKanbanBoard(slug){{
+  fetch('/api/kanban/boards/switch', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ board: slug }})
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?tab=kanban';
+    }} else {{
+      alert('Gagal mengganti papan: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function openViewTaskModal(taskId){{
+  currentViewingTaskId = taskId;
+  var modal = document.getElementById('view-kanban-task-modal');
+  if(!modal) return;
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : '';
+
+  fetch('/api/kanban/task?id=' + encodeURIComponent(taskId) + '&board=' + encodeURIComponent(board))
+    .then(function(r){{ return r.json(); }})
+    .then(function(res){{
+      if(!res || !res.ok || !res.task){{
+        alert('Tugas tidak ditemukan');
+        return;
+      }}
+      var t = res.task;
+      document.getElementById('view-task-id').textContent = t.id;
+      document.getElementById('view-task-title').textContent = t.title;
+      document.getElementById('view-task-body').textContent = t.body || '(Tidak ada deskripsi)';
+      document.getElementById('view-task-move-status').value = t.status;
+
+      var bBadge = document.getElementById('view-task-status-badge');
+      if(bBadge){{
+        bBadge.className = 'badge';
+        bBadge.textContent = t.status.toUpperCase();
+        if(t.status === 'running') bBadge.className = 'live-badge badge-up';
+        else if(t.status === 'done' || t.status === 'completed') bBadge.style.background = 'rgba(16,185,129,0.18)';
+        else if(t.status === 'blocked') bBadge.className = 'live-badge badge-down';
+      }}
+
+      var btnReclaim = document.getElementById('btn-reclaim-task');
+      if(btnReclaim){{
+        btnReclaim.style.display = (t.status === 'running' || t.claim_lock) ? 'inline-block' : 'none';
+      }}
+
+      var meta = document.getElementById('view-task-meta');
+      if(meta){{
+        meta.textContent = '';
+        var f1 = document.createElement('div');
+        f1.textContent = 'Assignee: ' + (t.assignee || 'none');
+        var f2 = document.createElement('div');
+        f2.textContent = 'Prioritas: ' + t.priority;
+        meta.appendChild(f1);
+        meta.appendChild(f2);
+        if(t.model_override){{
+          var f3 = document.createElement('div');
+          f3.textContent = 'Model: ' + t.model_override;
+          meta.appendChild(f3);
+        }}
+        if(t.worker_pid){{
+          var f4 = document.createElement('div');
+          f4.textContent = 'PID: ' + t.worker_pid;
+          meta.appendChild(f4);
+        }}
+        if(t.workspace_kind){{
+          var f5 = document.createElement('div');
+          f5.textContent = 'Workspace: ' + t.workspace_kind;
+          meta.appendChild(f5);
+        }}
+      }}
+
+      var cList = document.getElementById('view-task-comments-list');
+      var cCount = document.getElementById('view-task-comments-count');
+      if(cList){{
+        cList.innerHTML = '';
+        var comments = t.comments || [];
+        if(cCount) cCount.textContent = comments.length;
+        if(comments.length === 0){{
+          var emptyDiv = document.createElement('div');
+          emptyDiv.style.cssText = 'font-size:0.75rem;color:var(--text-dim);font-style:italic';
+          emptyDiv.textContent = 'Belum ada komentar.';
+          cList.appendChild(emptyDiv);
+        }} else {{
+          comments.forEach(function(c){{
+            var item = document.createElement('div');
+            item.style.cssText = 'background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:4px;padding:0.4rem 0.6rem;font-size:0.75rem';
+            var header = document.createElement('div');
+            header.style.cssText = 'display:flex;justify-content:space-between;color:var(--text-muted);font-size:0.68rem;margin-bottom:0.15rem';
+            var author = document.createElement('strong');
+            author.textContent = c.author || 'system';
+            var date = document.createElement('span');
+            date.textContent = new Date(c.created_at * 1000).toLocaleString();
+            header.appendChild(author);
+            header.appendChild(date);
+            var body = document.createElement('div');
+            body.textContent = c.body || '';
+            item.appendChild(header);
+            item.appendChild(body);
+            cList.appendChild(item);
+          }});
+        }}
+      }}
+      modal.classList.add('show');
+    }})
+    .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function closeViewTaskModal(){{
+  var modal = document.getElementById('view-kanban-task-modal');
+  if(modal) modal.classList.remove('show');
+  currentViewingTaskId = '';
+}}
+
+function moveCurrentTaskStatus(newStatus){{
+  if(!currentViewingTaskId) return;
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : '';
+
+  fetch('/api/kanban/task/status', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ task_id: currentViewingTaskId, status: newStatus, board: board }})
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?just=kanban-status-updated&tab=kanban';
+    }} else {{
+      alert('Gagal memindahkan status: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function reclaimCurrentTask(){{
+  if(!currentViewingTaskId || !confirm('Reclaim worker claim lock untuk tugas ini?')) return;
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : '';
+
+  fetch('/api/kanban/task/reclaim', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ task_id: currentViewingTaskId, board: board }})
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?just=kanban-reclaimed&tab=kanban';
+    }} else {{
+      alert('Gagal reclaim tugas: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function deleteCurrentTask(){{
+  if(!currentViewingTaskId || !confirm('Hapus tugas ' + currentViewingTaskId + ' secara permanen?')) return;
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : '';
+
+  fetch('/api/kanban/task/delete', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ task_id: currentViewingTaskId, board: board }})
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?just=kanban-deleted&tab=kanban';
+    }} else {{
+      alert('Gagal menghapus tugas: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function submitCurrentTaskComment(){{
+  if(!currentViewingTaskId) return;
+  var input = document.getElementById('view-task-new-comment');
+  var text = (input ? input.value : '').trim();
+  if(!text) return;
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : '';
+
+  fetch('/api/kanban/task/comment', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ task_id: currentViewingTaskId, body: text, board: board }})
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      if(input) input.value = '';
+      openViewTaskModal(currentViewingTaskId);
+    }} else {{
+      alert('Gagal mengirim komentar: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function openKanbanConfigModal(){{
+  var modal = document.getElementById('kanban-config-modal');
+  if(!modal) return;
+  fetch('/api/kanban/config')
+    .then(function(r){{ return r.json(); }})
+    .then(function(res){{
+      if(res && res.ok && res.config){{
+        var c = res.config;
+        document.getElementById('cfg-kb-dispatch-gw').checked = !!c.dispatch_in_gateway;
+        document.getElementById('cfg-kb-notify-gw').checked = !!c.notify_in_gateway;
+        document.getElementById('cfg-kb-review-dispatch').checked = !!c.review_dispatch;
+        document.getElementById('cfg-kb-auto-decompose').checked = !!c.auto_decompose;
+        document.getElementById('cfg-kb-interval').value = c.dispatch_interval_seconds || 60;
+        document.getElementById('cfg-kb-failure-limit').value = c.failure_limit || 2;
+        document.getElementById('cfg-kb-max-progress').value = c.max_in_progress || '';
+        document.getElementById('cfg-kb-default-assignee').value = c.default_assignee || '';
+        modal.classList.add('show');
+      }}
+    }})
+    .catch(function(err){{ alert('Gagal memuat konfigurasi: ' + err); }});
+}}
+
+function closeKanbanConfigModal(){{
+  var modal = document.getElementById('kanban-config-modal');
+  if(modal) modal.classList.remove('show');
+}}
+
+function submitKanbanConfig(){{
+  var payload = {{
+    dispatch_in_gateway: document.getElementById('cfg-kb-dispatch-gw').checked,
+    notify_in_gateway: document.getElementById('cfg-kb-notify-gw').checked,
+    review_dispatch: document.getElementById('cfg-kb-review-dispatch').checked,
+    auto_decompose: document.getElementById('cfg-kb-auto-decompose').checked,
+    dispatch_interval_seconds: parseInt(document.getElementById('cfg-kb-interval').value || '60', 10),
+    failure_limit: parseInt(document.getElementById('cfg-kb-failure-limit').value || '2', 10),
+    max_in_progress: document.getElementById('cfg-kb-max-progress').value ? parseInt(document.getElementById('cfg-kb-max-progress').value, 10) : null,
+    default_assignee: (document.getElementById('cfg-kb-default-assignee').value || '').trim()
+  }};
+  closeKanbanConfigModal();
+  fetch('/api/kanban/config', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
+    body: JSON.stringify(payload)
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      window.location.href = '/status?just=kanban-config-saved&tab=kanban';
+    }} else {{
+      alert('Gagal menyimpan konfigurasi: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
   .catch(function(err){{ alert('Error: ' + err); }});
@@ -5111,7 +5689,8 @@ var MUTATING_PREFIXES = [
   '/process-action', '/switch-model',
   '/save-gateway-platform', '/toggle-gateway-platform', '/remove-gateway-platform',
   '/set-active-profile', '/create-profile', '/delete-profile', '/rename-profile',
-  '/save-profile-soul', '/set-profile-model'
+  '/save-profile-soul', '/set-profile-model',
+  '/api/kanban/'
 ];
 var CONFIRM_ROUTES = [
   {match:'/update-hermes', title:'Perbarui Hermes Agent', msg:'Perbarui Hermes via git pull + install dependency + mulai ulang gateway. Bot tidak bisa dibalas selama proses (beberapa menit). Lanjutkan?'},
@@ -6616,6 +7195,685 @@ def render_profiles_block() -> str:
 
     grid = f'<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(290px, 1fr));gap:0.85rem">{"".join(cards)}</div>'
     return banner + grid
+
+
+# --- Hermes Kanban Multi-Agent Board Management ---
+_KANBAN_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_KANBAN_VALID_STATUSES = {"triage", "todo", "scheduled", "ready", "running", "blocked", "review", "done", "completed", "archived"}
+
+KANBAN_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS tasks (
+    id                   TEXT PRIMARY KEY,
+    title                TEXT NOT NULL,
+    body                 TEXT,
+    assignee             TEXT,
+    status               TEXT NOT NULL,
+    priority             INTEGER DEFAULT 0,
+    created_by           TEXT,
+    created_at           INTEGER NOT NULL,
+    started_at           INTEGER,
+    completed_at         INTEGER,
+    workspace_kind       TEXT NOT NULL DEFAULT 'scratch',
+    workspace_path       TEXT,
+    branch_name          TEXT,
+    project_id           TEXT,
+    claim_lock           TEXT,
+    claim_expires        INTEGER,
+    tenant               TEXT,
+    result               TEXT,
+    idempotency_key      TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    worker_pid           INTEGER,
+    last_failure_error   TEXT,
+    max_runtime_seconds  INTEGER,
+    last_heartbeat_at    INTEGER,
+    current_run_id       INTEGER,
+    workflow_template_id TEXT,
+    current_step_key     TEXT,
+    skills               TEXT,
+    model_override       TEXT,
+    max_retries          INTEGER,
+    goal_mode            INTEGER DEFAULT 0,
+    goal_max_turns       INTEGER,
+    session_id           TEXT,
+    block_kind           TEXT,
+    block_recurrences    INTEGER DEFAULT 0,
+    provider_override    TEXT,
+    reasoning_effort     TEXT,
+    completion_contract  TEXT,
+    worker_started_at    INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS task_links (
+    parent_id TEXT NOT NULL,
+    child_id  TEXT NOT NULL,
+    PRIMARY KEY (parent_id, child_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_comments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    TEXT NOT NULL,
+    author     TEXT,
+    body       TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS task_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id    TEXT NOT NULL,
+    run_id     INTEGER,
+    kind       TEXT NOT NULL,
+    payload    TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS task_runs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id             TEXT NOT NULL,
+    profile             TEXT,
+    step_key            TEXT,
+    status              TEXT,
+    claim_lock          TEXT,
+    claim_expires       INTEGER,
+    worker_pid          INTEGER,
+    max_runtime_seconds INTEGER,
+    last_heartbeat_at   INTEGER,
+    started_at          INTEGER,
+    ended_at            INTEGER,
+    outcome             TEXT,
+    summary             TEXT,
+    metadata            TEXT,
+    error               TEXT,
+    worker_started_at   INTEGER
+);
+"""
+
+
+def get_current_kanban_board() -> str:
+    """Return the slug of the active kanban board (default is 'default')."""
+    path = get_hermes_root() / "kanban" / "current"
+    try:
+        if path.is_file():
+            slug = path.read_text(encoding="utf-8-sig").strip().lower()
+            if slug and (slug == "default" or _KANBAN_SLUG_RE.match(slug)):
+                return slug
+    except Exception:
+        pass
+    return "default"
+
+
+def set_current_kanban_board(slug: str) -> bool:
+    """Set the active kanban board slug."""
+    slug = (slug or "").strip().lower()
+    if not slug or (slug != "default" and not _KANBAN_SLUG_RE.match(slug)):
+        return False
+    root = get_hermes_root()
+    path = root / "kanban" / "current"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".current.tmp.")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(slug + "\n")
+        os.replace(tmp, str(path))
+        return True
+    except Exception:
+        return False
+
+
+def get_kanban_db_path(slug: str = "") -> Path:
+    """Resolve path to kanban.db for a given board slug (or current board)."""
+    if not slug:
+        slug = get_current_kanban_board()
+    slug = slug.strip().lower()
+    root = get_hermes_root()
+    if slug == "default":
+        return root / "kanban.db"
+    return root / "kanban" / "boards" / slug / "kanban.db"
+
+
+def ensure_kanban_db(db_path: Path) -> sqlite3.Connection:
+    """Open SQLite connection with WAL mode and create tables if missing."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path), timeout=10.0)
+    conn.row_factory = sqlite3.Row
+    with conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.executescript(KANBAN_SCHEMA_SQL)
+    return conn
+
+
+def list_kanban_boards() -> list[dict]:
+    """List available kanban boards (default + named boards)."""
+    root = get_hermes_root()
+    current_slug = get_current_kanban_board()
+    boards = []
+
+    # 1. Default board
+    def_path = root / "kanban.db"
+    def_count = 0
+    try:
+        if def_path.is_file():
+            con = sqlite3.connect(str(def_path), timeout=3.0)
+            def_count = con.execute("SELECT COUNT(*) FROM tasks WHERE status != 'archived'").fetchone()[0]
+            con.close()
+    except Exception:
+        pass
+
+    boards.append({
+        "slug": "default",
+        "name": "Default Board",
+        "path": str(def_path),
+        "is_current": current_slug == "default",
+        "task_count": def_count
+    })
+
+    # 2. Named boards under <root>/kanban/boards/
+    boards_root = root / "kanban" / "boards"
+    if boards_root.is_dir():
+        try:
+            for entry in sorted(boards_root.iterdir()):
+                if entry.is_dir() and _KANBAN_SLUG_RE.match(entry.name) and entry.name != "default":
+                    b_path = entry / "kanban.db"
+                    b_count = 0
+                    try:
+                        if b_path.is_file():
+                            con = sqlite3.connect(str(b_path), timeout=3.0)
+                            b_count = con.execute("SELECT COUNT(*) FROM tasks WHERE status != 'archived'").fetchone()[0]
+                            con.close()
+                    except Exception:
+                        pass
+                    boards.append({
+                        "slug": entry.name,
+                        "name": entry.name.replace("-", " ").replace("_", " ").title(),
+                        "path": str(b_path),
+                        "is_current": current_slug == entry.name,
+                        "task_count": b_count
+                    })
+        except Exception:
+            pass
+
+    return boards
+
+
+def create_kanban_board(slug: str, name: str = "") -> tuple[bool, str]:
+    """Create a new named kanban board."""
+    slug = (slug or "").strip().lower()
+    if not slug or slug == "default" or not _KANBAN_SLUG_RE.match(slug):
+        return False, "Slug papan tidak valid. Gunakan huruf kecil, angka, '-' atau '_'."
+    root = get_hermes_root()
+    board_dir = root / "kanban" / "boards" / slug
+    if board_dir.exists():
+        return False, f"Papan '{slug}' sudah ada."
+    try:
+        board_dir.mkdir(parents=True, exist_ok=True)
+        db_path = board_dir / "kanban.db"
+        con = ensure_kanban_db(db_path)
+        con.close()
+        return True, f"Papan '{slug}' berhasil dibuat."
+    except Exception as e:
+        return False, f"Gagal membuat papan: {e}"
+
+
+def list_kanban_tasks(board: str = "", status: str = None, assignee: str = None) -> list[dict]:
+    """List tasks on the specified board."""
+    db_path = get_kanban_db_path(board)
+    try:
+        con = ensure_kanban_db(db_path)
+    except Exception:
+        return []
+
+    try:
+        query = "SELECT * FROM tasks WHERE 1=1"
+        params = []
+        if status:
+            if status == "done":
+                query += " AND status IN ('done', 'completed')"
+            else:
+                query += " AND status = ?"
+                params.append(status)
+        else:
+            query += " AND status != 'archived'"
+
+        if assignee:
+            query += " AND assignee = ?"
+            params.append(assignee)
+
+        query += " ORDER BY priority DESC, created_at ASC"
+        rows = con.execute(query, params).fetchall()
+
+        tasks = []
+        for r in rows:
+            d = dict(r)
+            # Normalize 'completed' to 'done' for UI
+            if d.get("status") == "completed":
+                d["status"] = "done"
+            tasks.append(d)
+        return tasks
+    except Exception:
+        return []
+    finally:
+        con.close()
+
+
+def get_kanban_task(task_id: str, board: str = "") -> dict | None:
+    """Fetch task details along with comments and recent events."""
+    db_path = get_kanban_db_path(board)
+    try:
+        con = ensure_kanban_db(db_path)
+    except Exception:
+        return None
+
+    try:
+        r = con.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if not r:
+            return None
+        t = dict(r)
+        if t.get("status") == "completed":
+            t["status"] = "done"
+
+        comments = [dict(c) for c in con.execute(
+            "SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at ASC", (task_id,)
+        ).fetchall()]
+        t["comments"] = comments
+
+        events = [dict(e) for e in con.execute(
+            "SELECT * FROM task_events WHERE task_id = ? ORDER BY created_at DESC LIMIT 20", (task_id,)
+        ).fetchall()]
+        t["events"] = events
+
+        runs = [dict(run) for run in con.execute(
+            "SELECT * FROM task_runs WHERE task_id = ? ORDER BY started_at DESC LIMIT 10", (task_id,)
+        ).fetchall()]
+        t["runs"] = runs
+
+        return t
+    except Exception:
+        return None
+    finally:
+        con.close()
+
+
+def create_kanban_task(
+    title: str,
+    body: str = "",
+    assignee: str = "",
+    priority: int = 0,
+    status: str = "todo",
+    board: str = "",
+    model_override: str = "",
+    skills: list = None
+) -> tuple[bool, str, str]:
+    """Create a new task on the board with t_<8hex> format."""
+    title = (title or "").strip()
+    if not title:
+        return False, "Judul tugas tidak boleh kosong.", ""
+    status = (status or "todo").strip().lower()
+    if status not in _KANBAN_VALID_STATUSES:
+        status = "todo"
+    assignee = (assignee or "").strip().lower() or None
+    model_override = (model_override or "").strip() or None
+
+    task_id = "t_" + secrets.token_hex(4)
+    now = int(time.time())
+
+    db_path = get_kanban_db_path(board)
+    try:
+        con = ensure_kanban_db(db_path)
+        with con:
+            con.execute("""
+                INSERT INTO tasks (
+                    id, title, body, assignee, status, priority, created_by, created_at,
+                    started_at, completed_at, model_override, skills
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                task_id, title, body or None, assignee, status, int(priority), "web-panel", now,
+                now if status == "running" else None,
+                now if status in ("done", "completed") else None,
+                model_override,
+                json.dumps(skills) if skills else None
+            ))
+            con.execute("""
+                INSERT INTO task_events (task_id, kind, payload, created_at)
+                VALUES (?, 'created', ?, ?)
+            """, (task_id, json.dumps({"title": title, "assignee": assignee, "status": status}), now))
+        con.close()
+        return True, "Tugas berhasil dibuat.", task_id
+    except Exception as e:
+        return False, f"Gagal membuat tugas: {e}", ""
+
+
+def update_kanban_task_status(
+    task_id: str,
+    new_status: str,
+    board: str = "",
+    reason: str = "",
+    kind: str = ""
+) -> tuple[bool, str]:
+    """Update task lifecycle status."""
+    new_status = (new_status or "").strip().lower()
+    if new_status not in _KANBAN_VALID_STATUSES:
+        return False, f"Status '{new_status}' tidak valid."
+
+    db_path = get_kanban_db_path(board)
+    try:
+        con = ensure_kanban_db(db_path)
+        now = int(time.time())
+        with con:
+            cur = con.execute("SELECT status, started_at FROM tasks WHERE id = ?", (task_id,))
+            row = cur.fetchone()
+            if not row:
+                return False, f"Tugas '{task_id}' tidak ditemukan."
+
+            db_status = "completed" if new_status == "done" else new_status
+            started_at = row["started_at"]
+            if new_status == "running" and not started_at:
+                started_at = now
+            completed_at = now if new_status in ("done", "completed") else None
+
+            # If moving out of running, release locks
+            claim_lock = None if new_status != "running" else None
+            worker_pid = None if new_status != "running" else None
+
+            block_kind = kind if new_status == "blocked" else None
+
+            con.execute("""
+                UPDATE tasks SET
+                    status = ?,
+                    started_at = ?,
+                    completed_at = ?,
+                    claim_lock = CASE WHEN ? = 'running' THEN claim_lock ELSE NULL END,
+                    claim_expires = CASE WHEN ? = 'running' THEN claim_expires ELSE NULL END,
+                    worker_pid = CASE WHEN ? = 'running' THEN worker_pid ELSE NULL END,
+                    block_kind = ?
+                WHERE id = ?
+            """, (db_status, started_at, completed_at, new_status, new_status, new_status, block_kind, task_id))
+
+            payload = {"from": row["status"], "to": new_status}
+            if reason:
+                payload["reason"] = reason
+            con.execute("""
+                INSERT INTO task_events (task_id, kind, payload, created_at)
+                VALUES (?, 'status_change', ?, ?)
+            """, (task_id, json.dumps(payload), now))
+        con.close()
+        return True, "Status berhasil diperbarui."
+    except Exception as e:
+        return False, f"Gagal memperbarui status: {e}"
+
+
+def update_kanban_task(
+    task_id: str,
+    title: str = None,
+    body: str = None,
+    assignee: str = None,
+    priority: int = None,
+    model_override: str = None,
+    board: str = ""
+) -> tuple[bool, str]:
+    """Update task fields."""
+    db_path = get_kanban_db_path(board)
+    try:
+        con = ensure_kanban_db(db_path)
+        with con:
+            fields = []
+            vals = []
+            if title is not None:
+                fields.append("title = ?")
+                vals.append(title.strip())
+            if body is not None:
+                fields.append("body = ?")
+                vals.append(body.strip() or None)
+            if assignee is not None:
+                fields.append("assignee = ?")
+                vals.append(assignee.strip().lower() or None)
+            if priority is not None:
+                fields.append("priority = ?")
+                vals.append(int(priority))
+            if model_override is not None:
+                fields.append("model_override = ?")
+                vals.append(model_override.strip() or None)
+
+            if not fields:
+                return True, "Tidak ada perubahan."
+            vals.append(task_id)
+            con.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?", vals)
+        con.close()
+        return True, "Tugas berhasil diperbarui."
+    except Exception as e:
+        return False, f"Gagal memperbarui tugas: {e}"
+
+
+def delete_kanban_task(task_id: str, board: str = "") -> tuple[bool, str]:
+    """Delete a task and its associated links, comments, events, and runs."""
+    db_path = get_kanban_db_path(board)
+    try:
+        con = ensure_kanban_db(db_path)
+        with con:
+            con.execute("DELETE FROM task_links WHERE parent_id = ? OR child_id = ?", (task_id, task_id))
+            con.execute("DELETE FROM task_comments WHERE task_id = ?", (task_id,))
+            con.execute("DELETE FROM task_events WHERE task_id = ?", (task_id,))
+            con.execute("DELETE FROM task_runs WHERE task_id = ?", (task_id,))
+            con.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        con.close()
+        return True, f"Tugas '{task_id}' berhasil dihapus."
+    except Exception as e:
+        return False, f"Gagal menghapus tugas: {e}"
+
+
+def reclaim_kanban_task(task_id: str, board: str = "") -> tuple[bool, str]:
+    """Release active claim lock and reset running task to ready."""
+    db_path = get_kanban_db_path(board)
+    try:
+        con = ensure_kanban_db(db_path)
+        now = int(time.time())
+        with con:
+            con.execute("""
+                UPDATE tasks SET
+                    status = 'ready',
+                    claim_lock = NULL,
+                    claim_expires = NULL,
+                    worker_pid = NULL
+                WHERE id = ?
+            """, (task_id,))
+            con.execute("""
+                INSERT INTO task_events (task_id, kind, payload, created_at)
+                VALUES (?, 'reclaimed', ?, ?)
+            """, (task_id, json.dumps({"by": "web-panel"}), now))
+        con.close()
+        return True, "Tugas berhasil di-reclaim dan dikembalikan ke antrean ready."
+    except Exception as e:
+        return False, f"Gagal reclaim tugas: {e}"
+
+
+def add_kanban_comment(task_id: str, body: str, author: str = "web-panel", board: str = "") -> tuple[bool, str]:
+    """Append a comment to a task."""
+    body = (body or "").strip()
+    if not body:
+        return False, "Komentar tidak boleh kosong."
+    db_path = get_kanban_db_path(board)
+    try:
+        con = ensure_kanban_db(db_path)
+        now = int(time.time())
+        with con:
+            con.execute("""
+                INSERT INTO task_comments (task_id, author, body, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (task_id, (author or "web-panel").strip(), body, now))
+            con.execute("""
+                INSERT INTO task_events (task_id, kind, payload, created_at)
+                VALUES (?, 'commented', ?, ?)
+            """, (task_id, json.dumps({"author": author}), now))
+        con.close()
+        return True, "Komentar berhasil ditambahkan."
+    except Exception as e:
+        return False, f"Gagal menambahkan komentar: {e}"
+
+
+def get_kanban_config() -> dict:
+    """Read kanban configuration block from ~/.hermes/config.yaml."""
+    cfg_path = Path(CONFIG_PATH)
+    default_cfg = {
+        "dispatch_in_gateway": True,
+        "notify_in_gateway": True,
+        "auto_subscribe_on_create": True,
+        "review_dispatch": True,
+        "auto_decompose": True,
+        "dispatch_interval_seconds": 60,
+        "failure_limit": 2,
+        "max_in_progress": None,
+        "orchestrator_profile": "",
+        "default_assignee": ""
+    }
+    try:
+        if cfg_path.is_file():
+            with open(cfg_path, encoding="utf-8") as f:
+                c = yaml.safe_load(f) or {}
+            if isinstance(c, dict) and isinstance(c.get("kanban"), dict):
+                merged = dict(default_cfg)
+                merged.update(c["kanban"])
+                return merged
+    except Exception:
+        pass
+    return default_cfg
+
+
+def save_kanban_config(updates: dict) -> tuple[bool, str]:
+    """Save kanban configuration block to ~/.hermes/config.yaml atomically with mode 0600."""
+    cfg_path = Path(CONFIG_PATH)
+    try:
+        cfg = {}
+        if cfg_path.is_file():
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+        if not isinstance(cfg, dict):
+            cfg = {}
+
+        kb = cfg.setdefault("kanban", {})
+        if not isinstance(kb, dict):
+            kb = cfg["kanban"] = {}
+
+        for k, v in updates.items():
+            if v is None and k in kb:
+                del kb[k]
+            else:
+                kb[k] = v
+
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(cfg_path.parent), prefix=".config.yaml.tmp.")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, str(cfg_path))
+        return True, "Konfigurasi Kanban berhasil disimpan."
+    except Exception as e:
+        return False, f"Gagal menyimpan konfigurasi Kanban: {e}"
+
+
+def render_kanban_board_options(active_slug: str = "") -> str:
+    """Render <option> tags for available boards."""
+    boards = list_kanban_boards()
+    cur = active_slug or get_current_kanban_board()
+    opts = []
+    for b in boards:
+        sel = " selected" if b["slug"] == cur else ""
+        cnt = b.get("task_count", 0)
+        opts.append(f'<option value="{html.escape(b["slug"])}"{sel}>{html.escape(b["name"])} ({cnt})</option>')
+    return "".join(opts)
+
+
+def render_kanban_dispatcher_badge() -> str:
+    """Render badge indicating whether the Kanban dispatcher is active in the gateway."""
+    kb_cfg = get_kanban_config()
+    disp_on = kb_cfg.get("dispatch_in_gateway", True)
+    gw_active = service_active("hermes-gateway", user=True)
+
+    if not disp_on:
+        return '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.7rem">Dispatcher: Manual (Off)</span>'
+    if gw_active:
+        return '<span class="live-badge badge-up" style="font-size:0.7rem;padding:0.18rem 0.5rem">Dispatcher: Berjalan (Gateway PID)</span>'
+    return '<span class="badge" style="background:rgba(234,179,8,0.15);color:#facc15;font-size:0.7rem">Dispatcher: Menunggu Gateway Aktif</span>'
+
+
+def render_kanban_board_block(board_slug: str = "") -> str:
+    """Render the Kanban columns and task cards."""
+    slug = board_slug or get_current_kanban_board()
+    tasks = list_kanban_tasks(board=slug)
+
+    # Columns to render
+    cols_def = [
+        ("triage", "Triage", "rgba(168,85,247,0.15)", "#c084fc"),
+        ("todo", "To Do", "rgba(255,255,255,0.06)", "var(--text-muted)"),
+        ("ready", "Ready", "rgba(59,130,246,0.15)", "var(--accent)"),
+        ("running", "Running", "rgba(16,185,129,0.15)", "var(--success)"),
+        ("blocked", "Blocked", "rgba(239,68,68,0.15)", "var(--danger)"),
+        ("review", "Review", "rgba(245,158,11,0.15)", "#fbbf24"),
+        ("done", "Done", "rgba(16,185,129,0.22)", "var(--success)"),
+    ]
+
+    col_tasks: dict[str, list] = {c[0]: [] for c in cols_def}
+    for t in tasks:
+        st = t.get("status", "todo")
+        if st in col_tasks:
+            col_tasks[st].append(t)
+        elif st in ("completed", "done"):
+            col_tasks["done"].append(t)
+        elif st == "triage":
+            col_tasks["triage"].append(t)
+        else:
+            col_tasks["todo"].append(t)
+
+    col_htmls = []
+    for col_id, col_title, bg_color, text_color in cols_def:
+        items = col_tasks.get(col_id, [])
+        card_items = []
+        for t in items:
+            tid = t.get("id", "")
+            title = t.get("title", "")
+            assignee = t.get("assignee") or ""
+            pri = t.get("priority", 0)
+            pri_badge = ""
+            if pri >= 2:
+                pri_badge = '<span class="badge" style="background:rgba(239,68,68,0.18);color:var(--danger);font-size:0.62rem">Urgent</span>'
+            elif pri == 1:
+                pri_badge = '<span class="badge" style="background:rgba(245,158,11,0.15);color:#fbbf24;font-size:0.62rem">High</span>'
+
+            ass_badge = f'<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text);font-size:0.62rem;font-family:var(--font-mono)">@{html.escape(assignee)}</span>' if assignee else ''
+            running_badge = '<span class="live-badge badge-up" style="font-size:0.6rem;padding:0.1rem 0.35rem">RUNNING</span>' if col_id == "running" else ''
+
+            card_html = (
+                f'<div class="kanban-card" onclick="openViewTaskModal(\'{html.escape(tid)}\')">'
+                f'  <div style="display:flex;justify-content:space-between;align-items:center">'
+                f'    <span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--accent);font-weight:600">{html.escape(tid)}</span>'
+                f'    <div style="display:flex;gap:0.3rem;align-items:center">{pri_badge}{running_badge}</div>'
+                f'  </div>'
+                f'  <div style="font-size:0.82rem;font-weight:500;color:var(--text);line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'
+                f'    {html.escape(title)}'
+                f'  </div>'
+                f'  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.2rem">'
+                f'    {ass_badge}'
+                f'    <span style="font-size:0.65rem;color:var(--text-dim)">detail &rarr;</span>'
+                f'  </div>'
+                f'</div>'
+            )
+            card_items.append(card_html)
+
+        cards_body = "".join(card_items) if card_items else '<div style="font-size:0.72rem;color:var(--text-dim);font-style:italic;padding:0.5rem;text-align:center">Kosong</div>'
+
+        col_markup = (
+            f'<div class="kanban-column">'
+            f'  <div class="kanban-col-header">'
+            f'    <div style="display:flex;align-items:center;gap:0.45rem">'
+            f'      <span style="font-size:0.82rem;font-weight:600;color:var(--text)">{col_title}</span>'
+            f'      <span class="badge" style="background:{bg_color};color:{text_color};font-size:0.68rem;padding:0.1rem 0.4rem">{len(items)}</span>'
+            f'    </div>'
+            f'  </div>'
+            f'  <div class="kanban-col-cards">{cards_body}</div>'
+            f'</div>'
+        )
+        col_htmls.append(col_markup)
+
+    return f'<div class="kanban-board">{"".join(col_htmls)}</div>'
 
 
 def restart_bot() -> None:
@@ -8328,13 +9586,16 @@ def build_fragments() -> dict:
         "ram_pct": round(ram_pct, 1),
         "cell_load": cell_load,
         "profiles_block": render_profiles_block(),
+        "kanban_board_options": render_kanban_board_options(),
+        "kanban_dispatcher_badge": render_kanban_dispatcher_badge(),
+        "kanban_board_block": render_kanban_board_block(),
         "updating": updating,
         "dash_active": dash_active,
         "gw_active": gw_active,
     }
 
 
-VALID_TABS = {"status", "performance", "control", "auxiliary", "profiles"}
+VALID_TABS = {"status", "performance", "control", "auxiliary", "profiles", "kanban"}
 
 
 def _to_bool(val, default: bool = False) -> bool:
@@ -8442,6 +9703,30 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         countdown_block = (
             f'<div class="hint">{ICON_CHECK}Model profil berhasil diperbarui!</div>'
         )
+    elif just == "kanban-task-created":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Tugas Kanban baru berhasil dibuat dan masuk antrean!</div>'
+        )
+    elif just == "kanban-board-created":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Papan Kanban baru berhasil dibuat!</div>'
+        )
+    elif just == "kanban-status-updated":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Status tugas Kanban berhasil diperbarui!</div>'
+        )
+    elif just == "kanban-reclaimed":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Worker lock tugas berhasil di-reclaim ke antrean ready!</div>'
+        )
+    elif just == "kanban-deleted":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Tugas Kanban berhasil dihapus.</div>'
+        )
+    elif just == "kanban-config-saved":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Konfigurasi Kanban Hermes berhasil disimpan!</div>'
+        )
     else:
         countdown_block = ""
 
@@ -8476,6 +9761,9 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         aux_tasks_block=frag["aux_tasks_block"],
         backup_models_block=frag["backup_models_block"],
         profiles_block=frag.get("profiles_block", ""),
+        kanban_board_options=frag.get("kanban_board_options", ""),
+        kanban_dispatcher_badge=frag.get("kanban_dispatcher_badge", ""),
+        kanban_board_block=frag.get("kanban_board_block", ""),
         processes_table=frag["processes_table"],
         cpu_pct=frag["cpu_pct"],
         ram_pct=frag["ram_pct"],
@@ -8512,6 +9800,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         icon_bot=ICON_BOT,
         icon_router=ICON_ROUTER,
         icon_users=ICON_USERS,
+        icon_kanban=ICON_KANBAN,
         icon_hermes=ICON_HERMES,
         icon_activity=ICON_ACTIVITY,
     )
@@ -9139,6 +10428,31 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": True, "profile": prof, "content": get_agent_profile_soul(prof)})
             return
 
+        if parsed.path == "/api/kanban/boards":
+            self._send_json({"ok": True, "active": get_current_kanban_board(), "boards": list_kanban_boards()})
+            return
+
+        if parsed.path == "/api/kanban/tasks":
+            b = (qs.get("board") or [""])[0]
+            st = (qs.get("status") or [None])[0]
+            ass = (qs.get("assignee") or [None])[0]
+            self._send_json({"ok": True, "board": b or get_current_kanban_board(), "tasks": list_kanban_tasks(board=b, status=st, assignee=ass)})
+            return
+
+        if parsed.path == "/api/kanban/task":
+            tid = (qs.get("id") or [""])[0]
+            b = (qs.get("board") or [""])[0]
+            t = get_kanban_task(tid, board=b)
+            if not t:
+                self._send_json({"ok": False, "error": "Tugas tidak ditemukan"}, code=404)
+                return
+            self._send_json({"ok": True, "task": t})
+            return
+
+        if parsed.path == "/api/kanban/config":
+            self._send_json({"ok": True, "config": get_kanban_config()})
+            return
+
         if parsed.path == "/events":
             # SSE endpoint: stream updates to client
             self.send_response(200)
@@ -9352,6 +10666,84 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(f"<h1>400 — {html.escape(msg)}</h1>", 400)
                 return
             self._redirect_to_status(just="profile-model", tab="profiles")
+            return
+
+        if parsed.path == "/api/kanban/boards/switch":
+            board = str(json_data.get("board") or (qs.get("board") or ["default"])[0]).strip().lower()
+            ok = set_current_kanban_board(board)
+            self._send_json({"ok": ok, "board": get_current_kanban_board()}, code=200 if ok else 400)
+            return
+
+        if parsed.path == "/api/kanban/boards/create":
+            slug = str(json_data.get("slug") or (qs.get("slug") or [""])[0]).strip().lower()
+            name = str(json_data.get("name") or (qs.get("name") or [""])[0]).strip()
+            ok, msg = create_kanban_board(slug, name=name)
+            self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
+            return
+
+        if parsed.path == "/api/kanban/task/create":
+            title = str(json_data.get("title") or (qs.get("title") or [""])[0]).strip()
+            body = str(json_data.get("body") or (qs.get("body") or [""])[0]).strip()
+            assignee = str(json_data.get("assignee") or (qs.get("assignee") or [""])[0]).strip()
+            priority = int(json_data.get("priority") if "priority" in json_data else (qs.get("priority") or [0])[0])
+            status = str(json_data.get("status") or (qs.get("status") or ["todo"])[0]).strip()
+            board = str(json_data.get("board") or (qs.get("board") or [""])[0]).strip()
+            model = str(json_data.get("model_override") or (qs.get("model_override") or [""])[0]).strip()
+            ok, msg, tid = create_kanban_task(title, body=body, assignee=assignee, priority=priority, status=status, board=board, model_override=model)
+            self._send_json({"ok": ok, "message": msg, "task_id": tid, "error": "" if ok else msg}, code=200 if ok else 400)
+            return
+
+        if parsed.path == "/api/kanban/task/status":
+            tid = str(json_data.get("task_id") or (qs.get("task_id") or [""])[0]).strip()
+            status = str(json_data.get("status") or (qs.get("status") or [""])[0]).strip()
+            board = str(json_data.get("board") or (qs.get("board") or [""])[0]).strip()
+            reason = str(json_data.get("reason") or (qs.get("reason") or [""])[0]).strip()
+            kind = str(json_data.get("kind") or (qs.get("kind") or [""])[0]).strip()
+            ok, msg = update_kanban_task_status(tid, status, board=board, reason=reason, kind=kind)
+            self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
+            return
+
+        if parsed.path == "/api/kanban/task/update":
+            tid = str(json_data.get("task_id") or (qs.get("task_id") or [""])[0]).strip()
+            title = json_data.get("title")
+            body = json_data.get("body")
+            assignee = json_data.get("assignee")
+            priority = json_data.get("priority")
+            model = json_data.get("model_override")
+            board = str(json_data.get("board") or (qs.get("board") or [""])[0]).strip()
+            ok, msg = update_kanban_task(tid, title=title, body=body, assignee=assignee, priority=priority, model_override=model, board=board)
+            self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
+            return
+
+        if parsed.path == "/api/kanban/task/delete":
+            tid = str(json_data.get("task_id") or (qs.get("task_id") or [""])[0]).strip()
+            board = str(json_data.get("board") or (qs.get("board") or [""])[0]).strip()
+            ok, msg = delete_kanban_task(tid, board=board)
+            self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
+            return
+
+        if parsed.path == "/api/kanban/task/reclaim":
+            tid = str(json_data.get("task_id") or (qs.get("task_id") or [""])[0]).strip()
+            board = str(json_data.get("board") or (qs.get("board") or [""])[0]).strip()
+            ok, msg = reclaim_kanban_task(tid, board=board)
+            self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
+            return
+
+        if parsed.path == "/api/kanban/task/comment":
+            tid = str(json_data.get("task_id") or (qs.get("task_id") or [""])[0]).strip()
+            body = str(json_data.get("body") or (qs.get("body") or [""])[0]).strip()
+            author = str(json_data.get("author") or (qs.get("author") or ["web-panel"])[0]).strip()
+            board = str(json_data.get("board") or (qs.get("board") or [""])[0]).strip()
+            ok, msg = add_kanban_comment(tid, body, author=author, board=board)
+            self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
+            return
+
+        if parsed.path == "/api/kanban/config":
+            payload = json_data if isinstance(json_data, dict) and json_data else {
+                k: (qs.get(k) or [None])[0] for k in qs
+            }
+            ok, msg = save_kanban_config(payload)
+            self._send_json({"ok": ok, "message": msg, "config": get_kanban_config(), "error": "" if ok else msg}, code=200 if ok else 400)
             return
         """Execute an already-authenticated action route, then redirect."""
         global _last_action_at, _last_model_switch_at, _last_aux_model_at

@@ -1062,6 +1062,48 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertTrue(json.loads(body).get("ok"))
 
+    def test_70_kanban_http_api_and_auth(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        # 1. GET /api/kanban/tasks without auth -> 401
+        code, _, _ = self._request("/api/kanban/tasks", method="GET")
+        self.assertEqual(code, 401)
+
+        # 2. GET /api/kanban/tasks with auth -> 200
+        code, _, body = self._request("/api/kanban/tasks", method="GET", headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        data = json.loads(body)
+        self.assertTrue(data.get("ok"))
+        self.assertIn("tasks", data)
+
+        # 3. POST /api/kanban/task/create without auth -> 302/403
+        code, _, _ = self._request("/api/kanban/task/create", method="POST",
+                                   headers={"Accept": "application/json"}, data=b"title=Test")
+        self.assertEqual(code, 403)
+
+        # 4. POST /api/kanban/task/create with auth -> 200
+        create_payload = json.dumps({"title": "Live API Task", "body": "Testing HTTP endpoint"}).encode("utf-8")
+        code, _, body = self._request("/api/kanban/task/create", method="POST",
+                                      headers={"Cookie": cookie, "Content-Type": "application/json"},
+                                      data=create_payload)
+        self.assertEqual(code, 200)
+        res = json.loads(body)
+        self.assertTrue(res.get("ok"))
+        task_id = res.get("task_id")
+        self.assertTrue(task_id.startswith("t_"))
+
+        # 5. POST /api/kanban/task/status with auth -> 200
+        status_payload = json.dumps({"task_id": task_id, "status": "ready"}).encode("utf-8")
+        code, _, body = self._request("/api/kanban/task/status", method="POST",
+                                      headers={"Cookie": cookie, "Content-Type": "application/json"},
+                                      data=status_payload)
+        self.assertEqual(code, 200)
+        self.assertTrue(json.loads(body).get("ok"))
+
+        # 6. GET /api/kanban/config with auth -> 200
+        code, _, body = self._request("/api/kanban/config", method="GET", headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        self.assertTrue(json.loads(body).get("ok"))
+
 
 class TestGatewayConfigSync(unittest.TestCase):
     """Panel edits must land where Hermes' gateway loader actually reads them.
@@ -1771,6 +1813,170 @@ class TestAgentProfiles(unittest.TestCase):
         self.assertIn("profiles", panel.VALID_TABS)
         self.assertIn('id="tab-profiles"', panel.PAGE)
         self.assertIn("switchTab('profiles'", panel.PAGE)
+
+
+class TestKanbanBoard(unittest.TestCase):
+    """Test Kanban board persistence, multi-board isolation, task lifecycle, and config sync."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        self.tmpdir = tempfile.mkdtemp(prefix="panel-kanban-")
+        self.root = Path(self.tmpdir)
+        self.cfg_path = str(self.root / "config.yaml")
+
+        self.root.mkdir(parents=True, exist_ok=True)
+        # Seed basic config.yaml
+        with open(self.cfg_path, "w", encoding="utf-8") as f:
+            f.write("model:\n  default: ag-gemini-3.8-flash-high\nkanban:\n  dispatch_in_gateway: true\n  failure_limit: 2\n")
+        os.chmod(self.cfg_path, 0o600)
+
+        patcher_cfg = mock.patch.object(panel, "CONFIG_PATH", self.cfg_path)
+        patcher_cfg.start()
+        self.addCleanup(patcher_cfg.stop)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_01_kanban_db_initialization(self):
+        db_path = panel.get_kanban_db_path()
+        self.assertEqual(db_path, self.root / "kanban.db")
+        con = panel.ensure_kanban_db(db_path)
+        cur = con.cursor()
+        tables = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        for expected in ("tasks", "task_links", "task_comments", "task_events", "task_runs"):
+            self.assertIn(expected, tables)
+        con.close()
+
+    def test_02_create_and_list_tasks(self):
+        ok, msg, task_id = panel.create_kanban_task(
+            title="Fix API Rate Limit",
+            body="Implement exponential backoff",
+            assignee="default",
+            priority=2,
+            status="todo"
+        )
+        self.assertTrue(ok, msg)
+        self.assertTrue(task_id.startswith("t_"))
+
+        tasks = panel.list_kanban_tasks()
+        self.assertEqual(len(tasks), 1)
+        t = tasks[0]
+        self.assertEqual(t["id"], task_id)
+        self.assertEqual(t["title"], "Fix API Rate Limit")
+        self.assertEqual(t["assignee"], "default")
+        self.assertEqual(t["priority"], 2)
+        self.assertEqual(t["status"], "todo")
+
+    def test_03_update_task_status_and_lifecycle(self):
+        _, _, task_id = panel.create_kanban_task(title="Deploy Worker", status="todo")
+
+        # todo -> ready
+        ok, msg = panel.update_kanban_task_status(task_id, "ready")
+        self.assertTrue(ok, msg)
+        t = panel.get_kanban_task(task_id)
+        self.assertEqual(t["status"], "ready")
+
+        # ready -> running
+        ok, msg = panel.update_kanban_task_status(task_id, "running")
+        self.assertTrue(ok, msg)
+        t = panel.get_kanban_task(task_id)
+        self.assertEqual(t["status"], "running")
+        self.assertIsNotNone(t["started_at"])
+
+        # running -> blocked
+        ok, msg = panel.update_kanban_task_status(task_id, "blocked", reason="Need API key", kind="needs_input")
+        self.assertTrue(ok, msg)
+        t = panel.get_kanban_task(task_id)
+        self.assertEqual(t["status"], "blocked")
+        self.assertEqual(t["block_kind"], "needs_input")
+
+        # blocked -> done
+        ok, msg = panel.update_kanban_task_status(task_id, "done")
+        self.assertTrue(ok, msg)
+        t = panel.get_kanban_task(task_id)
+        self.assertEqual(t["status"], "done")
+        self.assertIsNotNone(t["completed_at"])
+
+    def test_04_reclaim_running_task(self):
+        _, _, task_id = panel.create_kanban_task(title="Long Job", status="running")
+        db_path = panel.get_kanban_db_path()
+        con = panel.ensure_kanban_db(db_path)
+        with con:
+            con.execute("UPDATE tasks SET claim_lock = 'lock-123', worker_pid = 99999 WHERE id = ?", (task_id,))
+        con.close()
+
+        ok, msg = panel.reclaim_kanban_task(task_id)
+        self.assertTrue(ok, msg)
+        t = panel.get_kanban_task(task_id)
+        self.assertEqual(t["status"], "ready")
+        self.assertIsNone(t["claim_lock"])
+        self.assertIsNone(t["worker_pid"])
+
+    def test_05_task_comments_and_events(self):
+        _, _, task_id = panel.create_kanban_task(title="Comment Test", status="todo")
+        ok, msg = panel.add_kanban_comment(task_id, "Please review this step", author="vito")
+        self.assertTrue(ok, msg)
+
+        t = panel.get_kanban_task(task_id)
+        self.assertIn("comments", t)
+        self.assertEqual(len(t["comments"]), 1)
+        self.assertEqual(t["comments"][0]["body"], "Please review this step")
+        self.assertEqual(t["comments"][0]["author"], "vito")
+
+        self.assertIn("events", t)
+        self.assertTrue(len(t["events"]) >= 1)
+
+    def test_06_delete_task(self):
+        _, _, task_id = panel.create_kanban_task(title="Delete Me")
+        panel.add_kanban_comment(task_id, "temporary note")
+        ok, msg = panel.delete_kanban_task(task_id)
+        self.assertTrue(ok, msg)
+        self.assertIsNone(panel.get_kanban_task(task_id))
+
+    def test_07_boards_management(self):
+        boards = panel.list_kanban_boards()
+        self.assertTrue(any(b["slug"] == "default" for b in boards))
+
+        ok, msg = panel.create_kanban_board("project-x", name="Project X")
+        self.assertTrue(ok, msg)
+
+        boards_after = panel.list_kanban_boards()
+        self.assertTrue(any(b["slug"] == "project-x" for b in boards_after))
+
+        ok_sw = panel.set_current_kanban_board("project-x")
+        self.assertTrue(ok_sw)
+        self.assertEqual(panel.get_current_kanban_board(), "project-x")
+
+        # Task in project-x does not leak into default
+        _, _, tid_x = panel.create_kanban_task(title="Task in X", board="project-x")
+        tasks_x = panel.list_kanban_tasks(board="project-x")
+        tasks_def = panel.list_kanban_tasks(board="default")
+        self.assertEqual(len(tasks_x), 1)
+        self.assertEqual(len(tasks_def), 0)
+
+    def test_08_kanban_config_sync(self):
+        cfg = panel.get_kanban_config()
+        self.assertTrue(cfg.get("dispatch_in_gateway"))
+        self.assertEqual(cfg.get("failure_limit"), 2)
+
+        ok, msg = panel.save_kanban_config({"dispatch_in_gateway": False, "failure_limit": 5, "dispatch_interval_seconds": 30})
+        self.assertTrue(ok, msg)
+
+        cfg2 = panel.get_kanban_config()
+        self.assertFalse(cfg2.get("dispatch_in_gateway"))
+        self.assertEqual(cfg2.get("failure_limit"), 5)
+        self.assertEqual(cfg2.get("dispatch_interval_seconds"), 30)
+
+        # File permissions check (0600)
+        mode = os.stat(self.cfg_path).st_mode & 0o777
+        self.assertEqual(mode, 0o600)
+
+    def test_09_ui_tab_presence(self):
+        self.assertIn("kanban", panel.VALID_TABS)
+        self.assertIn('id="tab-kanban"', panel.PAGE)
+        self.assertIn("switchTab('kanban'", panel.PAGE)
 
 
 if __name__ == "__main__":
