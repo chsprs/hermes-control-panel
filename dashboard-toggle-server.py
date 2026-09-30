@@ -600,6 +600,11 @@ display:none;align-items:center;justify-content:center;z-index:300;padding:1.5re
 .kanban-trash-dropzone:hover{{background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.55)}}
 .kanban-trash-dropzone.active-drag{{border-color:rgba(239,68,68,0.7);background:rgba(239,68,68,0.10);box-shadow:0 0 12px rgba(239,68,68,0.25)}}
 .kanban-trash-dropzone.drag-over{{background:rgba(239,68,68,0.25) !important;border:2px dashed #ef4444 !important;color:#fff !important;box-shadow:0 0 20px rgba(239,68,68,0.5);transform:scale(1.01)}}
+@keyframes kb-pulse{{0%,100%{{opacity:1}}50%{{opacity:0.3}}}}
+.kb-dot{{width:6px;height:6px;border-radius:50%;background:currentColor;animation:kb-pulse 1.2s ease-in-out infinite;flex:none}}
+.kb-badge-live{{display:inline-flex;align-items:center;gap:.3rem}}
+.kb-badge-idle{{display:inline-flex;align-items:center;gap:.3rem;background:rgba(245,158,11,0.15)!important;color:#fbbf24!important;border:1px solid rgba(245,158,11,0.35)!important;padding:.15rem .45rem;border-radius:4px;font-size:.62rem;font-weight:600}}
+.kb-badge-stale{{display:inline-flex;align-items:center;gap:.3rem;background:rgba(239,68,68,0.15)!important;color:#fca5a5!important;border:1px solid rgba(239,68,68,0.4)!important;padding:.15rem .45rem;border-radius:4px;font-size:.62rem;font-weight:600}}
 .confirm-box{{background:rgba(22,27,38,0.95);border:1px solid var(--border-hover);
 border-radius:var(--radius-xl);padding:1.6rem 1.5rem;max-width:360px;width:100%;
 box-shadow:0 12px 48px rgba(0,0,0,0.7)}}
@@ -2555,9 +2560,20 @@ function renderKanbanCards(tasks) {{
         }}
         if(col.id === 'running') {{
           var rBadge = document.createElement('span');
-          rBadge.className = 'live-badge badge-up';
+          var liveState = t.live_state || '';
+          var liveDetail = t.live_detail || '';
+          if(liveState === 'idle') {{
+            rBadge.className = 'kb-badge-idle';
+            rBadge.innerHTML = '<span class="kb-dot"></span>IDLE';
+          }} else if(liveState === 'stale') {{
+            rBadge.className = 'kb-badge-stale';
+            rBadge.innerHTML = '<span class="kb-dot"></span>MACET';
+          }} else {{
+            rBadge.className = 'live-badge badge-up kb-badge-live';
+            rBadge.innerHTML = '<span class="kb-dot"></span>JALAN';
+          }}
           rBadge.style.cssText = 'font-size:0.6rem;padding:0.1rem 0.35rem';
-          rBadge.textContent = 'RUNNING';
+          if(liveDetail) rBadge.title = liveDetail;
           badges.appendChild(rBadge);
         }}
 
@@ -2591,6 +2607,16 @@ function renderKanbanCards(tasks) {{
         card.appendChild(header);
         card.appendChild(titleDiv);
         card.appendChild(footer);
+
+        // Liveness line: kolom running tampilkan umur heartbeat (server-hitung).
+        if(col.id === 'running' && t.live_detail) {{
+          var liveDiv = document.createElement('div');
+          liveDiv.className = 'kb-live-line';
+          liveDiv.style.cssText = 'font-size:0.62rem;color:var(--text-dim);font-family:var(--font-mono)';
+          liveDiv.textContent = t.live_detail;
+          liveDiv.title = t.live_detail;
+          card.appendChild(liveDiv);
+        }}
 
         colContainer.appendChild(card);
       }});
@@ -2801,7 +2827,14 @@ function openViewTaskModal(taskId){{
       if(bBadge){{
         bBadge.className = 'badge';
         bBadge.textContent = st.toUpperCase();
-        if(st === 'running') bBadge.className = 'live-badge badge-up';
+        if(st === 'running') {{
+          var ls = (t.live_state || '').toLowerCase();
+          var dot = '<span class="kb-dot"></span>';
+          if(ls === 'idle') {{ bBadge.className = 'kb-badge-idle'; bBadge.innerHTML = dot + 'IDLE'; }}
+          else if(ls === 'stale') {{ bBadge.className = 'kb-badge-stale'; bBadge.innerHTML = dot + 'MACET'; }}
+          else {{ bBadge.className = 'live-badge badge-up kb-badge-live'; bBadge.innerHTML = dot + 'JALAN'; }}
+          if(t.live_detail) bBadge.title = t.live_detail;
+        }}
         else if(st === 'done') bBadge.style.background = 'rgba(16,185,129,0.18)';
         else if(st === 'blocked') bBadge.className = 'live-badge badge-down';
       }}
@@ -7995,6 +8028,94 @@ def create_kanban_board(slug: str, name: str = "") -> tuple[bool, str]:
         return False, f"Gagal membuat papan: {e}"
 
 
+def _fmt_age_s(seconds: int | None) -> str:
+    """Format umur detik jadi label Indonesia pendek (dtk/mnt/jam)."""
+    if seconds is None or seconds < 0:
+        return "-"
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds} dtk"
+    if seconds < 3600:
+        return f"{seconds // 60} mnt"
+    h, m = seconds // 3600, (seconds % 3600) // 60
+    return f"{h} jam {m} mnt" if m else f"{h} jam"
+
+
+def kanban_task_liveness(t: dict, now: int | None = None) -> tuple[str, str]:
+    """Nilai liveness kartu running dari heartbeat + PID worker.
+
+    live = heartbeat <=5 mnt (atau baru start <=5 mnt tanpa heartbeat);
+    idle = sinyal umur 5-60 mnt (kemungkinan LLM call panjang, klaim masih
+    dipegang); stale = >60 mnt tanpa sinyal atau PID worker mati.
+    Ambang 60 mnt selaras _STALE_HEARTBEAT_GAP_SECONDS dispatcher
+    (auto-heartbeat worker normal tiap 60 dtk).
+    Return (state, detail): state salah satu live/idle/stale/"".
+    """
+    try:
+        now = int(now if now is not None else time.time())
+    except Exception:
+        return "", ""
+    if (t.get("status") or "") != "running":
+        return "", ""
+    hb = t.get("last_heartbeat_at")
+    started = t.get("started_at")
+    pid = t.get("worker_pid")
+    try:
+        hb_age = (now - int(hb)) if hb is not None else None
+    except Exception:
+        hb_age = None
+    try:
+        elapsed = (now - int(started)) if started else None
+    except Exception:
+        elapsed = None
+    pid_alive: bool | None = None
+    if pid:
+        try:
+            os.kill(int(pid), 0)
+            pid_alive = True
+        except Exception:
+            pid_alive = False
+    if pid_alive is False:
+        return ("stale", f"PID {pid} mati — klaim gantung, reclaim untuk jalan lagi")
+    if hb_age is not None and hb_age <= 300:
+        return ("live", f"heartbeat {_fmt_age_s(hb_age)} lalu" + (f", PID {pid}" if pid else ""))
+    if hb_age is None and elapsed is not None and elapsed <= 300:
+        return ("live", f"baru mulai {_fmt_age_s(elapsed)} lalu" + (f", PID {pid}" if pid else ""))
+    if hb_age is None:
+        if elapsed is None or elapsed <= 3600:
+            return ("idle", "menunggu sinyal pertama (worker baru di-spawn)")
+        return ("stale", f"tanpa heartbeat {_fmt_age_s(elapsed)} — macet, reclaim")
+    if hb_age <= 3600:
+        return ("idle", f"tanpa sinyal {_fmt_age_s(hb_age)} (mungkin LLM call panjang)" + (f", PID {pid}" if pid else ""))
+    return ("stale", f"tanpa sinyal {_fmt_age_s(hb_age)} (>1 jam) — macet, reclaim")
+
+
+def _enrich_kanban_liveness(t: dict, now: int | None = None) -> dict:
+    """Tempel live_state/live_detail/hb_age_s/pid_alive ke dict task (additive)."""
+    try:
+        now = int(now if now is not None else time.time())
+    except Exception:
+        return t
+    try:
+        hb = t.get("last_heartbeat_at")
+        t["hb_age_s"] = (now - int(hb)) if hb is not None else None
+    except Exception:
+        t["hb_age_s"] = None
+    pid = t.get("worker_pid")
+    if pid:
+        try:
+            os.kill(int(pid), 0)
+            t["pid_alive"] = True
+        except Exception:
+            t["pid_alive"] = False
+    else:
+        t["pid_alive"] = None
+    st, detail = kanban_task_liveness(t, now=now)
+    t["live_state"] = st
+    t["live_detail"] = detail
+    return t
+
+
 def list_kanban_tasks(board: str = "", status: str = None, assignee: str = None) -> list[dict]:
     """List tasks on the specified board."""
     db_path = get_kanban_db_path(board)
@@ -8023,8 +8144,10 @@ def list_kanban_tasks(board: str = "", status: str = None, assignee: str = None)
         rows = con.execute(query, params).fetchall()
 
         tasks = []
+        now = int(time.time())
         for r in rows:
             d = dict(r)
+            _enrich_kanban_liveness(d, now=now)
             tasks.append(d)
         return tasks
     except Exception:
@@ -8412,7 +8535,18 @@ def render_kanban_board_block(board_slug: str = "") -> str:
                 pri_badge = '<span class="badge" style="background:rgba(245,158,11,0.15);color:#fbbf24;font-size:0.62rem">High</span>'
 
             ass_badge = f'<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text);font-size:0.62rem;font-family:var(--font-mono)">@{html.escape(assignee)}</span>' if assignee else ''
-            running_badge = '<span class="live-badge badge-up" style="font-size:0.6rem;padding:0.1rem 0.35rem">RUNNING</span>' if col_id == "running" else ''
+            _enrich_kanban_liveness(t)
+            live_state = t.get("live_state", "")
+            live_detail = html.escape(t.get("live_detail", ""))
+            if col_id == "running":
+                if live_state == "live":
+                    running_badge = f'<span class="live-badge badge-up kb-badge-live" style="font-size:0.6rem;padding:0.1rem 0.35rem" title="{live_detail}"><span class="kb-dot"></span>JALAN</span>'
+                elif live_state == "idle":
+                    running_badge = f'<span class="kb-badge-idle" title="{live_detail}"><span class="kb-dot"></span>IDLE</span>'
+                else:
+                    running_badge = f'<span class="kb-badge-stale" title="{live_detail}"><span class="kb-dot"></span>MACET</span>'
+            else:
+                running_badge = ''
 
             card_html = (
                 f'<div class="kanban-card" id="card-{html.escape(tid)}" data-task-id="{html.escape(tid)}" data-status="{col_id}" '
@@ -8433,6 +8567,7 @@ def render_kanban_board_block(board_slug: str = "") -> str:
                 f'    {ass_badge}'
                 f'    <span style="font-size:0.65rem;color:var(--text-dim)">detail &rarr;</span>'
                 f'  </div>'
+                + (f'<div class="kb-live-line" style="font-size:0.62rem;color:var(--text-dim);font-family:var(--font-mono)" title="{live_detail}">{live_detail}</div>' if col_id == "running" and live_detail else '') +
                 f'</div>'
             )
             card_items.append(card_html)

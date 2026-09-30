@@ -1980,6 +1980,30 @@ class TestKanbanBoard(unittest.TestCase):
         self.assertIn('id="kanban-trash-dropzone"', panel.PAGE)
         self.assertIn("handleKanbanTrashDrop", panel.PAGE)
 
+    def test_10_kanban_liveness_badge(self):
+        now = 1790796428
+        live_t = {"status": "running", "last_heartbeat_at": now - 20,
+                  "started_at": now - 400, "worker_pid": None}
+        st, det = panel.kanban_task_liveness(live_t, now=now)
+        self.assertEqual(st, "live")
+        idle_t = {"status": "running", "last_heartbeat_at": now - 420,
+                  "started_at": now - 1400, "worker_pid": None}
+        st, _ = panel.kanban_task_liveness(idle_t, now=now)
+        self.assertEqual(st, "idle")
+        stale_t = {"status": "running", "last_heartbeat_at": now - 4400,
+                   "started_at": now - 5400, "worker_pid": None}
+        st, _ = panel.kanban_task_liveness(stale_t, now=now)
+        self.assertEqual(st, "stale")
+        dead_t = {"status": "running", "last_heartbeat_at": now - 10,
+                  "started_at": now - 400, "worker_pid": 99999999}
+        st, _ = panel.kanban_task_liveness(dead_t, now=now)
+        self.assertEqual(st, "stale")
+        todo_st, _ = panel.kanban_task_liveness({"status": "todo"}, now=now)
+        self.assertEqual(todo_st, "")
+        self.assertIn("kb-pulse", panel.PAGE)
+        self.assertIn("kb-badge-stale", panel.PAGE)
+        self.assertIn("_enrich_kanban_liveness", panel.list_kanban_tasks.__code__.co_names)
+
 
 if __name__ == "__main__":
     unittest.main()
