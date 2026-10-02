@@ -1814,6 +1814,28 @@ class TestAgentProfiles(unittest.TestCase):
         self.assertIn('id="tab-profiles"', panel.PAGE)
         self.assertIn("switchTab('profiles'", panel.PAGE)
 
+    def test_10_gateway_profile_badge(self):
+        """Badge gateway per profil: Berjalan/Mati/Tak dilayani dari served_profiles."""
+        served = panel.get_gateway_served_profiles()
+        self.assertIsInstance(served, list)
+        statuses = panel.get_gateway_profile_statuses()
+        names = [p["name"] for p in panel.list_agent_profiles()]
+        for n in names:
+            self.assertIn(n, statuses)
+            self.assertIn("served", statuses[n])
+            self.assertIn("pid_alive", statuses[n])
+        html = panel.render_profiles_block()
+        self.assertIn("Gateway: Berjalan", html)
+        dead = panel.render_gateway_profile_badge(
+            "ghost-profile", {"ghost-profile": {"served": False, "pid": None,
+                                                "pid_alive": None, "state_age_s": None}})
+        self.assertIn("Tak dilayani", dead)
+        stale = panel.render_gateway_profile_badge(
+            "dead-profile", {"dead-profile": {"served": True, "pid": 99999999,
+                                              "pid_alive": False, "state_age_s": 5}})
+        self.assertIn("Gateway: Mati", stale)
+        self.assertIn("profiles_block", panel.SSE_CLIENT_KEYS)
+
 
 class TestKanbanBoard(unittest.TestCase):
     """Test Kanban board persistence, multi-board isolation, task lifecycle, and config sync."""

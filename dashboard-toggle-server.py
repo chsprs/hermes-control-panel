@@ -6179,6 +6179,7 @@ SSE_SCRIPT = """<script>
     // SSE updates only live metrics, process data, and active update logs.
     if(d.processes_table) set('process-table-slot',d.processes_table);
     if(d.gateway_list_block) set('gateway-list-slot', d.gateway_list_block);
+    if(d.profiles_block) set('profiles-slot', d.profiles_block);
     if(d.gw_summary_text) set('gw-summary-badge', d.gw_summary_text);
     if(d.gw_summary_badge_class) {{
       var gwb = document.getElementById('gw-summary-badge');
@@ -7721,6 +7722,96 @@ def set_agent_profile_model(name: str, provider: str, model: str) -> tuple[bool,
         return False, f"Gagal memperbarui model profil: {e}"
 
 
+def _read_gateway_runtime_state() -> dict:
+    """Baca gateway_state.json runtime (served_profiles, platforms, pid)."""
+    try:
+        if not os.path.exists(HERMES_GATEWAY_STATE_PATH):
+            return {}
+        with open(HERMES_GATEWAY_STATE_PATH, encoding="utf-8") as f:
+            st = json.load(f) or {}
+        return st if isinstance(st, dict) else {}
+    except Exception:
+        return {}
+
+
+def get_gateway_served_profiles() -> list[str]:
+    """Daftar profil yang dilayani gateway hidup (dari served_profiles)."""
+    st = _read_gateway_runtime_state()
+    served = st.get("served_profiles")
+    if isinstance(served, list):
+        return [str(s) for s in served if s]
+    return []
+
+
+def get_gateway_profile_statuses() -> dict[str, dict]:
+    """Status gateway per profil: running/served tidaknya + PID + umur state.
+
+    Sumber tunggal: gateway_state.json + cek PID hidup via os.kill(pid, 0).
+    Bukan dari systemd per-profil (unit cuma satu: hermes-gateway).
+    Return {nama: {served, pid_alive, pid, state_age_s}}.
+    """
+    st = _read_gateway_runtime_state()
+    served = set(get_gateway_served_profiles())
+    gw_pid = st.get("pid")
+    pid_alive: bool | None = None
+    if gw_pid:
+        try:
+            os.kill(int(gw_pid), 0)
+            pid_alive = True
+        except Exception:
+            pid_alive = False
+    try:
+        updated = st.get("updated_at") or ""
+        if updated:
+            dt = datetime.fromisoformat(str(updated).replace("Z", "+00:00"))
+            state_age_s = max(0, int((datetime.now(timezone.utc) - dt).total_seconds()))
+        else:
+            state_age_s = None
+    except Exception:
+        state_age_s = None
+    out: dict[str, dict] = {}
+    for p in list_agent_profiles():
+        name = p["name"]
+        out[name] = {
+            "served": name in served,
+            "pid": gw_pid,
+            "pid_alive": pid_alive,
+            "state_age_s": state_age_s,
+        }
+    return out
+
+
+def render_gateway_profile_badge(name: str, statuses: dict[str, dict] | None = None) -> str:
+    """Badge gateway per kartu profil: Berjalan / Berhenti / Tak dilayani."""
+    try:
+        statuses = statuses if statuses is not None else get_gateway_profile_statuses()
+        s = statuses.get(name) or {}
+        served = bool(s.get("served"))
+        pid_alive = s.get("pid_alive")
+        pid = s.get("pid")
+        age = s.get("state_age_s")
+        if served and pid_alive:
+            detail = f"PID {pid}" if pid else "gateway hidup"
+            if age is not None:
+                detail += f" · state {age}s lalu"
+            return (
+                '<span class="live-badge badge-up" style="font-size:0.65rem;padding:0.15rem 0.45rem"'
+                f' title="{html.escape(detail)}"><span class="kb-dot"></span>Gateway: Berjalan</span>'
+            )
+        if served and pid_alive is False:
+            return (
+                '<span class="kb-badge-stale"'
+                f' title="PID {html.escape(str(pid))} mati — gateway perlu restart">'
+                '<span class="kb-dot"></span>Gateway: Mati</span>'
+            )
+        return (
+            '<span class="badge badge-muted" style="font-size:0.65rem"'
+            ' title="Tidak ada di served_profiles gateway">Gateway: Tak dilayani</span>'
+        )
+    except Exception:
+        return ""
+
+
 def render_profiles_block() -> str:
     """Render profile cards and active banner."""
     profiles = list_agent_profiles()
@@ -7739,6 +7830,7 @@ def render_profiles_block() -> str:
     )
 
     cards = []
+    gw_statuses = get_gateway_profile_statuses()
     for p in profiles:
         name = p["name"]
         safe_name = html.escape(name.replace("\\", "\\\\").replace("'", "\\'"), quote=True)
@@ -7750,6 +7842,7 @@ def render_profiles_block() -> str:
         skills_cnt = p.get("skill_count", 0)
         has_env = p.get("has_env", False)
         has_soul = p.get("has_soul", False)
+        gw_badge = render_gateway_profile_badge(name, gw_statuses)
 
         act_badge = '<span class="live-badge badge-up" style="font-size:0.65rem;padding:0.15rem 0.45rem">AKTIF</span>' if is_act else ''
         type_badge = '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">Default</span>' if is_def else '<span class="badge" style="background:rgba(59,130,246,0.12);color:var(--accent);font-size:0.65rem">Custom</span>'
@@ -7793,6 +7886,7 @@ def render_profiles_block() -> str:
             f'      <span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">{skills_cnt} skills</span>'
             f'      {env_badge}'
             f'      {soul_badge}'
+            f'      {gw_badge}'
             f'    </div>'
             f'    {desc_html}'
             f'  </div>'
@@ -10529,7 +10623,7 @@ _sse_clients_lock = threading.Lock()
 SSE_CLIENT_KEYS = (
     "cells", "cell_load", "cpu_pct", "ram_pct", "processes_table", "gateway_list_block",
     "gw_summary_text", "gw_summary_badge_class", "log_card", "hermes_log_card",
-    "clean_junk_card", "gateway_log_card",
+    "clean_junk_card", "gateway_log_card", "profiles_block",
 )
 
 
@@ -10597,6 +10691,7 @@ def _sse_push_loop():
                 "processes_table": frag.get("processes_table", "")[:80],
                 "updating": frag.get("updating", False),
                 "gateway_list_block": frag.get("gateway_list_block", "")[:100],
+                "profiles_block": frag.get("profiles_block", "")[:100],
                 "gw_summary_text": frag.get("gw_summary_text", ""),
                 "gw_summary_badge_class": frag.get("gw_summary_badge_class", ""),
                 "hermes_log_card": frag.get("hermes_log_card", ""),
@@ -11134,7 +11229,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/profiles":
-            self._send_json({"ok": True, "active": get_active_profile_name(), "profiles": list_agent_profiles()})
+            self._send_json({"ok": True, "active": get_active_profile_name(), "profiles": list_agent_profiles(),
+                             "gateway": get_gateway_profile_statuses()})
             return
 
         if parsed.path == "/api/profile-soul":
