@@ -143,6 +143,7 @@ MUTATING_PATHS = frozenset({
     "/api/whatsapp/pair-start", "/api/whatsapp/pair-cancel", "/api/whatsapp/pair-apply",
     "/set-active-profile", "/create-profile", "/delete-profile", "/rename-profile",
     "/save-profile-soul", "/set-profile-model",
+    "/toggle-profile-skill", "/toggle-profile-toolset",
     "/api/kanban/boards/switch", "/api/kanban/boards/create",
     "/api/kanban/task/create", "/api/kanban/task/update",
     "/api/kanban/task/status", "/api/kanban/task/delete",
@@ -581,9 +582,9 @@ opacity:0;pointer-events:none;transition:opacity .15s var(--ease);z-index:200}}
 border-top-color:var(--accent-light);border-radius:50%;animation:spin .7s linear infinite}}
 #navloader span{{color:var(--text-muted);font-size:.82rem;font-family:var(--font-mono)}}
 /* Confirm modal */
-#confirm-modal, #aux-picker-modal, #gw-config-modal, #wa-pair-modal, #create-profile-modal, #soul-modal, #rename-profile-modal, #create-kanban-task-modal, #create-kanban-board-modal, #view-kanban-task-modal, #kanban-config-modal{{position:fixed;inset:0;background:rgba(7,9,14,0.85);backdrop-filter:blur(8px);
+#confirm-modal, #aux-picker-modal, #gw-config-modal, #wa-pair-modal, #create-profile-modal, #soul-modal, #rename-profile-modal, #profile-skills-modal, #create-kanban-task-modal, #create-kanban-board-modal, #view-kanban-task-modal, #kanban-config-modal{{position:fixed;inset:0;background:rgba(7,9,14,0.85);backdrop-filter:blur(8px);
 display:none;align-items:center;justify-content:center;z-index:300;padding:1.5rem}}
-#confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show, #wa-pair-modal.show, #create-profile-modal.show, #soul-modal.show, #rename-profile-modal.show, #create-kanban-task-modal.show, #create-kanban-board-modal.show, #view-kanban-task-modal.show, #kanban-config-modal.show{{display:flex}}
+#confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show, #wa-pair-modal.show, #create-profile-modal.show, #soul-modal.show, #rename-profile-modal.show, #profile-skills-modal.show, #create-kanban-task-modal.show, #create-kanban-board-modal.show, #view-kanban-task-modal.show, #kanban-config-modal.show{{display:flex}}
 .kanban-board{{display:flex;gap:0.85rem;overflow-x:auto;padding-bottom:1rem;margin-top:0.75rem;-webkit-overflow-scrolling:touch}}
 .kanban-column{{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-md);min-width:260px;max-width:320px;flex:1;display:flex;flex-direction:column;max-height:calc(100vh - 260px)}}
 .kanban-col-header{{padding:0.75rem 0.85rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.015)}}
@@ -1124,6 +1125,38 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         <button type="button" class="btn" style="width:auto" onclick="closeRenameProfileModal()">Batal</button>
         <button type="button" class="btn btn-on" style="width:auto" onclick="submitRenameProfile()">Simpan</button>
       </div>
+    </div>
+  </div>
+</div>
+<div id="profile-skills-modal">
+  <div class="confirm-box" style="max-width:720px;width:94%;max-height:90vh;display:flex;flex-direction:column;padding:1.4rem">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+      <div>
+        <h3 id="profile-skills-title" style="margin:0;font-size:1.05rem">Skills &amp; Tools</h3>
+        <span id="profile-skills-sub" style="font-size:0.72rem;color:var(--text-dim)">Kelola skill dan toolset per profil. Sinkron dengan config.yaml profil.</span>
+      </div>
+      <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeProfileSkillsModal()">✕</button>
+    </div>
+    <div style="display:flex;gap:0.5rem;margin:0.5rem 0;flex-wrap:wrap;align-items:center">
+      <input type="text" id="profile-skills-search" class="search-input" placeholder="Cari skill..." style="flex:1;min-width:160px" oninput="filterProfileSkills()">
+      <label style="font-size:0.72rem;color:var(--text-dim);display:flex;align-items:center;gap:0.3rem;cursor:pointer">
+        <input type="checkbox" id="profile-skills-hide-off" onchange="filterProfileSkills()"> Sembunyikan nonaktif
+      </label>
+    </div>
+    <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem">
+      <button type="button" class="tab active" id="pst-tab-skills" onclick="switchProfileSkillsTab('skills')">Skills</button>
+      <button type="button" class="tab" id="pst-tab-tools" onclick="switchProfileSkillsTab('tools')">Tools</button>
+    </div>
+    <div id="profile-skills-list" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:0.4rem;min-height:200px">
+      <div style="font-size:0.8rem;color:var(--text-dim)">Memuat...</div>
+    </div>
+    <div id="profile-tools-list" style="flex:1;overflow-y:auto;display:none;flex-direction:column;gap:0.4rem;min-height:200px"></div>
+    <div id="profile-skill-read" style="display:none;flex-direction:column;gap:0.5rem;margin-top:0.5rem;border-top:1px solid var(--border);padding-top:0.5rem">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <strong id="profile-skill-read-title" style="font-family:var(--font-mono);font-size:0.85rem"></strong>
+        <button type="button" class="btn-action-sm" onclick="closeProfileSkillRead()">Tutup</button>
+      </div>
+      <pre id="profile-skill-read-body" class="logbox" style="max-height:300px;overflow-y:auto;white-space:pre-wrap;font-size:0.72rem"></pre>
     </div>
   </div>
 </div>
@@ -2142,6 +2175,208 @@ function setProfileModel(profileName, provider, model){{
       window.location.href = '/status?just=profile-model&tab=profiles';
     }} else {{
       alert('Gagal memperbarui model profil: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+// --- Profile Skills & Tools manager ---
+var currentSkillsProfile = '';
+var profileSkillsCache = [];
+var profileToolsCache = {{cli: null, disabled: []}};
+
+function openProfileSkillsModal(name){{
+  currentSkillsProfile = name;
+  profileSkillsCache = [];
+  profileToolsCache = {{cli: null, disabled: []}};
+  var title = document.getElementById('profile-skills-title');
+  if(title) title.textContent = 'Skills & Tools - Profil ' + name;
+  var inp = document.getElementById('profile-skills-search');
+  if(inp) inp.value = '';
+  var hide = document.getElementById('profile-skills-hide-off');
+  if(hide) hide.checked = false;
+  closeProfileSkillRead();
+  switchProfileSkillsTab('skills');
+  var modal = document.getElementById('profile-skills-modal');
+  if(modal) modal.classList.add('show');
+  var list = document.getElementById('profile-skills-list');
+  if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--text-dim)">Memuat...</div>';
+  fetch('/api/profile-skills?profile=' + encodeURIComponent(name))
+    .then(function(r){{ return r.json(); }})
+    .then(function(res){{
+      if(res && res.ok){{
+        profileSkillsCache = res.skills || [];
+        var sub = document.getElementById('profile-skills-sub');
+        if(sub) sub.textContent = res.enabled_count + ' aktif / ' + res.total + ' skill · Sinkron dengan config.yaml profil ' + name;
+      }} else {{
+        profileSkillsCache = [];
+        if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Gagal: ' + ((res && res.error) || 'unknown') + '</div>';
+      }}
+      renderProfileSkillsList();
+    }})
+    .catch(function(err){{
+      if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Error: ' + err + '</div>';
+    }});
+  fetch('/api/profile-toolsets?profile=' + encodeURIComponent(name))
+    .then(function(r){{ return r.json(); }})
+    .then(function(res){{
+      if(res && res.ok) profileToolsCache = {{cli: res.cli_toolsets, disabled: res.disabled_toolsets || []}};
+      renderProfileToolsList();
+    }})
+    .catch(function(){{ renderProfileToolsList(); }});
+}}
+
+function closeProfileSkillsModal(){{
+  var modal = document.getElementById('profile-skills-modal');
+  if(modal) modal.classList.remove('show');
+  currentSkillsProfile = '';
+}}
+
+function switchProfileSkillsTab(which){{
+  var sl = document.getElementById('profile-skills-list');
+  var tl = document.getElementById('profile-tools-list');
+  var ts = document.getElementById('pst-tab-skills');
+  var tt = document.getElementById('pst-tab-tools');
+  if(which === 'tools'){{
+    if(sl) sl.style.display = 'none';
+    if(tl) tl.style.display = 'flex';
+    if(ts) ts.classList.remove('active');
+    if(tt) tt.classList.add('active');
+  }} else {{
+    if(sl) sl.style.display = 'flex';
+    if(tl) tl.style.display = 'none';
+    if(ts) ts.classList.add('active');
+    if(tt) tt.classList.remove('active');
+  }}
+}}
+
+function escHtml(s){{ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }}
+
+function renderProfileSkillsList(){{
+  var list = document.getElementById('profile-skills-list');
+  if(!list) return;
+  var q = ((document.getElementById('profile-skills-search') || {{}}).value || '').toLowerCase();
+  var hideOff = document.getElementById('profile-skills-hide-off');
+  hideOff = hideOff ? hideOff.checked : false;
+  var rows = [];
+  for(var i = 0; i < profileSkillsCache.length; i++){{
+    var s = profileSkillsCache[i];
+    if(hideOff && !s.enabled) continue;
+    if(q && (s.name + ' ' + (s.description || '') + ' ' + (s.category || '')).toLowerCase().indexOf(q) === -1) continue;
+    var badge = s.enabled
+      ? '<span class="live-badge badge-up" style="font-size:0.62rem;padding:0.1rem 0.4rem">Aktif</span>'
+      : '<span class="badge badge-muted" style="font-size:0.62rem">Mati</span>';
+    var cat = s.category ? '<span class="badge" style="font-size:0.62rem">' + escHtml(s.category) + '</span>' : '';
+    var tgl = s.essential
+      ? '<span style="font-size:0.68rem;color:var(--text-dim)">esensial</span>'
+      : '<button type="button" class="btn-action-sm" data-skill-name="' + escHtml(s.name) + '" onclick="toggleProfileSkill(this.getAttribute(\\'data-skill-name\\'), ' + (s.enabled ? 'false' : 'true') + ')">' + (s.enabled ? 'Matikan' : 'Nyalakan') + '</button>';
+    // Static-literal row markup: nama/deskripsi upstream via escHtml.
+    rows.push(
+      '<div style="display:flex;gap:0.5rem;align-items:flex-start;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.65rem">'
+      + '<div style="flex:1;min-width:0">'
+      + '<div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap"><strong style="font-family:var(--font-mono);font-size:0.8rem">' + escHtml(s.name) + '</strong>' + badge + cat + '</div>'
+      + '<div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.15rem;line-height:1.35">' + escHtml(s.description || '-') + '</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:0.3rem;align-items:center;flex-shrink:0">'
+      + '<button type="button" class="btn-action-sm" data-skill-name="' + escHtml(s.name) + '" onclick="readProfileSkill(this.getAttribute(\\'data-skill-name\\'))">Baca</button>'
+      + tgl
+      + '</div></div>'
+    );
+  }}
+  list.innerHTML = rows.length ? rows.join('') : '<div style="font-size:0.8rem;color:var(--text-dim)">Tidak ada skill cocok.</div>';
+}}
+
+function filterProfileSkills(){{ renderProfileSkillsList(); }}
+
+function toggleProfileSkill(skill, enable){{
+  var body = new URLSearchParams({{ profile: currentSkillsProfile, skill: skill, enabled: enable ? '1' : '0', ajax: '1' }});
+  fetch('/toggle-profile-skill', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
+    body: body.toString()
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      for(var i = 0; i < profileSkillsCache.length; i++){{
+        if(profileSkillsCache[i].name === skill) profileSkillsCache[i].enabled = !!enable;
+      }}
+      renderProfileSkillsList();
+    }} else {{
+      alert('Gagal: ' + (res && res.error ? res.error : 'unknown'));
+    }}
+  }})
+  .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function readProfileSkill(skill){{
+  var box = document.getElementById('profile-skill-read');
+  var t = document.getElementById('profile-skill-read-title');
+  var b = document.getElementById('profile-skill-read-body');
+  if(t) t.textContent = skill;
+  if(b) b.textContent = 'Memuat...';
+  if(box) box.style.display = 'flex';
+  fetch('/api/profile-skill?profile=' + encodeURIComponent(currentSkillsProfile) + '&skill=' + encodeURIComponent(skill))
+    .then(function(r){{ return r.json(); }})
+    .then(function(res){{
+      if(b) b.textContent = (res && res.ok) ? res.content : ('Gagal: ' + ((res && res.error) || 'unknown'));
+    }})
+    .catch(function(err){{ if(b) b.textContent = 'Error: ' + err; }});
+}}
+
+function closeProfileSkillRead(){{
+  var box = document.getElementById('profile-skill-read');
+  if(box) box.style.display = 'none';
+}}
+
+function renderProfileToolsList(){{
+  var list = document.getElementById('profile-tools-list');
+  if(!list) return;
+  var cli = profileToolsCache.cli;
+  var dis = profileToolsCache.disabled || [];
+  if(!cli){{ list.innerHTML = '<div style="font-size:0.8rem;color:var(--text-dim)">Profil ini ikut toolset default (belum ada platform_toolsets.cli khusus). Nonaktifkan toolset via daftar di bawah — tersimpan ke agent.disabled_toolsets.</div>'; }}
+  var names = cli || ['browser','clarify','code_execution','computer_use','connections','context_engine','cronjob','delegation','discord','discord_admin','file','homeassistant','image_gen','kanban','memory','session_search','skills','spotify','stt','terminal','todo','tts','video','video_gen','vision','web','x_search','yuanbao'];
+  var rows = [];
+  for(var i = 0; i < names.length; i++){{
+    var n = names[i];
+    var off = dis.indexOf(n) !== -1;
+    var badge = off
+      ? '<span class="badge badge-muted" style="font-size:0.62rem">Mati</span>'
+      : '<span class="live-badge badge-up" style="font-size:0.62rem;padding:0.1rem 0.4rem">Aktif</span>';
+    rows.push(
+      '<div style="display:flex;gap:0.5rem;align-items:center;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:0.45rem 0.65rem">'
+      + '<strong style="font-family:var(--font-mono);font-size:0.8rem;flex:1">' + escHtml(n) + '</strong>' + badge
+      + '<button type="button" class="btn-action-sm" data-ts-name="' + escHtml(n) + '" onclick="toggleProfileToolset(this.getAttribute(\\'data-ts-name\\'), ' + (off ? 'true' : 'false') + ')">' + (off ? 'Nyalakan' : 'Matikan') + '</button></div>'
+    );
+  }}
+  var extra = [];
+  for(var j = 0; j < dis.length; j++){{
+    if(names.indexOf(dis[j]) === -1) extra.push(dis[j]);
+  }}
+  if(extra.length){{
+    rows.push('<div style="font-size:0.7rem;color:var(--text-dim)">Nonaktif lain (di luar daftar cli): ' + escHtml(extra.join(', ')) + '</div>');
+  }}
+  list.innerHTML = rows.join('');
+}}
+
+function toggleProfileToolset(toolset, enable){{
+  var body = new URLSearchParams({{ profile: currentSkillsProfile, toolset: toolset, enabled: enable ? '1' : '0', ajax: '1' }});
+  fetch('/toggle-profile-toolset', {{
+    method: 'POST',
+    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
+    body: body.toString()
+  }})
+  .then(function(r){{ return r.json(); }})
+  .then(function(res){{
+    if(res && res.ok){{
+      var dis = profileToolsCache.disabled || [];
+      var ix = dis.indexOf(toolset);
+      if(enable && ix !== -1) dis.splice(ix, 1);
+      if(!enable && ix === -1) dis.push(toolset);
+      profileToolsCache.disabled = dis;
+      renderProfileToolsList();
+    }} else {{
+      alert('Gagal: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
   .catch(function(err){{ alert('Error: ' + err); }});
@@ -6304,6 +6539,7 @@ var MUTATING_PREFIXES = [
   '/save-gateway-platform', '/toggle-gateway-platform', '/remove-gateway-platform',
   '/set-active-profile', '/create-profile', '/delete-profile', '/rename-profile',
   '/save-profile-soul', '/set-profile-model',
+  '/toggle-profile-skill', '/toggle-profile-toolset',
   '/api/kanban/'
 ];
 var CONFIRM_ROUTES = [
@@ -7659,6 +7895,357 @@ def rename_agent_profile(old_name: str, new_name: str) -> tuple[bool, str]:
         return False, f"Gagal mengubah nama profil: {e}"
 
 
+def _profile_cfg_file(name: str) -> tuple[Path | None, str]:
+    """config.yaml path utk profil; (None, err) bila nama/dir tak valid."""
+    nm = (name or "").strip().lower()
+    if not nm or not _PROFILE_NAME_RE.match(nm):
+        return None, f"Nama profil '{name}' tidak valid."
+    root = get_hermes_root()
+    if nm == "default":
+        return root / "config.yaml", ""
+    d = root / "profiles" / nm
+    if not d.is_dir():
+        return None, f"Direktori profil '{nm}' tidak ditemukan."
+    return d / "config.yaml", ""
+
+
+def _read_profile_cfg(cfg_file: Path) -> dict:
+    try:
+        if cfg_file.is_file():
+            with open(cfg_file, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            if isinstance(cfg, dict):
+                return cfg
+    except Exception:
+        pass
+    return {}
+
+
+def _write_profile_cfg(cfg_file: Path, cfg: dict) -> None:
+    fd, tmp = tempfile.mkstemp(dir=str(cfg_file.parent), prefix=".config.yaml.tmp.")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, str(cfg_file))
+
+
+def get_profile_skill_inventory(name: str) -> dict:
+    """Inventaris skill per profil: scan SKILL.md + state disabled dari config.
+
+    WAJIB sinkron dgn hermes: direktori = <home-profil>/skills (persis
+    HERMES_HOME per profil), disabled = skills.disabled di config.yaml profil
+    itu SAJA (tanpa fallback — hermes baca HERMES_HOME profil tsb via
+    get_skills_dir() + get_disabled_skill_names()).
+    Platform gate (frontmatter platforms:) ikut: skill yg tak cocok OS
+    disembunyikan, sama spt skill_matches_platform hermes.
+    Return {skills:[{name,description,category,enabled,essential}], ...}.
+    """
+    nm = (name or "").strip().lower()
+    if not nm or not _PROFILE_NAME_RE.match(nm):
+        return {"ok": False, "error": f"Nama profil '{name}' tidak valid.", "skills": []}
+    root = get_hermes_root()
+    home = root if nm == "default" else (root / "profiles" / nm)
+    if not home.is_dir():
+        return {"ok": False, "error": f"Direktori profil '{nm}' tidak ditemukan.", "skills": []}
+    cfg_file, err = _profile_cfg_file(nm)
+    cfg = _read_profile_cfg(cfg_file) if cfg_file else {}
+    sk_cfg = cfg.get("skills") if isinstance(cfg.get("skills"), dict) else {}
+    raw_dis = sk_cfg.get("disabled") if isinstance(sk_cfg, dict) else []
+    disabled: set[str] = set()
+    try:
+        items = [raw_dis] if isinstance(raw_dis, str) else (list(raw_dis) if isinstance(raw_dis, (list, tuple, set)) else [])
+        disabled = {str(v).strip() for v in items if str(v).strip()}
+    except Exception:
+        disabled = set()
+    skills_dir = home / "skills"
+    found: dict[str, dict] = {}
+    excl = {".git", ".github", ".hub", ".archive", ".curator_backups", ".locks",
+            ".venv", "venv", "node_modules", "site-packages", "__pycache__",
+            ".tox", ".nox", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+    support = {"references", "templates", "assets", "scripts"}
+    if skills_dir.is_dir():
+        for dirpath, dirnames, filenames in os.walk(skills_dir, followlinks=True):
+            dirnames[:] = sorted(d for d in dirnames if d not in excl)
+            if "SKILL.md" not in filenames:
+                continue
+            try:
+                rel = Path(dirpath).relative_to(skills_dir)
+            except ValueError:
+                continue
+            if any(p in support for p in rel.parts[:-1] if rel.parts[:-1]):
+                pass
+            # Lewati SKILL.md di dalam support dir milik skill root
+            skip = False
+            parts = rel.parts
+            for idx, part in enumerate(parts[:-1]):
+                if part in support:
+                    cand = skills_dir.joinpath(*parts[:idx]) / "SKILL.md"
+                    if cand.is_file():
+                        skip = True
+                        break
+            if skip:
+                continue
+            md = Path(dirpath) / "SKILL.md"
+            try:
+                text = md.read_text(encoding="utf-8-sig")[:4000]
+            except Exception:
+                continue
+            fm: dict = {}
+            body = text
+            if text.startswith("---"):
+                m = re.search(r"\n---\s*\n", text[3:])
+                if m:
+                    raw_fm = text[3:3 + m.start()]
+                    body = text[3 + m.end():]
+                    try:
+                        fm = yaml.safe_load(raw_fm) or {}
+                    except Exception:
+                        fm = {}
+                    if not isinstance(fm, dict):
+                        fm = {}
+                    for ln in raw_fm.splitlines():
+                        if ":" in ln and not ln.startswith((" ", "\t")):
+                            k, _, v = ln.partition(":")
+                            fm.setdefault(k.strip(), v.strip())
+            skill_name = str(fm.get("name") or md.parent.name).strip()[:64]
+            if not skill_name or skill_name in found:
+                continue
+            # Platform gate ala skill_matches_platform: platforms: absen = semua OS
+            plats = fm.get("platforms")
+            if plats:
+                if not isinstance(plats, list):
+                    plats = [plats]
+                ok_plat = False
+                for pl in plats:
+                    norm = str(pl).lower().strip()
+                    mapped = {"macos": "darwin"}.get(norm, norm)
+                    if sys.platform.startswith(mapped):
+                        ok_plat = True
+                        break
+                if not ok_plat:
+                    continue
+            # environments: = relevance gate (fail open utk tag asing);
+            # 'kanban' aktif bila config kanban ada (cermin _detect_kanban).
+            envs = fm.get("environments")
+            if envs:
+                tags = [str(e).lower().strip() for e in (envs if isinstance(envs, list) else [envs]) if str(e).strip()]
+                known_env = {"kanban", "coding", "desktop", "mobile", "gateway", "cron"}
+                rel_tags = [t for t in tags if t in known_env]
+                if rel_tags:
+                    kanban_on = False
+                    try:
+                        kc = cfg.get("kanban") if isinstance(cfg.get("kanban"), dict) else None
+                        kanban_on = bool(kc) or bool((cfg.get("toolsets") or []) and "kanban" in (cfg.get("toolsets") or []))
+                        if not kanban_on:
+                            pts_cfg = cfg.get("platform_toolsets") or {}
+                            cli_ts = pts_cfg.get("cli") if isinstance(pts_cfg, dict) else None
+                            kanban_on = bool(isinstance(cli_ts, list) and "kanban" in cli_ts)
+                    except Exception:
+                        kanban_on = False
+                    if "kanban" in rel_tags and not kanban_on and len(rel_tags) == len([t for t in rel_tags if t == "kanban"]):
+                        continue
+            desc = str(fm.get("description") or "").strip()
+            if not desc:
+                for ln in body.strip().split("\n"):
+                    s = ln.strip()
+                    if s and not s.startswith("#"):
+                        desc = s[:300]
+                        break
+            cat = None
+            if len(rel.parts) >= 2:
+                cat = rel.parts[0]
+            found[skill_name] = {
+                "name": skill_name,
+                "description": desc[:300],
+                "category": cat,
+                "enabled": skill_name not in disabled,
+                "essential": skill_name == "hermes-agent",
+            }
+    skills = sorted(found.values(), key=lambda s: ((s["category"] or ""), s["name"]))
+    n_en = sum(1 for s in skills if s["enabled"])
+    return {"ok": True, "profile": nm, "skills": skills, "total": len(skills),
+            "enabled_count": n_en, "disabled_count": len(skills) - n_en}
+
+
+def get_profile_skill_content(name: str, skill: str) -> dict:
+    """Baca SKILL.md (frontmatter+isi, max 12KB) utk modal baca panel."""
+    nm = (name or "").strip().lower()
+    sk = (skill or "").strip()
+    if not nm or not _PROFILE_NAME_RE.match(nm):
+        return {"ok": False, "error": "Nama profil tidak valid."}
+    if not sk or "/" in sk or "\\" in sk or sk in (".", "..") or not re.match(r"^[A-Za-z0-9 _-]+$", sk):
+        return {"ok": False, "error": "Nama skill tidak valid."}
+    root = get_hermes_root()
+    home = root if nm == "default" else (root / "profiles" / nm)
+    skills_dir = home / "skills"
+    target: Path | None = None
+    if skills_dir.is_dir():
+        for dirpath, dirnames, filenames in os.walk(skills_dir, followlinks=True):
+            dirnames[:] = [d for d in dirnames if d not in (".git", ".hub", "__pycache__", "node_modules")]
+            if "SKILL.md" not in filenames:
+                continue
+            md = Path(dirpath) / "SKILL.md"
+            try:
+                head = md.read_text(encoding="utf-8-sig")[:2000]
+            except Exception:
+                continue
+            fm_name = ""
+            if head.startswith("---"):
+                m = re.search(r"\n---\s*\n", head[3:])
+                if m:
+                    try:
+                        fm = yaml.safe_load(head[3:3 + m.start()]) or {}
+                        if isinstance(fm, dict) and fm.get("name"):
+                            fm_name = str(fm["name"]).strip()
+                    except Exception:
+                        pass
+            if fm_name == sk or md.parent.name == sk:
+                target = md
+                break
+    if target is None:
+        return {"ok": False, "error": f"Skill '{sk}' tidak ditemukan di profil '{nm}'."}
+    try:
+        text = target.read_text(encoding="utf-8-sig")
+    except Exception as e:
+        return {"ok": False, "error": f"Gagal membaca SKILL.md: {e}"}
+    if len(text) > 12288:
+        text = text[:12288] + "\n\n... (dipotong 12KB) ..."
+    return {"ok": True, "profile": nm, "skill": sk, "content": text}
+
+
+def set_profile_skill_enabled(name: str, skill: str, enabled: bool) -> tuple[bool, str]:
+    """Aktif/nonaktif skill per profil via skills.disabled di config.yaml.
+
+    Tulis memakai merge (baca dulu, ubah key skills.disabled saja) agar
+    section lain (model/providers) tak hilang. hermes-agent esensial:
+    tak bisa dimatikan (cermin ESSENTIAL_SKILLS hermes).
+    """
+    nm = (name or "").strip().lower()
+    sk = (skill or "").strip()
+    if not nm or not _PROFILE_NAME_RE.match(nm):
+        return False, "Nama profil tidak valid."
+    if not sk or "/" in sk or "\\" in sk or not re.match(r"^[A-Za-z0-9 _-]+$", sk):
+        return False, "Nama skill tidak valid."
+    if sk == "hermes-agent" and not enabled:
+        return False, "Skill 'hermes-agent' esensial, tak bisa dinonaktifkan."
+    cfg_file, err = _profile_cfg_file(nm)
+    if cfg_file is None:
+        return False, err
+    try:
+        cfg = _read_profile_cfg(cfg_file)
+        sk_cfg = cfg.get("skills")
+        if not isinstance(sk_cfg, dict):
+            sk_cfg = {}
+            cfg["skills"] = sk_cfg
+        raw = sk_cfg.get("disabled")
+        cur: set[str] = set()
+        try:
+            items = [raw] if isinstance(raw, str) else (list(raw) if isinstance(raw, (list, tuple, set)) else [])
+            cur = {str(v).strip() for v in items if str(v).strip()}
+        except Exception:
+            cur = set()
+        # Validasi: skill harus ada di direktori profil
+        inv = get_profile_skill_inventory(nm)
+        known = {s["name"] for s in inv.get("skills", [])} if inv.get("ok") else set()
+        if known and sk not in known and sk not in cur:
+            return False, f"Skill '{sk}' tidak ditemukan di profil '{nm}'."
+        if enabled:
+            cur.discard(sk)
+        else:
+            cur.add(sk)
+        sk_cfg["disabled"] = sorted(cur)
+        _write_profile_cfg(cfg_file, cfg)
+        _invalidate_status_cache("gateway_platforms")
+        return True, f"Skill '{sk}' {'diaktifkan' if enabled else 'dinonaktifkan'} di profil '{nm}'."
+    except Exception as e:
+        return False, f"Gagal menyimpan skills.disabled: {e}"
+
+
+def get_profile_toolsets(name: str) -> dict:
+    """Toolset per profil: enabled cli + disabled global (agent.disabled_toolsets).
+
+    Sumber sama dgn runtime (tanpa fallback): platform_toolsets.cli +
+    agent.disabled_toolsets di config.yaml profil itu saja.
+    """
+    nm = (name or "").strip().lower()
+    if not nm or not _PROFILE_NAME_RE.match(nm):
+        return {"ok": False, "error": "Nama profil tidak valid."}
+    cfg_file, err = _profile_cfg_file(nm)
+    if cfg_file is None:
+        return {"ok": False, "error": err}
+    cfg = _read_profile_cfg(cfg_file)
+    pts = cfg.get("platform_toolsets") or {}
+    cli_list = pts.get("cli") if isinstance(pts, dict) else None
+    agent_cfg = cfg.get("agent") or {}
+    raw_dis = agent_cfg.get("disabled_toolsets") if isinstance(agent_cfg, dict) else []
+    dis: list[str] = []
+    try:
+        if isinstance(raw_dis, str):
+            s = raw_dis.strip()
+            if s.startswith("["):
+                import ast as _ast
+                try:
+                    p = _ast.literal_eval(s)
+                    dis = [str(x).strip() for x in p if str(x).strip()]
+                except Exception:
+                    dis = [s]
+            elif s:
+                dis = [s]
+        elif isinstance(raw_dis, (list, tuple, set)):
+            dis = [str(x).strip() for x in raw_dis if str(x).strip()]
+    except Exception:
+        dis = []
+    return {"ok": True, "profile": nm, "cli_toolsets": list(cli_list) if isinstance(cli_list, list) else None,
+            "disabled_toolsets": sorted(set(dis)), "explicit_cli": isinstance(cli_list, list)}
+
+
+def set_profile_toolset_enabled(name: str, toolset: str, enabled: bool) -> tuple[bool, str]:
+    """Aktif/nonaktif toolset per profil via agent.disabled_toolsets (global
+    suppression, berlaku utk semua platform — sama spt runtime hermes)."""
+    nm = (name or "").strip().lower()
+    ts = (toolset or "").strip()
+    if not nm or not _PROFILE_NAME_RE.match(nm):
+        return False, "Nama profil tidak valid."
+    if not ts or not re.match(r"^[A-Za-z0-9 _-]+$", ts):
+        return False, "Nama toolset tidak valid."
+    cfg_file, err = _profile_cfg_file(nm)
+    if cfg_file is None:
+        return False, err
+    try:
+        cfg = _read_profile_cfg(cfg_file)
+        ag = cfg.get("agent")
+        if not isinstance(ag, dict):
+            ag = {}
+            cfg["agent"] = ag
+        raw = ag.get("disabled_toolsets")
+        cur: set[str] = set()
+        try:
+            if isinstance(raw, str):
+                s = raw.strip()
+                if s.startswith("["):
+                    import ast as _ast
+                    try:
+                        p = _ast.literal_eval(s)
+                        cur = {str(x).strip() for x in p if str(x).strip()}
+                    except Exception:
+                        cur = {s} if s else set()
+                elif s:
+                    cur = {s}
+            elif isinstance(raw, (list, tuple, set)):
+                cur = {str(x).strip() for x in raw if str(x).strip()}
+        except Exception:
+            cur = set()
+        if enabled:
+            cur.discard(ts)
+        else:
+            cur.add(ts)
+        ag["disabled_toolsets"] = sorted(cur)
+        _write_profile_cfg(cfg_file, cfg)
+        return True, f"Toolset '{ts}' {'diaktifkan' if enabled else 'dinonaktifkan'} di profil '{nm}'."
+    except Exception as e:
+        return False, f"Gagal menyimpan agent.disabled_toolsets: {e}"
+
+
 def get_agent_profile_soul(name: str) -> str:
     """Read SOUL.md of profile."""
     name = (name or "").strip().lower()
@@ -7812,6 +8399,25 @@ def render_gateway_profile_badge(name: str, statuses: dict[str, dict] | None = N
         return ""
 
 
+def _profile_skill_tool_summary(name: str) -> tuple[int, object, str]:
+    """Ringkasan kecil utk kartu profil: (skills_aktif, tools_aktif, ket_nonaktif)."""
+    try:
+        inv = get_profile_skill_inventory(name)
+        skills_en = int(inv.get("enabled_count", 0)) if inv.get("ok") else 0
+    except Exception:
+        skills_en = 0
+    try:
+        ts = get_profile_toolsets(name)
+        dis = ts.get("disabled_toolsets", []) if ts.get("ok") else []
+        cli = ts.get("cli_toolsets") if ts.get("ok") else None
+        base = len(cli) if isinstance(cli, list) else 22
+        tools_en = max(0, base - len([d for d in dis if isinstance(cli, list) and d in (cli or [])]) if isinstance(cli, list) else base)
+        tools_dis = f" · {len(dis)} mati" if dis else ""
+    except Exception:
+        tools_en, tools_dis = "?", ""
+    return skills_en, tools_en, tools_dis
+
+
 def render_profiles_block() -> str:
     """Render profile cards and active banner."""
     profiles = list_agent_profiles()
@@ -7843,6 +8449,7 @@ def render_profiles_block() -> str:
         has_env = p.get("has_env", False)
         has_soul = p.get("has_soul", False)
         gw_badge = render_gateway_profile_badge(name, gw_statuses)
+        skills_en, tools_en, tools_dis = _profile_skill_tool_summary(name)
 
         act_badge = '<span class="live-badge badge-up" style="font-size:0.65rem;padding:0.15rem 0.45rem">AKTIF</span>' if is_act else ''
         type_badge = '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">Default</span>' if is_def else '<span class="badge" style="background:rgba(59,130,246,0.12);color:var(--accent);font-size:0.65rem">Custom</span>'
@@ -7887,6 +8494,10 @@ def render_profiles_block() -> str:
             f'      {env_badge}'
             f'      {soul_badge}'
             f'      {gw_badge}'
+            f'    </div>'
+            f'    <div style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-top:0.4rem">'
+            f'      <span style="font-size:0.68rem;color:var(--text-dim)">Skills: {skills_en}/{skills_cnt} aktif · Tools: {tools_en} aktif{tools_dis}</span>'
+            f'      <button type="button" class="btn-action-sm" onclick="openProfileSkillsModal(\'{safe_name}\')">Kelola Skills &amp; Tools</button>'
             f'    </div>'
             f'    {desc_html}'
             f'  </div>'
@@ -11233,6 +11844,22 @@ class Handler(BaseHTTPRequestHandler):
                              "gateway": get_gateway_profile_statuses()})
             return
 
+        if parsed.path == "/api/profile-skills":
+            prof = (qs.get("profile") or ["default"])[0]
+            self._send_json(get_profile_skill_inventory(prof))
+            return
+
+        if parsed.path == "/api/profile-skill":
+            prof = (qs.get("profile") or ["default"])[0]
+            skill = (qs.get("skill") or [""])[0]
+            self._send_json(get_profile_skill_content(prof, skill))
+            return
+
+        if parsed.path == "/api/profile-toolsets":
+            prof = (qs.get("profile") or ["default"])[0]
+            self._send_json(get_profile_toolsets(prof))
+            return
+
         if parsed.path == "/api/profile-soul":
             prof = (qs.get("profile") or ["default"])[0]
             self._send_json({"ok": True, "profile": prof, "content": get_agent_profile_soul(prof)})
@@ -11476,6 +12103,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_html(f"<h1>400 — {html.escape(msg)}</h1>", 400)
                 return
             self._redirect_to_status(just="profile-model", tab="profiles")
+            return
+
+        if parsed.path == "/toggle-profile-skill":
+            prof = str(json_data.get("profile") or (qs.get("profile") or [""])[0]).strip().lower()
+            skill = str(json_data.get("skill") or (qs.get("skill") or [""])[0]).strip()
+            en_raw = json_data.get("enabled") if "enabled" in json_data else (qs.get("enabled") or [""])[0]
+            ok, msg = set_profile_skill_enabled(prof, skill, _to_bool(en_raw))
+            self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
+            return
+
+        if parsed.path == "/toggle-profile-toolset":
+            prof = str(json_data.get("profile") or (qs.get("profile") or [""])[0]).strip().lower()
+            ts = str(json_data.get("toolset") or (qs.get("toolset") or [""])[0]).strip()
+            en_raw = json_data.get("enabled") if "enabled" in json_data else (qs.get("enabled") or [""])[0]
+            ok, msg = set_profile_toolset_enabled(prof, ts, _to_bool(en_raw))
+            self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
             return
 
         if parsed.path == "/api/kanban/boards/switch":

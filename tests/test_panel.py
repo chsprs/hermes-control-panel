@@ -1062,6 +1062,47 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertTrue(json.loads(body).get("ok"))
 
+    def test_69b_profile_skills_http_api_and_auth(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        # 1. GET /api/profile-skills tanpa auth -> 401
+        code, _, _ = self._request("/api/profile-skills?profile=default", method="GET")
+        self.assertEqual(code, 401)
+        # 2. GET /api/profile-skills dgn auth -> 200, ada skills + hitungan
+        code, _, body = self._request("/api/profile-skills?profile=default", method="GET",
+                                      headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        data = json.loads(body)
+        self.assertTrue(data.get("ok"))
+        self.assertIn("skills", data)
+        self.assertEqual(data["enabled_count"] + data["disabled_count"], data["total"])
+        # 3. GET /api/profile-toolsets dgn auth -> 200
+        code, _, body = self._request("/api/profile-toolsets?profile=default", method="GET",
+                                      headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        self.assertTrue(json.loads(body).get("ok"))
+        # 4. POST /toggle-profile-skill tanpa auth (json) -> 403
+        code, _, _ = self._request("/toggle-profile-skill", method="POST",
+                                   headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
+                                   data=b"profile=default&skill=x&enabled=0")
+        self.assertEqual(code, 403)
+        # 5. POST /toggle-profile-skill dgn auth, skill tak dikenal -> 400
+        code, _, body = self._request("/toggle-profile-skill", method="POST",
+                                      headers={"Cookie": cookie, "Accept": "application/json",
+                                               "Content-Type": "application/x-www-form-urlencoded"},
+                                      data=b"profile=default&skill=no-such-skill-xyz-123&enabled=0")
+        self.assertEqual(code, 400)
+        self.assertFalse(json.loads(body).get("ok"))
+        # 6. POST /toggle-profile-toolset dgn auth, nama jahat -> 400
+        code, _, body = self._request("/toggle-profile-toolset", method="POST",
+                                      headers={"Cookie": cookie, "Accept": "application/json",
+                                               "Content-Type": "application/x-www-form-urlencoded"},
+                                      data=b"profile=default&toolset=../x&enabled=0")
+        self.assertEqual(code, 400)
+        # 7. GET mutasi via GET ditolak 405
+        code, _, _ = self._request("/toggle-profile-skill?profile=default&skill=x&enabled=0", method="GET",
+                                   headers={"Cookie": cookie})
+        self.assertEqual(code, 405)
+
     def test_70_kanban_http_api_and_auth(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         # 1. GET /api/kanban/tasks without auth -> 401
@@ -1835,6 +1876,115 @@ class TestAgentProfiles(unittest.TestCase):
                                               "pid_alive": False, "state_age_s": 5}})
         self.assertIn("Gateway: Mati", stale)
         self.assertIn("profiles_block", panel.SSE_CLIENT_KEYS)
+
+    def test_11_profile_skills_inventory_sync(self):
+        """Inventaris skill per profil sinkron dgn hermes: dir + disabled."""
+        import tempfile, shutil
+        from pathlib import Path
+        tmp = Path(tempfile.mkdtemp(prefix="panel-skillinv-"))
+        try:
+            (tmp / "skills" / "demo-a").mkdir(parents=True)
+            (tmp / "skills" / "demo-a" / "SKILL.md").write_text(
+                "---\nname: demo-a\ndescription: Demo A.\n---\n\nDemo A.\n", encoding="utf-8")
+            (tmp / "skills" / "demo-b").mkdir(parents=True)
+            (tmp / "skills" / "demo-b" / "SKILL.md").write_text(
+                "---\nname: demo-b\ndescription: Demo B.\n---\n\nDemo B.\n", encoding="utf-8")
+            (tmp / "skills" / "hermes-agent").mkdir(parents=True)
+            (tmp / "skills" / "hermes-agent" / "SKILL.md").write_text(
+                "---\nname: hermes-agent\ndescription: Manual.\n---\n\nManual.\n", encoding="utf-8")
+            (tmp / "config.yaml").write_text(
+                "model:\n  default: m\nskills:\n  disabled:\n    - demo-b\n", encoding="utf-8")
+            with mock.patch.object(panel, "get_hermes_root", return_value=tmp):
+                inv = panel.get_profile_skill_inventory("default")
+                self.assertTrue(inv.get("ok"))
+                self.assertEqual(inv.get("total"), 3)
+                self.assertEqual(inv["enabled_count"] + inv["disabled_count"], inv["total"])
+                byname = {s["name"]: s for s in inv["skills"]}
+                self.assertTrue(byname["demo-a"]["enabled"])
+                self.assertFalse(byname["demo-b"]["enabled"])
+                ess = byname["hermes-agent"]
+                self.assertTrue(ess["enabled"] and ess["essential"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        # Live: sinkron dgn hermes sungguhan (venv hermes, bukan heuristik panel saja).
+        # setUp TestAgentProfiles mengarahkan CONFIG_PATH ke tmpdir kosong —
+        # kembalikan dulu ke live agar inventaris baca ~/.hermes sungguhan.
+        panel.CONFIG_PATH = self._orig_config_path
+        inv = panel.get_profile_skill_inventory("default")
+        self.assertTrue(inv.get("ok"))
+        self.assertGreater(inv.get("total", 0), 0)
+        import subprocess as _sp
+        r = _sp.run(["/usr/local/lib/hermes-agent/venv/bin/python", "-c",
+                     "import sys;sys.path.insert(0,'/opt/AppData/hermes-native/hermes-lib');"
+                     "import os;os.environ['HERMES_HOME']='/root/.hermes';"
+                     "from tools.skills_tool import _find_all_skills;"
+                     "a=_find_all_skills(skip_disabled=True);e=_find_all_skills(skip_disabled=False);"
+                     "print(len(a),len(e))"],
+                    capture_output=True, text=True, timeout=120)
+        h_total, h_en = map(int, r.stdout.strip().split())
+        self.assertEqual(inv["total"], h_total, "panel vs hermes total skill")
+        self.assertEqual(inv["enabled_count"], h_en, "panel vs hermes enabled")
+        # Modal + toggle UI ada
+        self.assertIn('id="profile-skills-modal"', panel.PAGE)
+        self.assertIn("openProfileSkillsModal(", panel.PAGE)
+        html = panel.render_profiles_block()
+        self.assertIn("Kelola Skills", html)
+
+    def test_12_profile_skill_toggle_roundtrip(self):
+        """Toggle tulis skills.disabled di config.yaml profil (merge, bukan timpa)."""
+        import tempfile, shutil
+        from pathlib import Path
+        tmp = Path(tempfile.mkdtemp(prefix="panel-skilltoggle-"))
+        try:
+            (tmp / "skills" / "demo-skill").mkdir(parents=True)
+            (tmp / "skills" / "demo-skill" / "SKILL.md").write_text(
+                "---\nname: demo-skill\ndescription: Demo skill.\n---\n\nDemo.\n", encoding="utf-8")
+            (tmp / "config.yaml").write_text(
+                "model:\n  default: m\n  provider: p\n", encoding="utf-8")
+            with mock.patch.object(panel, "get_hermes_root", return_value=tmp):
+                ok, msg = panel.set_profile_skill_enabled("default", "demo-skill", False)
+                self.assertTrue(ok, msg)
+                cfg = panel.yaml.safe_load((tmp / "config.yaml").read_text(encoding="utf-8"))
+                self.assertIn("demo-skill", (cfg.get("skills") or {}).get("disabled", []))
+                self.assertEqual(cfg.get("model", {}).get("default"), "m", "model tak boleh hilang")
+                inv = panel.get_profile_skill_inventory("default")
+                d = next(s for s in inv["skills"] if s["name"] == "demo-skill")
+                self.assertFalse(d["enabled"])
+                ok, msg = panel.set_profile_skill_enabled("default", "demo-skill", True)
+                self.assertTrue(ok, msg)
+                inv = panel.get_profile_skill_inventory("default")
+                d = next(s for s in inv["skills"] if s["name"] == "demo-skill")
+                self.assertTrue(d["enabled"])
+                # Esensial tak bisa mati + nama jahat ditolak
+                ok, _ = panel.set_profile_skill_enabled("default", "hermes-agent", False)
+                self.assertFalse(ok)
+                bad = panel.get_profile_skill_content("default", "../x")
+                self.assertFalse(bad["ok"])
+                good = panel.get_profile_skill_content("default", "demo-skill")
+                self.assertTrue(good["ok"] and "Demo" in good["content"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_13_profile_toolset_toggle_roundtrip(self):
+        """Toggle toolset tulis agent.disabled_toolsets per profil."""
+        import tempfile, shutil
+        from pathlib import Path
+        tmp = Path(tempfile.mkdtemp(prefix="panel-toolset-"))
+        try:
+            (tmp / "config.yaml").write_text("model:\n  default: m\n", encoding="utf-8")
+            with mock.patch.object(panel, "get_hermes_root", return_value=tmp):
+                ts = panel.get_profile_toolsets("default")
+                self.assertTrue(ts.get("ok"))
+                ok, msg = panel.set_profile_toolset_enabled("default", "browser", False)
+                self.assertTrue(ok, msg)
+                ts = panel.get_profile_toolsets("default")
+                self.assertIn("browser", ts["disabled_toolsets"])
+                ok, msg = panel.set_profile_toolset_enabled("default", "browser", True)
+                self.assertTrue(ok, msg)
+                ts = panel.get_profile_toolsets("default")
+                self.assertNotIn("browser", ts["disabled_toolsets"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class TestKanbanBoard(unittest.TestCase):
