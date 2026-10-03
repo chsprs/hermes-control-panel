@@ -303,6 +303,214 @@ ICON_SHIELD = _icon('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', s
 
 ICON_HERMES_LOGO = '<img src="https://cdn.jsdelivr.net/gh/selfhst/icons/webp/hermes-agent-light.webp" width="28" height="28" style="vertical-align:middle;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))" alt="Hermes Logo">'
 
+
+def render_markdown(text: str) -> str:
+    """Zero-dependency markdown parser for Hermes Control Panel.
+
+    Supports:
+    - Tables (| col | col | with align, header, zebra stripe, wrap)
+    - Horizontal rules (---, ***, ___)
+    - Headings (h1-h6)
+    - Bold (**text**, __text__), Italic (*text*, _text_), Strikethrough (~~text~~)
+    - Code blocks (```lang ... ```) with dark container & copy button
+    - Inline code (`code`)
+    - Lists (ordered 1. 2. and unordered - * +)
+    - Blockquotes (> quote)
+    - Links ([text](url)) with safe URL protocol check
+    - XSS protection: all raw HTML is escaped before markdown rules
+    """
+    # ponytail: zero-dependency subset of CommonMark. Add markdown library if AST/plugins needed.
+    if not text:
+        return ""
+    text = str(text).replace("\r\n", "\n").replace("\r", "\n")
+
+    # 1. Protect fenced code blocks
+    code_blocks = []
+    def _cb(m):
+        lang = (m.group(1) or "").strip()
+        code = m.group(2)
+        idx = len(code_blocks)
+        code_blocks.append((lang, html.escape(code.rstrip("\n"))))
+        return f"\x00MD_CB_{idx}\x00"
+
+    text = re.sub(r"```([^\n]*)\n([\s\S]*?)(?:```|$)", _cb, text)
+
+    # 2. Protect inline code
+    inline_codes = []
+    def _ic(m):
+        idx = len(inline_codes)
+        inline_codes.append(html.escape(m.group(1)))
+        return f"\x00MD_IC_{idx}\x00"
+
+    text = re.sub(r"`([^`\n]+)`", _ic, text)
+
+    # 3. Escape HTML entities in raw content
+    text = html.escape(text, quote=False)
+
+    def inline_fmt(s: str) -> str:
+        # Links: [text](url) - only http, https, mailto, relative anchor
+        def _lnk(m):
+            t, u = m.group(1), m.group(2).strip()
+            if re.match(r"^(?:https?://|mailto:|/|#)", u, re.I):
+                return f'<a href="{u}" target="_blank" rel="noopener noreferrer" class="md-link">{t}</a>'
+            return f"[{t}]({u})"
+        s = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", _lnk, s)
+
+        # Bold & Italic
+        s = re.sub(r"\*\*\*([^\*]+)\*\*\*", r"<strong><em>\1</em></strong>", s)
+        s = re.sub(r"___([^_\n]+)___", r"<strong><em>\1</em></strong>", s)
+        s = re.sub(r"\*\*([^\*]+)\*\*", r"<strong>\1</strong>", s)
+        s = re.sub(r"__([^_\n]+)__", r"<strong>\1</strong>", s)
+        s = re.sub(r"\*([^\*\n]+)\*", r"<em>\1</em>", s)
+        s = re.sub(r"(?<!\w)_([^_\n]+)_(?!\w)", r"<em>\1</em>", s)
+        s = re.sub(r"~~([^~\n]+)~~", r"<del>\1</del>", s)
+        return s
+
+    lines = text.split("\n")
+    out = []
+    i = 0
+    n = len(lines)
+
+    while i < n:
+        line = lines[i]
+        stripped = line.strip()
+
+        # Code block placeholder
+        if stripped.startswith("\x00MD_CB_") and stripped.endswith("\x00"):
+            out.append(stripped)
+            i += 1
+            continue
+
+        # Blank line
+        if not stripped:
+            i += 1
+            continue
+
+        # Horizontal rule: ---, ***, ___
+        if re.match(r"^(?:-{3,}|\*{3,}|_{3,})$", stripped):
+            out.append('<hr class="md-hr">')
+            i += 1
+            continue
+
+        # Headings: #..######
+        hm = re.match(r"^(#{1,6})\s+(.*)$", line)
+        if hm:
+            lvl = len(hm.group(1))
+            out.append(f'<h{lvl} class="md-h md-h{lvl}">{inline_fmt(hm.group(2).strip())}</h{lvl}>')
+            i += 1
+            continue
+
+        # Blockquote: > or &gt;
+        if stripped.startswith("&gt;") or stripped.startswith(">"):
+            q_lines = []
+            while i < n:
+                cur = lines[i].strip()
+                if cur.startswith("&gt;"):
+                    q_lines.append(cur[4:].lstrip())
+                    i += 1
+                elif cur.startswith(">"):
+                    q_lines.append(cur[1:].lstrip())
+                    i += 1
+                else:
+                    break
+            q_body = "<br>".join(inline_fmt(ql) for ql in q_lines)
+            out.append(f'<blockquote class="md-quote">{q_body}</blockquote>')
+            continue
+
+        # Table detection: current line has '|' and next line is a separator like |---|---:|
+        if "|" in line and i + 1 < n and re.match(r"^\s*\|?\s*:?-+:?\s*(\|?\s*:?-+:?\s*)+\|?\s*$", lines[i+1]):
+            header_line = line
+            sep_line = lines[i+1]
+            i += 2
+
+            def parse_cells(row_str):
+                row_str = row_str.strip()
+                if row_str.startswith("|"): row_str = row_str[1:]
+                if row_str.endswith("|"): row_str = row_str[:-1]
+                return [c.strip() for c in row_str.split("|")]
+
+            headers = parse_cells(header_line)
+            seps = parse_cells(sep_line)
+            aligns = []
+            for s in seps:
+                left = s.startswith(":")
+                right = s.endswith(":")
+                if left and right: aligns.append("center")
+                elif right: aligns.append("right")
+                elif left: aligns.append("left")
+                else: aligns.append("")
+
+            th_cells = []
+            for j, h in enumerate(headers):
+                al = f' style="text-align:{aligns[j]}"' if j < len(aligns) and aligns[j] else ""
+                th_cells.append(f"<th{al}>{inline_fmt(h)}</th>")
+            thead = f"<thead><tr>{''.join(th_cells)}</tr></thead>"
+
+            tb_rows = []
+            while i < n and "|" in lines[i]:
+                row_cells = parse_cells(lines[i])
+                td_cells = []
+                for j, c in enumerate(row_cells):
+                    al = f' style="text-align:{aligns[j]}"' if j < len(aligns) and aligns[j] else ""
+                    td_cells.append(f"<td{al}>{inline_fmt(c)}</td>")
+                tb_rows.append(f"<tr>{''.join(td_cells)}</tr>")
+                i += 1
+            tbody = f"<tbody>{''.join(tb_rows)}</tbody>"
+            out.append(f'<div class="md-table-wrap"><table class="md-table">{thead}{tbody}</table></div>')
+            continue
+
+        # Lists: unordered (- or * or +) or ordered (1.)
+        ul_m = re.match(r"^[-*+]\s+(.*)$", line.strip())
+        ol_m = re.match(r"^\d+\.\s+(.*)$", line.strip())
+        if ul_m or ol_m:
+            is_ol = bool(ol_m)
+            tag = "ol" if is_ol else "ul"
+            items = []
+            while i < n:
+                cur = lines[i].strip()
+                if not cur:
+                    break
+                m = re.match(r"^\d+\.\s+(.*)$" if is_ol else r"^[-*+]\s+(.*)$", cur)
+                if m:
+                    items.append(f"<li>{inline_fmt(m.group(1).strip())}</li>")
+                    i += 1
+                else:
+                    break
+            out.append(f'<{tag} class="md-list">{"".join(items)}</{tag}>')
+            continue
+
+        # Regular paragraph
+        p_lines = []
+        while i < n:
+            cur = lines[i].strip()
+            if not cur or cur.startswith("#") or cur.startswith("&gt;") or cur.startswith(">") or cur.startswith("\x00MD_CB_"):
+                break
+            if re.match(r"^(?:-{3,}|\*{3,}|_{3,})$", cur):
+                break
+            if "|" in lines[i] and i + 1 < n and re.match(r"^\s*\|?\s*:?-+:?\s*(\|?\s*:?-+:?\s*)+\|?\s*$", lines[i+1]):
+                break
+            if re.match(r"^[-*+]\s+", cur) or re.match(r"^\d+\.\s+", cur):
+                break
+            p_lines.append(cur)
+            i += 1
+        if p_lines:
+            out.append(f"<p>{inline_fmt('<br>'.join(p_lines))}</p>")
+
+    res = "\n".join(out)
+
+    # 4. Restore inline code
+    for idx, ic in enumerate(inline_codes):
+        res = res.replace(f"\x00MD_IC_{idx}\x00", f'<code class="md-inline-code">{ic}</code>')
+
+    # 5. Restore code blocks
+    for idx, (lang, cb) in enumerate(code_blocks):
+        lbl = f'<div class="md-code-header"><span>{lang or "code"}</span><button type="button" class="btn-copy-code" onclick="copyCodeBlock(this)">Salin</button></div>'
+        block = f'<div class="md-code-wrap">{lbl}<pre class="md-code-block"><code>{cb}</code></pre></div>'
+        res = res.replace(f"\x00MD_CB_{idx}\x00", block)
+
+    return res
+
+
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hermes Control Panel</title>
@@ -584,9 +792,9 @@ opacity:0;pointer-events:none;transition:opacity .15s var(--ease);z-index:200}}
 border-top-color:var(--accent-light);border-radius:50%;animation:spin .7s linear infinite}}
 #navloader span{{color:var(--text-muted);font-size:.82rem;font-family:var(--font-mono)}}
 /* Confirm modal */
-#confirm-modal, #aux-picker-modal, #gw-config-modal, #wa-pair-modal, #create-profile-modal, #soul-modal, #rename-profile-modal, #profile-skills-modal, #create-kanban-task-modal, #create-kanban-board-modal, #view-kanban-task-modal, #kanban-config-modal{{position:fixed;inset:0;background:rgba(7,9,14,0.85);backdrop-filter:blur(8px);
+#confirm-modal, #aux-picker-modal, #gw-config-modal, #wa-pair-modal, #create-profile-modal, #soul-modal, #rename-profile-modal, #profile-skills-modal, #create-kanban-task-modal, #create-kanban-board-modal, #view-kanban-task-modal, #kanban-config-modal, #view-kanban-attachment-modal{{position:fixed;inset:0;background:rgba(7,9,14,0.85);backdrop-filter:blur(8px);
 display:none;align-items:center;justify-content:center;z-index:300;padding:1.5rem}}
-#confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show, #wa-pair-modal.show, #create-profile-modal.show, #soul-modal.show, #rename-profile-modal.show, #profile-skills-modal.show, #create-kanban-task-modal.show, #create-kanban-board-modal.show, #view-kanban-task-modal.show, #kanban-config-modal.show{{display:flex}}
+#confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show, #wa-pair-modal.show, #create-profile-modal.show, #soul-modal.show, #rename-profile-modal.show, #profile-skills-modal.show, #create-kanban-task-modal.show, #create-kanban-board-modal.show, #view-kanban-task-modal.show, #kanban-config-modal.show, #view-kanban-attachment-modal.show{{display:flex}}
 .kanban-board{{display:flex;gap:0.85rem;overflow-x:auto;padding-bottom:1rem;margin-top:0.75rem;-webkit-overflow-scrolling:touch}}
 .kanban-column{{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-md);min-width:260px;max-width:320px;flex:1;display:flex;flex-direction:column;max-height:calc(100vh - 260px)}}
 .kanban-col-header{{padding:0.75rem 0.85rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.015)}}
@@ -608,6 +816,44 @@ display:none;align-items:center;justify-content:center;z-index:300;padding:1.5re
 .kb-badge-live{{display:inline-flex;align-items:center;gap:.3rem}}
 .kb-badge-idle{{display:inline-flex;align-items:center;gap:.3rem;background:rgba(245,158,11,0.15)!important;color:#fbbf24!important;border:1px solid rgba(245,158,11,0.35)!important;padding:.15rem .45rem;border-radius:4px;font-size:.62rem;font-weight:600}}
 .kb-badge-stale{{display:inline-flex;align-items:center;gap:.3rem;background:rgba(239,68,68,0.15)!important;color:#fca5a5!important;border:1px solid rgba(239,68,68,0.4)!important;padding:.15rem .45rem;border-radius:4px;font-size:.62rem;font-weight:600}}
+/* Markdown Rich Rendering */
+.markdown-body{{font-family:var(--font-sans);color:var(--text);font-size:0.82rem;line-height:1.6;word-break:break-word}}
+.markdown-body > *:first-child{{margin-top:0 !important}}
+.markdown-body > *:last-child{{margin-bottom:0 !important}}
+.markdown-body p{{margin:0.4rem 0;line-height:1.6}}
+.markdown-body .md-h{{font-weight:600;color:var(--text);margin:0.8rem 0 0.35rem;line-height:1.3}}
+.markdown-body .md-h1{{font-size:1.22rem;border-bottom:1px solid var(--border-subtle);padding-bottom:0.25rem}}
+.markdown-body .md-h2{{font-size:1.1rem;border-bottom:1px solid var(--border-subtle);padding-bottom:0.2rem}}
+.markdown-body .md-h3{{font-size:1.0rem}}
+.markdown-body .md-h4{{font-size:0.9rem}}
+.markdown-body .md-h5{{font-size:0.84rem;color:var(--text-muted)}}
+.markdown-body .md-h6{{font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em}}
+.markdown-body .md-hr{{border:0;border-top:1px solid var(--border);margin:0.8rem 0;opacity:0.8}}
+.markdown-body strong{{font-weight:600;color:#fff}}
+.markdown-body em{{font-style:italic;color:#cbd5e1}}
+.markdown-body del{{text-decoration:line-through;opacity:0.65}}
+.markdown-body .md-link{{color:var(--accent-light);text-decoration:underline;text-underline-offset:2px;transition:opacity 0.15s ease}}
+.markdown-body .md-link:hover{{opacity:0.8}}
+.markdown-body .md-inline-code{{font-family:var(--font-mono);font-size:0.78em;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:4px;padding:0.15em 0.35em;color:#93c5fd;white-space:pre-wrap;word-break:break-all}}
+.markdown-body .md-code-wrap{{margin:0.55rem 0;background:#0b0f17;border:1px solid var(--border);border-radius:6px;overflow:hidden}}
+.markdown-body .md-code-header{{display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.03);border-bottom:1px solid var(--border-subtle);padding:0.25rem 0.65rem;font-size:0.68rem;font-family:var(--font-mono);color:var(--text-dim);text-transform:lowercase}}
+.markdown-body .btn-copy-code{{background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:0.1rem 0.45rem;font-size:0.65rem;cursor:pointer;transition:all 0.15s ease}}
+.markdown-body .btn-copy-code:hover{{background:rgba(255,255,255,0.08);color:var(--text);border-color:var(--border-hover)}}
+.markdown-body .md-code-block{{margin:0;padding:0.65rem;overflow-x:auto;font-family:var(--font-mono);font-size:0.75rem;line-height:1.45;color:#e2e8f0;background:transparent}}
+.markdown-body .md-code-block code{{font-family:inherit;font-size:inherit;color:inherit;background:transparent;padding:0;border:none}}
+.markdown-body .md-quote{{border-left:3px solid var(--accent);background:rgba(59,130,246,0.06);border-radius:0 4px 4px 0;padding:0.4rem 0.75rem;margin:0.55rem 0;color:#cbd5e1;font-size:0.8rem;line-height:1.5}}
+.markdown-body .md-list{{margin:0.45rem 0 0.45rem 1.4rem;padding-left:0}}
+.markdown-body ul.md-list{{list-style-type:disc}}
+.markdown-body ol.md-list{{list-style-type:decimal}}
+.markdown-body .md-list li{{margin:0.2rem 0;line-height:1.5}}
+.markdown-body .md-table-wrap{{width:100%;overflow-x:auto;margin:0.65rem 0;border:1px solid var(--border);border-radius:6px;background:rgba(0,0,0,0.2)}}
+.markdown-body .md-table{{width:100%;border-collapse:collapse;font-size:0.76rem;text-align:left}}
+.markdown-body .md-table th, .markdown-body .md-table td{{padding:0.45rem 0.75rem;border-bottom:1px solid var(--border-subtle);border-right:1px solid var(--border-subtle);white-space:normal;vertical-align:top}}
+.markdown-body .md-table th:last-child, .markdown-body .md-table td:last-child{{border-right:none}}
+.markdown-body .md-table th{{background:rgba(255,255,255,0.05);font-weight:600;color:var(--text);border-bottom:1px solid var(--border)}}
+.markdown-body .md-table tbody tr:nth-child(even){{background:rgba(255,255,255,0.02)}}
+.markdown-body .md-table tbody tr:hover{{background:rgba(59,130,246,0.06)}}
+
 .confirm-box{{background:rgba(22,27,38,0.95);border:1px solid var(--border-hover);
 border-radius:var(--radius-xl);padding:1.6rem 1.5rem;max-width:360px;width:100%;
 box-shadow:0 12px 48px rgba(0,0,0,0.7)}}
@@ -1156,9 +1402,12 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div id="profile-skill-read" style="display:none;flex-direction:column;gap:0.5rem;margin-top:0.5rem;border-top:1px solid var(--border);padding-top:0.5rem">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <strong id="profile-skill-read-title" style="font-family:var(--font-mono);font-size:0.85rem"></strong>
-        <button type="button" class="btn-action-sm" onclick="closeProfileSkillRead()">Tutup</button>
+        <div style="display:flex;gap:0.4rem;align-items:center">
+          <button type="button" class="btn-action-sm" id="profile-skill-toggle-btn" onclick="toggleProfileSkillView()">Raw</button>
+          <button type="button" class="btn-action-sm" onclick="closeProfileSkillRead()">Tutup</button>
+        </div>
       </div>
-      <pre id="profile-skill-read-body" class="logbox" style="max-height:300px;overflow-y:auto;white-space:pre-wrap;font-size:0.72rem"></pre>
+      <div id="profile-skill-read-body" class="markdown-body" style="max-height:300px;overflow-y:auto;font-size:0.75rem;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:6px;padding:0.65rem"></div>
     </div>
   </div>
 </div>
@@ -1254,11 +1503,11 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div id="view-task-meta" style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:6px;padding:0.6rem 0.75rem;font-size:0.78rem;display:flex;flex-wrap:wrap;gap:0.8rem;margin-bottom:0.75rem"></div>
     <div style="margin-bottom:0.75rem">
       <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.3rem">Deskripsi / Acceptance Criteria</div>
-      <div id="view-task-body" style="font-size:0.82rem;line-height:1.5;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:6px;padding:0.65rem;white-space:pre-wrap;max-height:160px;overflow-y:auto"></div>
+      <div id="view-task-body" class="markdown-body" style="font-size:0.82rem;line-height:1.5;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:6px;padding:0.65rem;max-height:160px;overflow-y:auto"></div>
     </div>
     <div id="view-task-output-wrap" style="margin-bottom:0.75rem;display:none">
       <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.3rem">Hasil / Output</div>
-      <div id="view-task-output" style="font-size:0.82rem;line-height:1.5;background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.25);border-radius:6px;padding:0.65rem;white-space:pre-wrap;max-height:260px;overflow-y:auto"></div>
+      <div id="view-task-output" class="markdown-body" style="font-size:0.82rem;line-height:1.5;background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.25);border-radius:6px;padding:0.65rem;max-height:260px;overflow-y:auto"></div>
     </div>
     <div id="view-task-runs-wrap" style="margin-bottom:0.75rem;display:none">
       <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.3rem">Riwayat Run (<span id="view-task-runs-count">0</span>)</div>
@@ -1290,6 +1539,29 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         <input type="text" id="view-task-new-comment" class="search-input" placeholder="Tulis komentar atau update progres..." style="flex:1" onkeydown="if(event.key==='Enter')submitCurrentTaskComment()">
         <button type="button" class="btn btn-on" style="width:auto;min-height:34px;padding:0.25rem 0.75rem;font-size:0.75rem;margin:0" onclick="submitCurrentTaskComment()">Kirim</button>
       </div>
+    </div>
+  </div>
+</div>
+<div id="view-kanban-attachment-modal">
+  <div class="confirm-box" style="max-width:760px;width:95%;max-height:90vh;display:flex;flex-direction:column;padding:1.4rem;overflow:hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;gap:0.5rem;flex-wrap:wrap">
+      <div style="min-width:0;flex:1">
+        <div style="font-size:0.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em">Lampiran Kanban</div>
+        <h3 id="attachment-viewer-filename" style="margin:0;font-size:1.05rem;font-family:var(--font-mono);word-break:break-all"></h3>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.4rem">
+        <div class="btn-group" style="display:flex;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;overflow:hidden">
+          <button type="button" id="att-btn-preview" class="btn" style="width:auto;min-height:26px;padding:0.2rem 0.6rem;font-size:0.7rem;margin:0;border:none;border-radius:0;background:var(--accent);color:#fff" onclick="setAttachmentViewMode('preview')">Preview</button>
+          <button type="button" id="att-btn-raw" class="btn" style="width:auto;min-height:26px;padding:0.2rem 0.6rem;font-size:0.7rem;margin:0;border:none;border-radius:0;background:transparent;color:var(--text-muted)" onclick="setAttachmentViewMode('raw')">Raw</button>
+        </div>
+        <button type="button" class="btn btn-action-sm" onclick="copyAttachmentContent()">Salin</button>
+        <button type="button" class="btn btn-action-sm" onclick="downloadAttachmentContent()">Download</button>
+        <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeAttachmentViewerModal()">✕</button>
+      </div>
+    </div>
+    <div id="attachment-viewer-container" style="flex:1;overflow-y:auto;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;padding:0.85rem;min-height:200px">
+      <div id="attachment-viewer-preview" class="markdown-body" style="display:block"></div>
+      <pre id="attachment-viewer-raw" class="logbox" style="display:none;margin:0;white-space:pre-wrap;font-size:0.75rem;max-height:none"></pre>
     </div>
   </div>
 </div>
@@ -1717,6 +1989,207 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 var AVAILABLE_MODELS = {available_models_json};
 var currentAuxTask = '';
 var currentFallbackIndex = null;
+
+function escapeMdHtml(s){{
+  return s.replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+}}
+
+function inlineFmt(s){{
+  s = s.replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:|\/|#)[^\s"'<>]+)\)/gi, function(_, t, u){{
+    return '<a href="' + u + '" target="_blank" rel="noopener noreferrer" class="md-link">' + t + '</a>';
+  }});
+  s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+  s = s.replace(/___([^_]+)___/g, '<strong><em>$1</em></strong>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  s = s.replace(/(^|[^\w])_([^_]+)_(?=[^\w]|$)/g, '$1<em>$2</em>');
+  s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  return s;
+}}
+
+function renderMarkdown(text){{
+  if(!text) return '';
+  var rawLines = String(text).split(String.fromCharCode(13)).join('').split(String.fromCharCode(10));
+  var out = [];
+  var i = 0;
+  var n = rawLines.length;
+
+  function parseInline(s){{
+    var inlines = [];
+    s = s.replace(/`([^`]+)`/g, function(_, c){{
+      var idx = inlines.length;
+      inlines.push('<code class="md-inline-code">' + escapeMdHtml(c) + '</code>');
+      return '\x00INL_' + idx + '\x00';
+    }});
+    s = escapeMdHtml(s);
+    s = inlineFmt(s);
+    for(var k = 0; k < inlines.length; k++){{
+      s = s.replace('\x00INL_' + k + '\x00', inlines[k]);
+    }}
+    return s;
+  }}
+
+  while(i < n){{
+    var line = rawLines[i];
+    var stripped = line.trim();
+
+    if(!stripped){{
+      i++;
+      continue;
+    }}
+
+    if(stripped.indexOf('```') === 0){{
+      var lang = stripped.substring(3).trim();
+      var codeLines = [];
+      i++;
+      while(i < n && rawLines[i].trim().indexOf('```') !== 0){{
+        codeLines.push(rawLines[i]);
+        i++;
+      }}
+      if(i < n && rawLines[i].trim().indexOf('```') === 0){{
+        i++;
+      }}
+      var escCode = escapeMdHtml(codeLines.join(String.fromCharCode(10)));
+      var header = '<div class="md-code-header"><span>' + (lang || 'code') + '</span><button type="button" class="btn-copy-code" onclick="copyCodeBlock(this)">Salin</button></div>';
+      out.push('<div class="md-code-wrap">' + header + '<pre class="md-code-block"><code>' + escCode + '</code></pre></div>');
+      continue;
+    }}
+
+    if(/^(--[-]+|\*\*\*[\*]+|__[_]+)$/.test(stripped)){{
+      out.push('<hr class="md-hr">');
+      i++;
+      continue;
+    }}
+
+    var hm = line.match(/^(#|##|###|####|#####|######)\s+(.*)$/);
+    if(hm){{
+      var lvl = hm[1].length;
+      out.push('<h' + lvl + ' class="md-h md-h' + lvl + '">' + parseInline(hm[2].trim()) + '</h' + lvl + '>');
+      i++;
+      continue;
+    }}
+
+    if(stripped.indexOf('&gt;') === 0 || stripped.indexOf('>') === 0){{
+      var qLines = [];
+      while(i < n){{
+        var cur = rawLines[i].trim();
+        if(cur.indexOf('&gt;') === 0){{
+          qLines.push(cur.substring(4).trim());
+          i++;
+        }} else if(cur.indexOf('>') === 0){{
+          qLines.push(cur.substring(1).trim());
+          i++;
+        }} else {{
+          break;
+        }}
+      }}
+      out.push('<blockquote class="md-quote">' + qLines.map(parseInline).join('<br>') + '</blockquote>');
+      continue;
+    }}
+
+    if(line.indexOf('|') !== -1 && i + 1 < n && /^\s*\|?\s*:?-+:?\s*(\|?\s*:?-+:?\s*)+\|?\s*$/.test(rawLines[i + 1])){{
+      var headerLine = line;
+      var sepLine = rawLines[i + 1];
+      i += 2;
+
+      function parseCells(rowStr){{
+        rowStr = rowStr.trim();
+        if(rowStr.charAt(0) === '|') rowStr = rowStr.substring(1);
+        if(rowStr.charAt(rowStr.length - 1) === '|') rowStr = rowStr.substring(0, rowStr.length - 1);
+        return rowStr.split('|').map(function(c){{ return c.trim(); }});
+      }}
+
+      var headers = parseCells(headerLine);
+      var seps = parseCells(sepLine);
+      var aligns = seps.map(function(s){{
+        var left = s.charAt(0) === ':';
+        var right = s.charAt(s.length - 1) === ':';
+        if(left && right) return 'center';
+        if(right) return 'right';
+        if(left) return 'left';
+        return '';
+      }});
+
+      var ths = headers.map(function(h, idx){{
+        var al = aligns[idx] ? ' style="text-align:' + aligns[idx] + '"' : '';
+        return '<th' + al + '>' + parseInline(h) + '</th>';
+      }}).join('');
+      var thead = '<thead><tr>' + ths + '</tr></thead>';
+
+      var tbRows = [];
+      while(i < n && rawLines[i].indexOf('|') !== -1){{
+        var cells = parseCells(rawLines[i]);
+        var tds = cells.map(function(c, idx){{
+          var al = aligns[idx] ? ' style="text-align:' + aligns[idx] + '"' : '';
+          return '<td' + al + '>' + parseInline(c) + '</td>';
+        }}).join('');
+        tbRows.push('<tr>' + tds + '</tr>');
+        i++;
+      }}
+      var tbody = '<tbody>' + tbRows.join('') + '</tbody>';
+      out.push('<div class="md-table-wrap"><table class="md-table">' + thead + tbody + '</table></div>');
+      continue;
+    }}
+
+    var isUl = /^[-*+]\s+/.test(stripped);
+    var isOl = /^\d+\.\s+/.test(stripped);
+    if(isUl || isOl){{
+      var tag = isOl ? 'ol' : 'ul';
+      var items = [];
+      while(i < n){{
+        var cur = rawLines[i].trim();
+        if(!cur) break;
+        var lm = isOl ? cur.match(/^\d+\.\s+(.*)$/) : cur.match(/^[-*+]\s+(.*)$/);
+        if(lm){{
+          items.push('<li>' + parseInline(lm[1].trim()) + '</li>');
+          i++;
+        }} else {{
+          break;
+        }}
+      }}
+      out.push('<' + tag + ' class="md-list">' + items.join('') + '</' + tag + '>');
+      continue;
+    }}
+
+    var pLines = [];
+    while(i < n){{
+      var cur = rawLines[i].trim();
+      if(!cur || cur.charAt(0) === '#' || cur.indexOf('&gt;') === 0 || cur.indexOf('>') === 0 || cur.indexOf('```') === 0){{
+        break;
+      }}
+      if(/^(--[-]+|\*\*\*[\*]+|__[_]+)$/.test(cur)) break;
+      if(rawLines[i].indexOf('|') !== -1 && i + 1 < n && /^\s*\|?\s*:?-+:?\s*(\|?\s*:?-+:?\s*)+\|?\s*$/.test(rawLines[i + 1])) break;
+      if(/^[-*+]\s+/.test(cur) || /^\d+\.\s+/.test(cur)) break;
+      pLines.push(cur);
+      i++;
+    }}
+    if(pLines.length > 0){{
+      out.push('<p>' + pLines.map(parseInline).join('<br>') + '</p>');
+    }}
+  }}
+
+  return out.join(String.fromCharCode(10));
+}}
+
+function copyCodeBlock(btn){{
+  var wrap = btn.closest('.md-code-wrap');
+  if(!wrap) return;
+  var codeEl = wrap.querySelector('pre code');
+  if(!codeEl) return;
+  navigator.clipboard.writeText(codeEl.textContent).then(function(){{
+    var orig = btn.textContent;
+    btn.textContent = 'Tersalin!';
+    setTimeout(function(){{ btn.textContent = orig; }}, 1500);
+  }}).catch(function(){{
+    alert('Gagal menyalin kode');
+  }});
+}}
+
 
 function ensureAvailableModels(callback){{
   var hasAny = false;
@@ -2323,17 +2796,55 @@ function toggleProfileSkill(skill, enable){{
   .catch(function(err){{ alert('Error: ' + err); }});
 }}
 
+var currentProfileSkillRaw = '';
+var currentProfileSkillMode = 'preview';
+
+function toggleProfileSkillView(){{
+  var b = document.getElementById('profile-skill-read-body');
+  var btn = document.getElementById('profile-skill-toggle-btn');
+  if(!b) return;
+  if(currentProfileSkillMode === 'preview'){{
+    currentProfileSkillMode = 'raw';
+    if(btn) btn.textContent = 'Preview';
+    b.className = 'logbox';
+    b.style.whiteSpace = 'pre-wrap';
+    b.textContent = currentProfileSkillRaw;
+  }} else {{
+    currentProfileSkillMode = 'preview';
+    if(btn) btn.textContent = 'Raw';
+    b.className = 'markdown-body';
+    b.style.whiteSpace = 'normal';
+    b.innerHTML = renderMarkdown(currentProfileSkillRaw);
+  }}
+}}
+
 function readProfileSkill(skill){{
   var box = document.getElementById('profile-skill-read');
   var t = document.getElementById('profile-skill-read-title');
   var b = document.getElementById('profile-skill-read-body');
+  var btn = document.getElementById('profile-skill-toggle-btn');
+  currentProfileSkillMode = 'preview';
+  if(btn) btn.textContent = 'Raw';
   if(t) t.textContent = skill;
-  if(b) b.textContent = 'Memuat...';
+  if(b){{
+    b.className = 'markdown-body';
+    b.style.whiteSpace = 'normal';
+    b.innerHTML = '<span style="color:var(--text-dim)">Memuat...</span>';
+  }}
   if(box) box.style.display = 'flex';
   fetch('/api/profile-skill?profile=' + encodeURIComponent(currentSkillsProfile) + '&skill=' + encodeURIComponent(skill))
     .then(function(r){{ return r.json(); }})
     .then(function(res){{
-      if(b) b.textContent = (res && res.ok) ? res.content : ('Gagal: ' + ((res && res.error) || 'unknown'));
+      if(b){{
+        if(res && res.ok){{
+          currentProfileSkillRaw = res.content || '';
+          b.className = 'markdown-body';
+          b.style.whiteSpace = 'normal';
+          b.innerHTML = renderMarkdown(res.content);
+        }} else {{
+          b.textContent = 'Gagal: ' + ((res && res.error) || 'unknown');
+        }}
+      }}
     }})
     .catch(function(err){{ if(b) b.textContent = 'Error: ' + err; }});
 }}
@@ -3068,7 +3579,14 @@ function openViewTaskModal(taskId){{
       var t = res.task;
       document.getElementById('view-task-id').textContent = t.id;
       document.getElementById('view-task-title').textContent = t.title;
-      document.getElementById('view-task-body').textContent = t.body || '(Tidak ada deskripsi)';
+      var bodyEl = document.getElementById('view-task-body');
+      if(bodyEl){{
+        if(t.body && t.body.trim()){{
+          bodyEl.innerHTML = renderMarkdown(t.body);
+        }} else {{
+          bodyEl.innerHTML = '<span style="color:var(--text-dim);font-style:italic">(Tidak ada deskripsi)</span>';
+        }}
+      }}
       var st = KANBAN_COLS.some(function(c){{ return c.id === t.status; }}) ? t.status : 'todo';
       document.getElementById('view-task-move-status').value = st;
 
@@ -3132,7 +3650,7 @@ function openViewTaskModal(taskId){{
       }}
       if(outWrap && outEl){{
         if(outText){{
-          outEl.textContent = outText;
+          outEl.innerHTML = renderMarkdown(outText);
           outWrap.style.display = 'block';
         }} else {{
           outWrap.style.display = 'none';
@@ -3170,8 +3688,9 @@ function openViewTaskModal(taskId){{
             var bodyTxt = (r.summary || '').trim();
             if(bodyTxt){{
               var bd = document.createElement('div');
-              bd.style.cssText = 'white-space:pre-wrap;line-height:1.45';
-              bd.textContent = bodyTxt;
+              bd.className = 'markdown-body';
+              bd.style.cssText = 'line-height:1.45';
+              bd.innerHTML = renderMarkdown(bodyTxt);
               item.appendChild(bd);
             }}
             if(r.error){{
@@ -3211,7 +3730,7 @@ function openViewTaskModal(taskId){{
             btn.className = 'btn btn-on';
             btn.style.cssText = 'width:auto;min-height:26px;padding:0.15rem 0.55rem;font-size:0.7rem;margin:0';
             btn.textContent = 'Lihat';
-            btn.onclick = function(){{ openKanbanAttachment(a.id); }};
+            btn.onclick = function(){{ openKanbanAttachment(a.id, a.filename); }};
             row.appendChild(nm);
             row.appendChild(sz);
             row.appendChild(btn);
@@ -3263,11 +3782,95 @@ function formatKanbanBytes(n){{
   return (n/(1024*1024)).toFixed(1) + ' MB';
 }}
 
-function openKanbanAttachment(aid){{
+var currentAttachmentText = '';
+var currentAttachmentFilename = '';
+var currentAttachmentUrl = '';
+var currentAttachmentMode = 'preview';
+
+function openKanbanAttachment(aid, filename){{
   if(!aid) return;
   var bSel = document.getElementById('kanban-board-select');
   var board = bSel ? bSel.value : '';
-  window.open('/api/kanban/attachment?id=' + encodeURIComponent(aid) + '&board=' + encodeURIComponent(board), '_blank');
+  var url = '/api/kanban/attachment?id=' + encodeURIComponent(aid) + '&board=' + encodeURIComponent(board);
+  currentAttachmentUrl = url;
+  currentAttachmentFilename = filename || ('attachment_' + aid);
+
+  var isMd = /\.(md|markdown|mdown|mkd)$/i.test(currentAttachmentFilename);
+  var isTxt = /\.(txt|log|json|yaml|yml|toml|py|sh|js|css|html|xml|csv)$/i.test(currentAttachmentFilename);
+
+  if(!isMd && !isTxt && /\.(png|jpe?g|gif|webp|svg|pdf|zip|tar|gz)$/i.test(currentAttachmentFilename)){{
+    window.open(url, '_blank');
+    return;
+  }}
+
+  var modal = document.getElementById('view-kanban-attachment-modal');
+  var fnEl = document.getElementById('attachment-viewer-filename');
+  var prevEl = document.getElementById('attachment-viewer-preview');
+  var rawEl = document.getElementById('attachment-viewer-raw');
+  if(fnEl) fnEl.textContent = currentAttachmentFilename;
+  if(prevEl) prevEl.innerHTML = '<span style="color:var(--text-dim)">Memuat...</span>';
+  if(rawEl) rawEl.textContent = 'Memuat...';
+  if(modal) modal.classList.add('show');
+
+  setAttachmentViewMode(isMd ? 'preview' : 'raw');
+
+  fetch(url)
+    .then(function(r){{
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    }})
+    .then(function(txt){{
+      currentAttachmentText = txt;
+      if(prevEl) prevEl.innerHTML = renderMarkdown(txt);
+      if(rawEl) rawEl.textContent = txt;
+    }})
+    .catch(function(err){{
+      if(prevEl) prevEl.innerHTML = '<span style="color:var(--danger)">Gagal memuat lampiran: ' + err.message + '</span>';
+      if(rawEl) rawEl.textContent = 'Gagal memuat lampiran: ' + err.message;
+    }});
+}}
+
+function setAttachmentViewMode(mode){{
+  currentAttachmentMode = mode;
+  var btnPrev = document.getElementById('att-btn-preview');
+  var btnRaw = document.getElementById('att-btn-raw');
+  var prevEl = document.getElementById('attachment-viewer-preview');
+  var rawEl = document.getElementById('attachment-viewer-raw');
+  if(mode === 'preview'){{
+    if(btnPrev){{ btnPrev.style.background = 'var(--accent)'; btnPrev.style.color = '#fff'; }}
+    if(btnRaw){{ btnRaw.style.background = 'transparent'; btnRaw.style.color = 'var(--text-muted)'; }}
+    if(prevEl) prevEl.style.display = 'block';
+    if(rawEl) rawEl.style.display = 'none';
+  }} else {{
+    if(btnPrev){{ btnPrev.style.background = 'transparent'; btnPrev.style.color = 'var(--text-muted)'; }}
+    if(btnRaw){{ btnRaw.style.background = 'var(--accent)'; btnRaw.style.color = '#fff'; }}
+    if(prevEl) prevEl.style.display = 'none';
+    if(rawEl) rawEl.style.display = 'block';
+  }}
+}}
+
+function copyAttachmentContent(){{
+  if(!currentAttachmentText) return;
+  navigator.clipboard.writeText(currentAttachmentText).then(function(){{
+    showKanbanToast('Isi lampiran berhasil disalin!');
+  }}).catch(function(){{
+    alert('Gagal menyalin isi lampiran');
+  }});
+}}
+
+function downloadAttachmentContent(){{
+  if(!currentAttachmentUrl) return;
+  var a = document.createElement('a');
+  a.href = currentAttachmentUrl + '&download=1';
+  a.download = currentAttachmentFilename || 'lampiran';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}}
+
+function closeAttachmentViewerModal(){{
+  var modal = document.getElementById('view-kanban-attachment-modal');
+  if(modal) modal.classList.remove('show');
 }}
 
 function closeViewTaskModal(){{
@@ -11883,8 +12486,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_file(self, path, filename: str, content_type: str):
-        """Serve one kanban attachment inline as text/plain.
+    def _send_file(self, path, filename: str, content_type: str, as_attachment: bool = False):
+        """Serve one kanban attachment inline (or download) as text/plain.
 
         Always text/plain + nosniff so a crafted HTML/SVG blob can never run
         script in the panel origin; the original name rides in the header only.
@@ -11895,10 +12498,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": "Lampiran tidak bisa dibaca"}, code=404)
             return
         safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", (filename or "lampiran").strip()) or "lampiran"
+        disposition = "attachment" if as_attachment else "inline"
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Content-Disposition", f'inline; filename="{safe_name}"')
+        self.send_header("Content-Disposition", f'{disposition}; filename="{safe_name}"')
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -12208,6 +12812,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/kanban/attachment":
             aid = (qs.get("id") or [""])[0]
             b = (qs.get("board") or [""])[0]
+            dl = bool((qs.get("download") or [""])[0])
             try:
                 aid_int = int(aid)
             except Exception:
@@ -12217,7 +12822,7 @@ class Handler(BaseHTTPRequestHandler):
             if not resolved:
                 self._send_json({"ok": False, "error": "Lampiran tidak ditemukan"}, code=404)
                 return
-            self._send_file(*resolved)
+            self._send_file(*resolved, as_attachment=dl)
             return
 
         if parsed.path == "/events":

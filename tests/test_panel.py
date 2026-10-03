@@ -2723,5 +2723,127 @@ class TestKanbanBoard(unittest.TestCase):
             self.assertEqual(att_root_valid, self.root / "kanban" / "boards" / "my-board" / "attachments")
 
 
+class TestMarkdownRenderingAndKanbanAttachments(unittest.TestCase):
+    """Unit tests for Rich Markdown rendering, Kanban attachment modal, and task/skill preview."""
+
+    def test_01_markdown_headings_and_inline_formatting(self):
+        for lvl in range(1, 7):
+            src = f"{'#' * lvl} Judul Tingkat {lvl}"
+            html = panel.render_markdown(src)
+            self.assertIn(f'<h{lvl} class="md-h md-h{lvl}">Judul Tingkat {lvl}</h{lvl}>', html)
+
+        # Bold, italic, strikethrough, inline code
+        src = "Teks **tebal**, __tebal2__, *miring*, _miring2_, ~~coret~~, dan `kode_inline()`."
+        html = panel.render_markdown(src)
+        self.assertIn("<strong>tebal</strong>", html)
+        self.assertIn("<strong>tebal2</strong>", html)
+        self.assertIn("<em>miring</em>", html)
+        self.assertIn("<em>miring2</em>", html)
+        self.assertIn("<del>coret</del>", html)
+        self.assertIn('<code class="md-inline-code">kode_inline()</code>', html)
+
+    def test_02_markdown_code_blocks_and_copy_button(self):
+        src = "```python\ndef test():\n    return '<safe>'\n```"
+        html = panel.render_markdown(src)
+        self.assertIn('class="md-code-wrap"', html)
+        self.assertIn('<span>python</span>', html)
+        self.assertIn('btn-copy-code', html)
+        self.assertIn('onclick="copyCodeBlock(this)"', html)
+        self.assertIn('class="md-code-block"', html)
+        self.assertIn('&lt;safe&gt;', html)
+        self.assertNotIn('<safe>', html)
+
+    def test_03_markdown_tables_with_alignment_and_responsive_wrap(self):
+        src = (
+            "| Kolom Kiri | Kolom Tengah | Kolom Kanan |\n"
+            "| :--- | :---: | ---: |\n"
+            "| Baris 1A | Baris 1B | 100 |\n"
+            "| Baris 2A | Baris 2B | 250 |"
+        )
+        html = panel.render_markdown(src)
+        self.assertIn('<div class="md-table-wrap">', html)
+        self.assertIn('<table class="md-table">', html)
+        self.assertIn('<thead><tr>', html)
+        self.assertIn('<th style="text-align:left">Kolom Kiri</th>', html)
+        self.assertIn('<th style="text-align:center">Kolom Tengah</th>', html)
+        self.assertIn('<th style="text-align:right">Kolom Kanan</th>', html)
+        self.assertIn('<tbody><tr>', html)
+        self.assertIn('<td style="text-align:left">Baris 1A</td>', html)
+        self.assertIn('<td style="text-align:center">Baris 1B</td>', html)
+        self.assertIn('<td style="text-align:right">100</td>', html)
+
+    def test_04_markdown_horizontal_rules_quotes_lists(self):
+        for hr_src in ("---", "***", "___", "----"):
+            html = panel.render_markdown(hr_src)
+            self.assertIn('<hr class="md-hr">', html)
+
+        # Blockquote
+        q_src = "> Kutipan baris 1\n> Kutipan baris 2"
+        q_html = panel.render_markdown(q_src)
+        self.assertIn('<blockquote class="md-quote">', q_html)
+        self.assertIn("Kutipan baris 1<br>Kutipan baris 2", q_html)
+
+        # Unordered and ordered lists
+        ul_src = "- Item A\n- Item B\n* Item C"
+        ul_html = panel.render_markdown(ul_src)
+        self.assertIn('<ul class="md-list">', ul_html)
+        self.assertIn('<li>Item A</li>', ul_html)
+        self.assertIn('<li>Item B</li>', ul_html)
+
+        ol_src = "1. Langkah satu\n2. Langkah dua"
+        ol_html = panel.render_markdown(ol_src)
+        self.assertIn('<ol class="md-list">', ol_html)
+        self.assertIn('<li>Langkah satu</li>', ol_html)
+        self.assertIn('<li>Langkah dua</li>', ol_html)
+
+    def test_05_markdown_links_and_xss_protection(self):
+        src = (
+            "Kunjungi [Hermes](https://hermes-agent.nousresearch.com) atau [Email](mailto:dev@test.com).\n"
+            "Tautan jahat: [XSS](javascript:alert(1)).\n"
+            "HTML mentah: <script>alert(2)</script><img src=x onerror=alert(3)>"
+        )
+        html = panel.render_markdown(src)
+        self.assertIn('<a href="https://hermes-agent.nousresearch.com" target="_blank" rel="noopener noreferrer" class="md-link">Hermes</a>', html)
+        self.assertIn('<a href="mailto:dev@test.com" target="_blank" rel="noopener noreferrer" class="md-link">Email</a>', html)
+        self.assertNotIn('href="javascript:', html)
+        self.assertNotIn('<script>', html)
+        self.assertIn('&lt;script&gt;', html)
+        self.assertNotIn('<img', html)
+        self.assertIn('&lt;img', html)
+
+    def test_06_attachment_viewer_modal_elements_in_page(self):
+        page = panel.PAGE
+        # Modal viewer container
+        self.assertIn('id="view-kanban-attachment-modal"', page)
+        self.assertIn('id="attachment-viewer-filename"', page)
+        self.assertIn('id="attachment-viewer-preview"', page)
+        self.assertIn('id="attachment-viewer-raw"', page)
+        self.assertIn('id="att-btn-preview"', page)
+        self.assertIn('id="att-btn-raw"', page)
+        # Function handlers
+        self.assertIn('openKanbanAttachment(', page)
+        self.assertIn('setAttachmentViewMode(', page)
+        self.assertIn('copyAttachmentContent()', page)
+        self.assertIn('downloadAttachmentContent()', page)
+        self.assertIn('closeAttachmentViewerModal()', page)
+
+    def test_07_task_and_skill_markdown_preview_in_page(self):
+        page = panel.PAGE
+        # Task view modal elements styled for rich markdown
+        self.assertIn('id="view-task-body" class="markdown-body"', page)
+        self.assertIn('id="view-task-output" class="markdown-body"', page)
+        # Skill reader preview element and toggle
+        self.assertIn('id="profile-skill-read-body" class="markdown-body"', page)
+        self.assertIn('id="profile-skill-toggle-btn"', page)
+        self.assertIn('toggleProfileSkillView()', page)
+
+        # openViewTaskModal applies renderMarkdown
+        js = page[page.index("function openViewTaskModal"):]
+        js = js[:js.index("function formatKanbanBytes")]
+        self.assertIn("renderMarkdown(t.body)", js)
+        self.assertIn("renderMarkdown(outText)", js)
+        self.assertIn("renderMarkdown(bodyTxt)", js)
+
+
 if __name__ == "__main__":
     unittest.main()
