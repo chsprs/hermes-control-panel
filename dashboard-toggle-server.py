@@ -9333,7 +9333,7 @@ def _profile_skill_tool_summary(name: str) -> tuple[int, object, str]:
     return skills_en, tools_en, tools_dis
 
 
-def render_profiles_block() -> str:
+def _render_profiles_block_uncached() -> str:
     """Render profile cards and active banner."""
     profiles = list_agent_profiles()
     active_name = get_active_profile_name()
@@ -9428,6 +9428,11 @@ def render_profiles_block() -> str:
 
     grid = f'<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(290px, 1fr));gap:0.85rem">{"".join(cards)}</div>'
     return banner + grid
+
+
+def render_profiles_block() -> str:
+    """Render profile cards and active banner (cached with TTL 3s)."""
+    return _ttl_cached("profiles_block", 3.0, _render_profiles_block_uncached)
 
 
 # --- Hermes Kanban Multi-Agent Board Management ---
@@ -10164,7 +10169,6 @@ def add_kanban_comment(task_id: str, body: str, author: str = "web-panel", board
 
 def get_kanban_config() -> dict:
     """Read kanban configuration block from ~/.hermes/config.yaml."""
-    cfg_path = Path(CONFIG_PATH)
     default_cfg = {
         "dispatch_in_gateway": True,
         "notify_in_gateway": True,
@@ -10178,13 +10182,11 @@ def get_kanban_config() -> dict:
         "default_assignee": ""
     }
     try:
-        if cfg_path.is_file():
-            with open(cfg_path, encoding="utf-8") as f:
-                c = yaml.safe_load(f) or {}
-            if isinstance(c, dict) and isinstance(c.get("kanban"), dict):
-                merged = dict(default_cfg)
-                merged.update(c["kanban"])
-                return merged
+        c = get_parsed_config()
+        if isinstance(c, dict) and isinstance(c.get("kanban"), dict):
+            merged = dict(default_cfg)
+            merged.update(c["kanban"])
+            return merged
     except Exception:
         pass
     return default_cfg
