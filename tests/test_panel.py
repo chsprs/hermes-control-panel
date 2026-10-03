@@ -1217,6 +1217,133 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
             self.assertIn("25 bug", body)
 
+    def test_72_dos_and_input_validation(self):
+        """SEC-DOS-01, SEC-DOS-02, SEC-VAL-01, SEC-VAL-02: DoS & input validation."""
+        import tempfile
+        from pathlib import Path
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+
+        # --- 1. SEC-DOS-01: Content-Length limit and 413 rejection ---
+        self.assertEqual(panel.MAX_BODY_SIZE, 5 * 1024 * 1024)
+        over_limit = str(panel.MAX_BODY_SIZE + 1024)
+        # JSON API route with excessive Content-Length -> 413 JSON response
+        code, _, body = self._request(
+            "/api/kanban/task/create",
+            method="POST",
+            headers={"Cookie": cookie, "Content-Length": over_limit, "Content-Type": "application/json"},
+            data=b"{}",
+        )
+        self.assertEqual(code, 413)
+        data = json.loads(body)
+        self.assertFalse(data.get("ok"))
+        self.assertIn("melebihi batas", data.get("error", ""))
+
+        # Non-JSON route with excessive Content-Length -> 413 HTML response
+        code, _, body = self._request(
+            "/login",
+            method="POST",
+            headers={"Content-Length": over_limit, "Content-Type": "application/x-www-form-urlencoded"},
+            data=b"password=foo",
+        )
+        self.assertEqual(code, 413)
+        self.assertIn("413", body)
+
+        # --- 2. SEC-DOS-02: Query parameter n clamped on log endpoints ---
+        with mock.patch.object(panel, "tail_gateway_log", return_value="gw log line") as m_gw:
+            code, _, _ = self._request("/api/gateway-log?n=5000", headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+            m_gw.assert_called_with(n=1000)
+
+            code, _, _ = self._request("/api/gateway-log?n=-10", headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+            m_gw.assert_called_with(n=1)
+
+            code, _, _ = self._request("/api/gateway-log?n=0", headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+            m_gw.assert_called_with(n=1)
+
+            code, _, _ = self._request("/api/gateway-log?n=invalid", headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+            m_gw.assert_called_with(n=100)
+
+        with mock.patch.object(panel, "tail_whatsapp_bridge_log", return_value="wa log line") as m_wa:
+            code, _, _ = self._request("/api/whatsapp-log?n=99999", headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+            m_wa.assert_called_with(n=1000)
+
+            code, _, _ = self._request("/api/whatsapp-log?n=-5", headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+            m_wa.assert_called_with(n=1)
+
+        # --- 3. SEC-VAL-01: Non-integer priority handled cleanly ---
+        tmpdir = tempfile.mkdtemp(prefix="panel-val-http-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmpdir, ignore_errors=True))
+        cfg = str(Path(tmpdir) / "config.yaml")
+        Path(cfg).write_text("model:\n  default: test-model\n", encoding="utf-8")
+
+        with mock.patch.object(panel, "CONFIG_PATH", cfg):
+            # Create task with string priority 'urgent' -> default to 0, not 500
+            payload = json.dumps({"title": "Val Priority Task", "priority": "urgent"}).encode("utf-8")
+            code, _, body = self._request(
+                "/api/kanban/task/create",
+                method="POST",
+                headers={"Cookie": cookie, "Content-Type": "application/json"},
+                data=payload,
+            )
+            self.assertEqual(code, 200)
+            res = json.loads(body)
+            self.assertTrue(res.get("ok"))
+            tid = res["task_id"]
+            task = panel.get_kanban_task(tid)
+            self.assertEqual(task["priority"], 0)
+
+            # Update task with string priority 'high' -> default to 0
+            update_payload = json.dumps({"task_id": tid, "priority": "high"}).encode("utf-8")
+            code, _, body = self._request(
+                "/api/kanban/task/update",
+                method="POST",
+                headers={"Cookie": cookie, "Content-Type": "application/json"},
+                data=update_payload,
+            )
+            self.assertEqual(code, 200)
+            task = panel.get_kanban_task(tid)
+            self.assertEqual(task["priority"], 0)
+
+            # Update task with valid numeric string '3' -> sets priority to 3
+            update_payload2 = json.dumps({"task_id": tid, "priority": "3"}).encode("utf-8")
+            code, _, body = self._request(
+                "/api/kanban/task/update",
+                method="POST",
+                headers={"Cookie": cookie, "Content-Type": "application/json"},
+                data=update_payload2,
+            )
+            self.assertEqual(code, 200)
+            task = panel.get_kanban_task(tid)
+            self.assertEqual(task["priority"], 3)
+
+            # Direct function calls with non-integer priority
+            ok, _, tid_direct = panel.create_kanban_task(title="Direct Priority", priority="invalid_priority")
+            self.assertTrue(ok)
+            task_dir = panel.get_kanban_task(tid_direct)
+            self.assertEqual(task_dir["priority"], 0)
+
+            ok, _ = panel.update_kanban_task(tid_direct, priority="not_a_number")
+            self.assertTrue(ok)
+            task_dir = panel.get_kanban_task(tid_direct)
+            self.assertEqual(task_dir["priority"], 0)
+
+        # --- 4. SEC-VAL-02: Validate task parameter in set_aux_task_model ---
+        # Invalid task keys must be rejected
+        self.assertFalse(panel.set_aux_task_model("unknown_task_foo", "auto", ""))
+        self.assertFalse(panel.set_aux_task_model("../bad_task", "auto", ""))
+        self.assertFalse(panel.set_aux_task_model("", "auto", ""))
+        self.assertFalse(panel.set_aux_task_model(None, "auto", ""))
+
+        # Valid task keys in AUX_TASK_DEFINITIONS and delegation must be accepted
+        with mock.patch.object(panel, "CONFIG_PATH", cfg):
+            self.assertTrue(panel.set_aux_task_model("vision", "auto", ""))
+            self.assertTrue(panel.set_aux_task_model("delegation", "openrouter", "gpt-4o"))
+
 
 class TestGatewayConfigSync(unittest.TestCase):
     """Panel edits must land where Hermes' gateway loader actually reads them.

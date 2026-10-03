@@ -149,6 +149,7 @@ MUTATING_PATHS = frozenset({
     "/api/kanban/task/status", "/api/kanban/task/delete",
     "/api/kanban/task/reclaim", "/api/kanban/task/comment",
 })
+MAX_BODY_SIZE = 5 * 1024 * 1024  # 5 MB max POST body (SEC-DOS-01)
 LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off"})
 ROUTER_URL = "http://{host}:20128/"
 INFO_TIMEOUT = 2.0  # seconds — every live check below is capped at this
@@ -5464,6 +5465,10 @@ WHATSAPP_LOG_PATHS = [
 
 
 def tail_whatsapp_bridge_log(n: int = 60) -> str:
+    try:
+        n = max(1, min(int(n), 1000))
+    except (ValueError, TypeError):
+        n = 60
     for p in WHATSAPP_LOG_PATHS:
         if os.path.exists(p) and os.path.getsize(p) > 0:
             try:
@@ -5758,6 +5763,10 @@ def redact_sensitive_tokens(text: str) -> str:
 
 
 def tail_gateway_log(n: int = 60) -> str:
+    try:
+        n = max(1, min(int(n), 1000))
+    except (ValueError, TypeError):
+        n = 60
     for p in GATEWAY_LOG_PATHS:
         if os.path.exists(p) and os.path.getsize(p) > 0:
             try:
@@ -7555,6 +7564,10 @@ def get_aux_tasks_config() -> list[dict]:
 
 def set_aux_task_model(task: str, provider: str, model: str) -> bool:
     """Set provider/model for a specific auxiliary task in config.yaml."""
+    allowed_tasks = {t[0] for t in AUX_TASK_DEFINITIONS} | {"delegation"}
+    if not task or task not in allowed_tasks:
+        sys.stderr.write(f"[panel] set_aux_task_model invalid task: {task}\n")
+        return False
     try:
         with open(CONFIG_PATH, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
@@ -9169,6 +9182,10 @@ def create_kanban_task(
 
     task_id = "t_" + secrets.token_hex(4)
     now = int(time.time())
+    try:
+        pri_val = int(priority)
+    except (ValueError, TypeError):
+        pri_val = 0
 
     db_path = get_kanban_db_path(board)
     try:
@@ -9180,7 +9197,7 @@ def create_kanban_task(
                     started_at, completed_at, model_override, skills
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                task_id, title, body or None, assignee, status, int(priority), "web-panel", now,
+                task_id, title, body or None, assignee, status, pri_val, "web-panel", now,
                 now if status == "running" else None,
                 now if status == "done" else None,
                 model_override,
@@ -9281,8 +9298,12 @@ def update_kanban_task(
                 fields.append("assignee = ?")
                 vals.append(assignee.strip().lower() or None)
             if priority is not None:
+                try:
+                    pri_val = int(priority)
+                except (ValueError, TypeError):
+                    pri_val = 0
                 fields.append("priority = ?")
-                vals.append(int(priority))
+                vals.append(pri_val)
             if model_override is not None:
                 fields.append("model_override = ?")
                 vals.append(model_override.strip() or None)
@@ -11915,6 +11936,15 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = 0
+        if length < 0:
+            length = 0
+        if length > MAX_BODY_SIZE:
+            is_json_client = parsed.path.startswith("/api/") or "application/json" in self.headers.get("Accept", "") or "application/json" in self.headers.get("Content-Type", "")
+            if is_json_client:
+                self._send_json({"ok": False, "error": "Ukuran payload melebihi batas (maks 5MB)"}, code=413)
+            else:
+                self._send_html("<h1>413 — Payload Too Large</h1>", 413)
+            return
         json_data = {}
         body_qs = {}
         if length > 0:
@@ -12083,6 +12113,7 @@ class Handler(BaseHTTPRequestHandler):
                 n = int((qs.get("n") or ["100"])[0])
             except Exception:
                 n = 100
+            n = max(1, min(n, 1000))
             raw_log = tail_gateway_log(n=n)
             self._send_json({"ok": True, "log": redact_sensitive_tokens(raw_log)})
             return
@@ -12093,6 +12124,7 @@ class Handler(BaseHTTPRequestHandler):
                 n = int((qs.get("n") or ["100"])[0])
             except Exception:
                 n = 100
+            n = max(1, min(n, 1000))
             raw_log = tail_whatsapp_bridge_log(n=n)
             self._send_json({"ok": True, "log": redact_sensitive_tokens(raw_log)})
             return
@@ -12426,7 +12458,11 @@ class Handler(BaseHTTPRequestHandler):
             title = str(json_data.get("title") or (qs.get("title") or [""])[0]).strip()
             body = str(json_data.get("body") or (qs.get("body") or [""])[0]).strip()
             assignee = str(json_data.get("assignee") or (qs.get("assignee") or [""])[0]).strip()
-            priority = int(json_data.get("priority") if "priority" in json_data else (qs.get("priority") or [0])[0])
+            raw_priority = json_data.get("priority") if "priority" in json_data else (qs.get("priority") or [0])[0]
+            try:
+                priority = int(raw_priority)
+            except (ValueError, TypeError):
+                priority = 0
             status = str(json_data.get("status") or (qs.get("status") or ["todo"])[0]).strip()
             board = str(json_data.get("board") or (qs.get("board") or [""])[0]).strip()
             model = str(json_data.get("model_override") or (qs.get("model_override") or [""])[0]).strip()
@@ -12449,7 +12485,14 @@ class Handler(BaseHTTPRequestHandler):
             title = json_data.get("title")
             body = json_data.get("body")
             assignee = json_data.get("assignee")
-            priority = json_data.get("priority")
+            raw_priority = json_data.get("priority") if "priority" in json_data else (qs.get("priority")[0] if "priority" in qs and qs.get("priority") else None)
+            if raw_priority is not None:
+                try:
+                    priority = int(raw_priority)
+                except (ValueError, TypeError):
+                    priority = 0
+            else:
+                priority = None
             model = json_data.get("model_override")
             board = str(json_data.get("board") or (qs.get("board") or [""])[0]).strip()
             ok, msg = update_kanban_task(tid, title=title, body=body, assignee=assignee, priority=priority, model_override=model, board=board)
