@@ -1344,6 +1344,172 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertTrue(panel.set_aux_task_model("vision", "auto", ""))
             self.assertTrue(panel.set_aux_task_model("delegation", "openrouter", "gpt-4o"))
 
+    def test_73_race_concurrency_and_hardening(self):
+        """SEC-RACE-01, SEC-RACE-02, SEC-CSRF-02, SEC-RACE-03: concurrency and hardening."""
+        import tempfile
+        import threading
+        from pathlib import Path
+
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        tmpdir = tempfile.mkdtemp(prefix="panel-race-http-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmpdir, ignore_errors=True))
+        cfg_file = str(Path(tmpdir) / "config.yaml")
+        Path(cfg_file).write_text("model:\n  default: base-model\nplatforms:\n  telegram:\n    enabled: true\n", encoding="utf-8")
+
+        # --- 1. SEC-RACE-01: _config_write_lock is RLock and protects read-modify-write ---
+        self.assertIsInstance(panel._config_write_lock, type(threading.RLock()))
+        # Verify reentrancy
+        with panel._config_write_lock:
+            with panel._config_write_lock:
+                pass
+
+        with mock.patch.object(panel, "CONFIG_PATH", cfg_file):
+            lock_held_during_save = False
+
+            orig_read = panel._read_config_for_write
+            def probe_read():
+                nonlocal lock_held_during_save
+                probe_thread_acquired = False
+                def probe_lock():
+                    nonlocal probe_thread_acquired
+                    probe_thread_acquired = panel._config_write_lock.acquire(blocking=False)
+                    if probe_thread_acquired:
+                        panel._config_write_lock.release()
+                t = threading.Thread(target=probe_lock)
+                t.start()
+                t.join()
+                lock_held_during_save = not probe_thread_acquired
+                return orig_read()
+
+            with mock.patch.object(panel, "_read_config_for_write", side_effect=probe_read):
+                ok, err = panel.save_gateway_platform_config("telegram", "enabled: false\n")
+                self.assertTrue(ok)
+                self.assertTrue(lock_held_during_save, "_config_write_lock must be held during read-modify-write")
+
+            # Concurrent modifications through save_kanban_config
+            errors = []
+            def update_kb(val):
+                try:
+                    res, _ = panel.save_kanban_config({"dispatch_interval_seconds": val})
+                    if not res:
+                        errors.append("save_kanban_config failed")
+                except Exception as e:
+                    errors.append(str(e))
+
+            threads = [threading.Thread(target=update_kb, args=(i,)) for i in range(10, 25)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            self.assertEqual(errors, [])
+            kb = panel.get_kanban_config()
+            self.assertIn(kb.get("dispatch_interval_seconds"), range(10, 25))
+
+        # --- 2. SEC-RACE-02: Double-invocation prevention in run_hermes_update ---
+        with mock.patch.object(panel, "_hermes_update_lock") as mock_lock:
+            real_lock = threading.Lock()
+            check_inside_lock = False
+            def mock_enter():
+                real_lock.acquire()
+                return real_lock
+            def mock_exit(*args):
+                real_lock.release()
+            mock_lock.__enter__.side_effect = mock_enter
+            mock_lock.__exit__.side_effect = mock_exit
+
+            def mock_is_updating():
+                nonlocal check_inside_lock
+                check_inside_lock = real_lock.locked()
+                return True
+
+            with mock.patch.object(panel, "is_hermes_updating", side_effect=mock_is_updating):
+                panel.run_hermes_update()
+                self.assertTrue(check_inside_lock, "is_hermes_updating must be checked under _hermes_update_lock")
+
+        # Second call returns immediately without starting thread when updating
+        panel._hermes_update_running = True
+        try:
+            with mock.patch("threading.Thread") as mock_thread:
+                panel.run_hermes_update()
+                mock_thread.assert_not_called()
+        finally:
+            panel._hermes_update_running = False
+
+        # --- 3. SEC-CSRF-02: /api/kanban/config registered in MUTATING_PATHS ---
+        self.assertIn("/api/kanban/config", panel.MUTATING_PATHS)
+
+        with mock.patch.object(panel, "CONFIG_PATH", cfg_file):
+            # GET /api/kanban/config with auth returns 200 and config
+            code, _, body = self._request("/api/kanban/config", method="GET", headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+            data = json.loads(body)
+            self.assertTrue(data.get("ok"))
+            self.assertIn("config", data)
+
+            # POST /api/kanban/config with auth mutates config
+            payload = json.dumps({"dispatch_interval_seconds": 120}).encode("utf-8")
+            code, _, body = self._request(
+                "/api/kanban/config",
+                method="POST",
+                headers={"Cookie": cookie, "Content-Type": "application/json"},
+                data=payload,
+            )
+            self.assertEqual(code, 200)
+            res = json.loads(body)
+            self.assertTrue(res.get("ok"))
+            self.assertEqual(res.get("config", {}).get("dispatch_interval_seconds"), 120)
+
+            # POST without auth returns 403
+            code, _, _ = self._request(
+                "/api/kanban/config",
+                method="POST",
+                headers={"Content-Type": "application/json"},
+                data=payload,
+            )
+            self.assertEqual(code, 403)
+
+        # --- 4. SEC-RACE-03: cleanup_system_junk filters scratch files > 24h ---
+        scratch_dir = Path(tmpdir) / "scratch"
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        recent_file = scratch_dir / "active_worker.tmp"
+        old_file = scratch_dir / "stale_junk.tmp"
+        recent_file.write_text("active task in-flight", encoding="utf-8")
+        old_file.write_text("old task artifact", encoding="utf-8")
+
+        now = time.time()
+        os.utime(str(recent_file), (now - 1800, now - 1800))  # 30m old (<= 24h)
+        os.utime(str(old_file), (now - 100000, now - 100000))  # ~27.7h old (> 24h)
+
+        orig_walk = os.walk
+        orig_exists = os.path.exists
+        scratch_target = "/DATA/AppData/hermes-native/hermes-data/cache/scratch"
+
+        def mock_exists(p):
+            if p == scratch_target:
+                return True
+            return orig_exists(p)
+
+        def mock_walk(top, *args, **kwargs):
+            if top == scratch_target:
+                return [(str(scratch_dir), [], ["active_worker.tmp", "stale_junk.tmp"])]
+            return orig_walk(top, *args, **kwargs)
+
+        with mock.patch("os.path.exists", side_effect=mock_exists), \
+             mock.patch("os.walk", side_effect=mock_walk), \
+             mock.patch("subprocess.run") as m_subproc, \
+             mock.patch.object(panel, "glob") as m_glob:
+            m_glob.glob.return_value = []
+            m_subproc.return_value = mock.MagicMock(stdout="prune ok")
+
+            res = panel.cleanup_system_junk()
+            self.assertIsInstance(res, dict)
+            self.assertIn("freed_human", res)
+
+            # Active file must survive (age <= 24h)
+            self.assertTrue(recent_file.exists(), "Active scratch file (<= 24h) must NOT be deleted")
+            # Old junk must be deleted (age > 24h)
+            self.assertFalse(old_file.exists(), "Old scratch file (> 24h) MUST be deleted")
+
 
 class TestGatewayConfigSync(unittest.TestCase):
     """Panel edits must land where Hermes' gateway loader actually reads them.

@@ -148,6 +148,7 @@ MUTATING_PATHS = frozenset({
     "/api/kanban/task/create", "/api/kanban/task/update",
     "/api/kanban/task/status", "/api/kanban/task/delete",
     "/api/kanban/task/reclaim", "/api/kanban/task/comment",
+    "/api/kanban/config",
 })
 MAX_BODY_SIZE = 5 * 1024 * 1024  # 5 MB max POST body (SEC-DOS-01)
 LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off"})
@@ -236,7 +237,7 @@ CLEAN_JUNK_JSON = "/root/.hermes/logs/clean-junk.json"
 CLEAN_JUNK_LOG = "/root/.hermes/logs/clean-junk.log"
 _clean_junk_result = {"status": "idle", "freed_bytes": 0, "freed_human": "0 B", "freed_mb": 0.0, "files_count": 0, "log": "", "at": 0.0}
 _clean_junk_lock = threading.Lock()
-_config_write_lock = threading.Lock()
+_config_write_lock = threading.RLock()
 _env_write_lock = threading.Lock()
 
 # --- icons ---
@@ -6234,32 +6235,33 @@ def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override:
     if not re.match(r"^[a-z0-9_-]+$", platform):
         return False, "Nama platform hanya boleh berisi huruf kecil, angka, garis bawah (_), dan tanda hubung (-)."
 
-    try:
-        cfg = _read_config_for_write()
-    except Exception as e:
-        return False, f"Gagal membaca config.yaml: {e}"
+    with _config_write_lock:
+        try:
+            cfg = _read_config_for_write()
+        except Exception as e:
+            return False, f"Gagal membaca config.yaml: {e}"
 
-    block, err = _resolve_platform_block(cfg, platform, yaml_str, merge, base_yaml)
-    if block is None:
-        return False, err
+        block, err = _resolve_platform_block(cfg, platform, yaml_str, merge, base_yaml)
+        if block is None:
+            return False, err
 
-    if enabled_override is not None:
-        block["enabled"] = _to_bool(enabled_override)
-    elif "enabled" not in block:
-        block["enabled"] = True
+        if enabled_override is not None:
+            block["enabled"] = _to_bool(enabled_override)
+        elif "enabled" not in block:
+            block["enabled"] = True
 
-    violation = _open_policy_violation(cfg, platform, block)
-    if violation:
-        return False, violation
+        violation = _open_policy_violation(cfg, platform, block)
+        if violation:
+            return False, violation
 
-    try:
-        if platform == "whatsapp":
-            _sync_whatsapp_env(block)  # .env first: a failure here leaves config.yaml untouched
-        _set_platform_block(cfg, platform, block)
-        _write_config_atomic(cfg)
-        return True, ""
-    except Exception as e:
-        return False, f"Gagal menyimpan ke config.yaml: {e}"
+        try:
+            if platform == "whatsapp":
+                _sync_whatsapp_env(block)  # .env first: a failure here leaves config.yaml untouched
+            _set_platform_block(cfg, platform, block)
+            _write_config_atomic(cfg)
+            return True, ""
+        except Exception as e:
+            return False, f"Gagal menyimpan ke config.yaml: {e}"
 
 
 def toggle_gateway_platform_config(platform: str, enabled: bool) -> tuple[bool, str]:
@@ -6267,20 +6269,21 @@ def toggle_gateway_platform_config(platform: str, enabled: bool) -> tuple[bool, 
     platform = platform.strip().lower()
     if not platform or platform == "platforms":
         return False, "Nama platform tidak valid."
-    try:
-        cfg = _read_config_for_write()
-        block = _effective_platform_block(cfg, platform)
-        block["enabled"] = enabled
-        violation = _open_policy_violation(cfg, platform, block)
-        if violation:
-            return False, violation
-        if platform == "whatsapp":
-            _sync_whatsapp_env(block)  # .env first: a failure here leaves config.yaml untouched
-        _set_platform_block(cfg, platform, block)
-        _write_config_atomic(cfg)
-        return True, ""
-    except Exception as e:
-        return False, f"Gagal mengubah status: {e}"
+    with _config_write_lock:
+        try:
+            cfg = _read_config_for_write()
+            block = _effective_platform_block(cfg, platform)
+            block["enabled"] = enabled
+            violation = _open_policy_violation(cfg, platform, block)
+            if violation:
+                return False, violation
+            if platform == "whatsapp":
+                _sync_whatsapp_env(block)  # .env first: a failure here leaves config.yaml untouched
+            _set_platform_block(cfg, platform, block)
+            _write_config_atomic(cfg)
+            return True, ""
+        except Exception as e:
+            return False, f"Gagal mengubah status: {e}"
 
 
 def remove_gateway_platform_config(platform: str) -> tuple[bool, str]:
@@ -6288,24 +6291,25 @@ def remove_gateway_platform_config(platform: str) -> tuple[bool, str]:
     platform = platform.strip().lower()
     if not platform or platform == "platforms" or not re.match(r"^[a-z0-9_-]+$", platform):
         return False, "Nama platform tidak valid."
-    try:
-        cfg = _read_config_for_write()
-        platforms = cfg.get("platforms") if isinstance(cfg.get("platforms"), dict) else {}
-        found = False
-        if platform in platforms:
-            del platforms[platform]
-            found = True
-        if platform in LEGACY_GATEWAY_ROOT_KEYS and isinstance(cfg.get(platform), dict):
-            del cfg[platform]
-            found = True
-        if not found:
-            return False, f"Platform '{platform}' tidak ditemukan di config.yaml."
-        if platform == "whatsapp":
-            _sync_env_platform_flag("whatsapp", False, remove_vars=["WHATSAPP_ENABLED", "WHATSAPP_MODE", "WHATSAPP_DM_POLICY", "WHATSAPP_ALLOWED_USERS"])
-        _write_config_atomic(cfg)
-        return True, ""
-    except Exception as e:
-        return False, f"Gagal menghapus platform: {e}"
+    with _config_write_lock:
+        try:
+            cfg = _read_config_for_write()
+            platforms = cfg.get("platforms") if isinstance(cfg.get("platforms"), dict) else {}
+            found = False
+            if platform in platforms:
+                del platforms[platform]
+                found = True
+            if platform in LEGACY_GATEWAY_ROOT_KEYS and isinstance(cfg.get(platform), dict):
+                del cfg[platform]
+                found = True
+            if not found:
+                return False, f"Platform '{platform}' tidak ditemukan di config.yaml."
+            if platform == "whatsapp":
+                _sync_env_platform_flag("whatsapp", False, remove_vars=["WHATSAPP_ENABLED", "WHATSAPP_MODE", "WHATSAPP_DM_POLICY", "WHATSAPP_ALLOWED_USERS"])
+            _write_config_atomic(cfg)
+            return True, ""
+        except Exception as e:
+            return False, f"Gagal menghapus platform: {e}"
 
 
 def get_9router_host() -> str:
@@ -7024,9 +7028,9 @@ def tail_hermes_update_log(n: int = 100) -> str:
 def run_hermes_update() -> None:
     """Use official updater: pull, validate/rollback, deps, migrate, restart."""
     global _hermes_update_running, _hermes_update_result, _hermes_update_cache
-    if is_hermes_updating():
-        return
     with _hermes_update_lock:
+        if is_hermes_updating():
+            return
         _hermes_update_running = True
         _hermes_update_result = {"status": "running", "exit_code": None,
                                  "summary": "Pembaruan Hermes berjalan…", "finished_at": 0.0}
@@ -7155,18 +7159,19 @@ def set_reasoning_effort(effort: str) -> bool:
     effort_clean = str(effort or "").strip().lower()
     if effort_clean not in REASONING_EFFORT_LEVELS:
         return False
-    try:
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-        agent = cfg.setdefault("agent", {})
-        if not isinstance(agent, dict):
-            agent = cfg["agent"] = {}
-        agent["reasoning_effort"] = effort_clean
-        _write_config_atomic(cfg)
-        return True
-    except Exception as e:
-        sys.stderr.write(f"[panel] set_reasoning_effort error: {e}\n")
-        return False
+    with _config_write_lock:
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            agent = cfg.setdefault("agent", {})
+            if not isinstance(agent, dict):
+                agent = cfg["agent"] = {}
+            agent["reasoning_effort"] = effort_clean
+            _write_config_atomic(cfg)
+            return True
+        except Exception as e:
+            sys.stderr.write(f"[panel] set_reasoning_effort error: {e}\n")
+            return False
 
 
 def get_router_api_key() -> str:
@@ -7479,23 +7484,24 @@ def get_available_models_cached() -> dict:
 
 def set_current_model(model_id: str) -> bool:
     """Rewrite model.default in config.yaml, atomically."""
-    try:
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            text = f.read()
-        # Handle both 'model:\n  default: ...' and 'model:\n  ...:\n  default: ...'
-        new_text, n = re.subn(
-            r"(\bdefault:\s*)\S+",
-            lambda m: m.group(1) + model_id,
-            text,
-            count=1,
-        )
-        if n == 0:
+    with _config_write_lock:
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                text = f.read()
+            # Handle both 'model:\n  default: ...' and 'model:\n  ...:\n  default: ...'
+            new_text, n = re.subn(
+                r"(\bdefault:\s*)\S+",
+                lambda m: m.group(1) + model_id,
+                text,
+                count=1,
+            )
+            if n == 0:
+                return False
+            _write_config_atomic(new_text)
+            return True
+        except Exception as e:
+            sys.stderr.write(f"[panel] set_current_model error: {e}\n")
             return False
-        _write_config_atomic(new_text)
-        return True
-    except Exception as e:
-        sys.stderr.write(f"[panel] set_current_model error: {e}\n")
-        return False
 
 
 # --- Konfigurasi Model Tugas Tambahan ---
@@ -7568,72 +7574,74 @@ def set_aux_task_model(task: str, provider: str, model: str) -> bool:
     if not task or task not in allowed_tasks:
         sys.stderr.write(f"[panel] set_aux_task_model invalid task: {task}\n")
         return False
-    try:
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
+    with _config_write_lock:
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
 
-        host = get_9router_host()
-        key = get_router_api_key()
+            host = get_9router_host()
+            key = get_router_api_key()
 
-        if task == "delegation":
-            dele = cfg.setdefault("delegation", {})
-            if not isinstance(dele, dict):
-                dele = cfg["delegation"] = {}
-            if provider == "auto" or not provider:
-                dele["provider"] = ""
-                dele["model"] = ""
+            if task == "delegation":
+                dele = cfg.setdefault("delegation", {})
+                if not isinstance(dele, dict):
+                    dele = cfg["delegation"] = {}
+                if provider == "auto" or not provider:
+                    dele["provider"] = ""
+                    dele["model"] = ""
+                else:
+                    dele["provider"] = provider
+                    dele["model"] = model
             else:
-                dele["provider"] = provider
-                dele["model"] = model
-        else:
-            aux = cfg.setdefault("auxiliary", {})
-            if not isinstance(aux, dict):
-                aux = cfg["auxiliary"] = {}
-            task_cfg = aux.setdefault(task, {})
-            if not isinstance(task_cfg, dict):
-                task_cfg = aux[task] = {}
-            if provider == "auto" or not provider:
-                task_cfg["provider"] = "auto"
-                task_cfg["model"] = ""
-                task_cfg.pop("base_url", None)
-                task_cfg.pop("api_key", None)
-            else:
-                task_cfg["provider"] = provider
-                task_cfg["model"] = model
-                if provider == "custom:9router":
-                    task_cfg["base_url"] = f"http://{host}:20128/v1"
-                    task_cfg["api_key"] = key or ""
+                aux = cfg.setdefault("auxiliary", {})
+                if not isinstance(aux, dict):
+                    aux = cfg["auxiliary"] = {}
+                task_cfg = aux.setdefault(task, {})
+                if not isinstance(task_cfg, dict):
+                    task_cfg = aux[task] = {}
+                if provider == "auto" or not provider:
+                    task_cfg["provider"] = "auto"
+                    task_cfg["model"] = ""
+                    task_cfg.pop("base_url", None)
+                    task_cfg.pop("api_key", None)
+                else:
+                    task_cfg["provider"] = provider
+                    task_cfg["model"] = model
+                    if provider == "custom:9router":
+                        task_cfg["base_url"] = f"http://{host}:20128/v1"
+                        task_cfg["api_key"] = key or ""
 
-        _write_config_atomic(cfg)
-        return True
-    except Exception as e:
-        sys.stderr.write(f"[panel] set_aux_task_model error: {e}\n")
-        return False
+            _write_config_atomic(cfg)
+            return True
+        except Exception as e:
+            sys.stderr.write(f"[panel] set_aux_task_model error: {e}\n")
+            return False
 
 
 def reset_all_aux_tasks() -> bool:
     """Reset every auxiliary task and delegation back to auto."""
-    try:
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
+    with _config_write_lock:
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
 
-        aux = cfg.setdefault("auxiliary", {})
-        if isinstance(aux, dict):
-            for key, _, _ in AUX_TASK_DEFINITIONS:
-                if key != "delegation" and key in aux and isinstance(aux[key], dict):
-                    aux[key]["provider"] = "auto"
-                    aux[key]["model"] = ""
+            aux = cfg.setdefault("auxiliary", {})
+            if isinstance(aux, dict):
+                for key, _, _ in AUX_TASK_DEFINITIONS:
+                    if key != "delegation" and key in aux and isinstance(aux[key], dict):
+                        aux[key]["provider"] = "auto"
+                        aux[key]["model"] = ""
 
-        dele = cfg.setdefault("delegation", {})
-        if isinstance(dele, dict):
-            dele["provider"] = ""
-            dele["model"] = ""
+            dele = cfg.setdefault("delegation", {})
+            if isinstance(dele, dict):
+                dele["provider"] = ""
+                dele["model"] = ""
 
-        _write_config_atomic(cfg)
-        return True
-    except Exception as e:
-        sys.stderr.write(f"[panel] reset_all_aux_tasks error: {e}\n")
-        return False
+            _write_config_atomic(cfg)
+            return True
+        except Exception as e:
+            sys.stderr.write(f"[panel] reset_all_aux_tasks error: {e}\n")
+            return False
 
 
 def render_aux_tasks_block() -> str:
@@ -7697,57 +7705,59 @@ def get_fallback_models_config() -> list[dict]:
 
 def set_fallback_model(index: int, provider: str, model: str) -> bool:
     """Set or add a fallback provider in config.yaml."""
-    try:
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
+    with _config_write_lock:
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
 
-        fps = cfg.setdefault("fallback_providers", [])
-        if not isinstance(fps, list):
-            fps = cfg["fallback_providers"] = []
+            fps = cfg.setdefault("fallback_providers", [])
+            if not isinstance(fps, list):
+                fps = cfg["fallback_providers"] = []
 
-        key = get_router_api_key()
-        host = get_9router_host()
-        base_url = f"http://{host}:20128/v1"
+            key = get_router_api_key()
+            host = get_9router_host()
+            base_url = f"http://{host}:20128/v1"
 
-        entry = {
-            "provider": provider or "custom:9router",
-            "model": model,
-            "base_url": base_url,
-            "api_key": key or "",
-        }
+            entry = {
+                "provider": provider or "custom:9router",
+                "model": model,
+                "base_url": base_url,
+                "api_key": key or "",
+            }
 
-        if 0 <= index < len(fps):
-            old_base = fps[index].get("base_url")
-            old_key = fps[index].get("api_key")
-            if old_base:
-                entry["base_url"] = old_base
-            if old_key:
-                entry["api_key"] = old_key
-            fps[index] = entry
-        else:
-            fps.append(entry)
+            if 0 <= index < len(fps):
+                old_base = fps[index].get("base_url")
+                old_key = fps[index].get("api_key")
+                if old_base:
+                    entry["base_url"] = old_base
+                if old_key:
+                    entry["api_key"] = old_key
+                fps[index] = entry
+            else:
+                fps.append(entry)
 
-        _write_config_atomic(cfg)
-        return True
-    except Exception as e:
-        sys.stderr.write(f"[panel] set_fallback_model error: {e}\n")
-        return False
+            _write_config_atomic(cfg)
+            return True
+        except Exception as e:
+            sys.stderr.write(f"[panel] set_fallback_model error: {e}\n")
+            return False
 
 
 def remove_fallback_model(index: int) -> bool:
     """Remove a fallback provider by index in config.yaml."""
-    try:
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-        fps = cfg.get("fallback_providers")
-        if isinstance(fps, list) and 0 <= index < len(fps):
-            fps.pop(index)
-            _write_config_atomic(cfg)
-            return True
-        return False
-    except Exception as e:
-        sys.stderr.write(f"[panel] remove_fallback_model error: {e}\n")
-        return False
+    with _config_write_lock:
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+            fps = cfg.get("fallback_providers")
+            if isinstance(fps, list) and 0 <= index < len(fps):
+                fps.pop(index)
+                _write_config_atomic(cfg)
+                return True
+            return False
+        except Exception as e:
+            sys.stderr.write(f"[panel] remove_fallback_model error: {e}\n")
+            return False
 
 
 def render_backup_models_block() -> str:
@@ -9416,30 +9426,26 @@ def save_kanban_config(updates: dict) -> tuple[bool, str]:
     """Save kanban configuration block to ~/.hermes/config.yaml atomically with mode 0600."""
     cfg_path = Path(CONFIG_PATH)
     try:
-        cfg = {}
-        if cfg_path.is_file():
-            with open(cfg_path, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
-        if not isinstance(cfg, dict):
+        with _config_write_lock:
             cfg = {}
+            if cfg_path.is_file():
+                with open(cfg_path, encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f) or {}
+            if not isinstance(cfg, dict):
+                cfg = {}
 
-        kb = cfg.setdefault("kanban", {})
-        if not isinstance(kb, dict):
-            kb = cfg["kanban"] = {}
+            kb = cfg.setdefault("kanban", {})
+            if not isinstance(kb, dict):
+                kb = cfg["kanban"] = {}
 
-        for k, v in updates.items():
-            if v is None and k in kb:
-                del kb[k]
-            else:
-                kb[k] = v
+            for k, v in updates.items():
+                if v is None and k in kb:
+                    del kb[k]
+                else:
+                    kb[k] = v
 
-        cfg_path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=str(cfg_path.parent), prefix=".config.yaml.tmp.")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, str(cfg_path))
-        return True, "Konfigurasi Kanban berhasil disimpan."
+            _write_config_atomic(cfg)
+            return True, "Konfigurasi Kanban berhasil disimpan."
     except Exception as e:
         return False, f"Gagal menyimpan konfigurasi Kanban: {e}"
 
@@ -10149,6 +10155,7 @@ def cleanup_system_junk() -> dict:
         ("Delegation Subagent", "/DATA/AppData/hermes-native/hermes-data/cache/delegation"),
         ("Web Scrape Cache", "/DATA/AppData/hermes-native/hermes-data/cache/web"),
     ]
+    now_ts = time.time()
     for label, hdir in hermes_cache_dirs:
         if os.path.exists(hdir):
             h_freed = 0
@@ -10158,7 +10165,10 @@ def cleanup_system_junk() -> dict:
                     for fn in fns:
                         fp = os.path.join(dp, fn)
                         try:
-                            sz = os.path.getsize(fp)
+                            st = os.stat(fp)
+                            if (label == "Scratch Files" or "scratch" in hdir) and (now_ts - st.st_mtime <= 86400):
+                                continue
+                            sz = st.st_size
                             os.remove(fp)
                             h_freed += sz
                             h_items += 1
@@ -12073,6 +12083,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._redirect_to_login()
             return
 
+        if parsed.path == "/api/kanban/config":
+            self._send_json({"ok": True, "config": get_kanban_config()})
+            return
+
         # Mutation over plain GET is not allowed (CasaOS shortcuts excepted:
         # /toggle, /on, /off with an explicit valid token keep working).
         if parsed.path in MUTATING_PATHS:
@@ -12204,10 +12218,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "Lampiran tidak ditemukan"}, code=404)
                 return
             self._send_file(*resolved)
-            return
-
-        if parsed.path == "/api/kanban/config":
-            self._send_json({"ok": True, "config": get_kanban_config()})
             return
 
         if parsed.path == "/events":
