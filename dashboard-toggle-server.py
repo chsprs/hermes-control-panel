@@ -35,6 +35,7 @@ same HTML fragments the initial page uses, so the client never re-implements it.
 
 import copy
 import glob
+import gzip
 import hashlib
 import hmac
 import html
@@ -56,6 +57,7 @@ import threading
 import time
 import urllib.request
 import yaml
+import zlib
 from datetime import datetime, timedelta, timezone
 from http import cookies as http_cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -154,6 +156,7 @@ MAX_BODY_SIZE = 5 * 1024 * 1024  # 5 MB max POST body (SEC-DOS-01)
 LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off"})
 ROUTER_URL = "http://{host}:20128/"
 INFO_TIMEOUT = 2.0  # seconds — every live check below is capped at this
+SYSTEMCTL_TIMEOUT = 1.5  # seconds — fast cap for systemctl checks (1-2s)
 ROUTER_DB_PATH = "/DATA/AppData/9router/db/data.sqlite"  # host-side path of
 # the same file 9router itself reads at /app/data/db/data.sqlite — reading
 # it directly avoids a docker exec round-trip.
@@ -5670,25 +5673,48 @@ OPEN_BLOCK_INACTIVE = '<div class="update-hint warn" style="margin:0">Dasbor Her
 
 _status_probe_cache = {}
 _status_probe_cache_lock = threading.Lock()
+_ttl_refreshing: set[str] = set()
+_ttl_refreshing_lock = threading.Lock()
 
 
 def _ttl_cached(key: str, ttl: float, loader):
-    """Return a short-lived cached probe result without holding the lock during I/O."""
+    """Return a short-lived cached probe result without holding the lock during I/O.
+    Uses stale-while-revalidate in background to prevent blocking callers when cache is stale."""
     now = time.monotonic()
 
     with _status_probe_cache_lock:
         entry = _status_probe_cache.get(key)
-        if entry and now - entry["at"] < ttl:
-            return entry["value"]
 
+    if entry and (now - entry["at"] < ttl):
+        return entry["value"]
+
+    if entry:
+        with _ttl_refreshing_lock:
+            if key not in _ttl_refreshing:
+                _ttl_refreshing.add(key)
+                def _bg_worker():
+                    try:
+                        v = loader()
+                        with _status_probe_cache_lock:
+                            _status_probe_cache[key] = {
+                                "at": time.monotonic(),
+                                "value": v,
+                            }
+                    except Exception:
+                        pass
+                    finally:
+                        with _ttl_refreshing_lock:
+                            _ttl_refreshing.discard(key)
+                threading.Thread(target=_bg_worker, daemon=True).start()
+        return entry["value"]
+
+    # Cold start: first request loads synchronously
     value = loader()
-
     with _status_probe_cache_lock:
         _status_probe_cache[key] = {
             "at": time.monotonic(),
             "value": value,
         }
-
     return value
 
 
@@ -5699,6 +5725,23 @@ def _invalidate_status_cache(*keys: str) -> None:
                 _status_probe_cache.pop(key, None)
         else:
             _status_probe_cache.clear()
+    with _ttl_refreshing_lock:
+        if keys:
+            for key in keys:
+                _ttl_refreshing.discard(key)
+        else:
+            _ttl_refreshing.clear()
+
+    if not keys or any(k in keys for k in ("processes_table", "gateway_info", "services", "system")):
+        if "invalidate_service_cache" in globals():
+            invalidate_service_cache(*keys)
+        if "invalidate_docker_metric_cache" in globals():
+            invalidate_docker_metric_cache(*keys)
+        if "invalidate_systemctl_show_cache" in globals():
+            invalidate_systemctl_show_cache(*keys)
+        if "invalidate_router_port_cache" in globals():
+            invalidate_router_port_cache()
+
 
 def _probe_gateway_info() -> str:
     """Gateway service status: state, RSS memory, uptime."""
@@ -5706,7 +5749,7 @@ def _probe_gateway_info() -> str:
         r = subprocess.run(
             ["systemctl", "--user", "show", "hermes-gateway",
              "--property=ActiveState,MainPID,ActiveEnterTimestamp"],
-            capture_output=True, text=True, timeout=INFO_TIMEOUT,
+            capture_output=True, text=True, timeout=SYSTEMCTL_TIMEOUT,
             env={**os.environ, "XDG_RUNTIME_DIR": "/run/user/0"},
         )
         if r.returncode != 0:
@@ -6984,8 +7027,18 @@ def get_9router_host() -> str:
     return "127.0.0.1"
 
 
+_9router_port_cache: int = 20128
+_9router_port_at: float = 0.0
+_9router_port_lock = threading.Lock()
+
+
 def get_9router_port() -> int:
-    """Auto-detect 9router's host port from Docker."""
+    """Auto-detect 9router's host port from Docker, cached for 30s."""
+    global _9router_port_cache, _9router_port_at
+    now = time.monotonic()
+    with _9router_port_lock:
+        if (now - _9router_port_at) < 30.0:
+            return _9router_port_cache
     try:
         r = subprocess.run(
             ["docker", "inspect", ROUTER_CONTAINER,
@@ -6995,10 +7048,23 @@ def get_9router_port() -> int:
         if r.returncode == 0:
             for mapping in r.stdout.strip().split("\n"):
                 if "->" in mapping:
-                    return int(mapping.split("->")[1])
+                    val = int(mapping.split("->")[1])
+                    with _9router_port_lock:
+                        _9router_port_cache = val
+                        _9router_port_at = now
+                    return val
     except Exception:
         pass
-    return 20128  # fallback default
+    with _9router_port_lock:
+        _9router_port_cache = 20128
+        _9router_port_at = now
+    return 20128
+
+
+def invalidate_router_port_cache() -> None:
+    global _9router_port_at
+    with _9router_port_lock:
+        _9router_port_at = 0.0
 
 
 def get_9router_public_url() -> str:
@@ -7076,14 +7142,64 @@ SSE_SCRIPT = """<script>
     el.innerHTML=v; el._sseHtml=v; el._sseFirst=el.firstChild;
   }
   var _scrolling=false, _scrollTimer=null, _pendingUpdate=null;
-  function onUpdate(d){ if(_scrolling){ _pendingUpdate=d; return; } apply(d); }
+  var _hiddenTimer=null, _lastHiddenApply=0;
+  var HIDDEN_INTERVAL=10000;
+  function flushPending(){
+    if(!_pendingUpdate) return;
+    var d=_pendingUpdate; _pendingUpdate=null;
+    try { apply(d); } catch(e){}
+  }
+  function onUpdate(d){
+    _pendingUpdate=d;
+    if(_scrolling) return;
+    if(typeof document !== 'undefined' && document.hidden){
+      var now = Date.now();
+      if(now - _lastHiddenApply >= HIDDEN_INTERVAL){
+        _lastHiddenApply = now;
+        if(_hiddenTimer){ clearTimeout(_hiddenTimer); _hiddenTimer=null; }
+        flushPending();
+      } else if(!_hiddenTimer){
+        _hiddenTimer = setTimeout(function(){
+          _hiddenTimer = null;
+          if(typeof document !== 'undefined' && document.hidden && _pendingUpdate){
+            _lastHiddenApply = Date.now();
+            flushPending();
+          }
+        }, HIDDEN_INTERVAL - (now - _lastHiddenApply));
+      }
+      return;
+    }
+    flushPending();
+  }
+  function onVisibilityChange(){
+    if(typeof document !== 'undefined' && !document.hidden){
+      if(_hiddenTimer){ clearTimeout(_hiddenTimer); _hiddenTimer=null; }
+      _lastHiddenApply = 0;
+      if(_pendingUpdate && !_scrolling){
+        flushPending();
+      }
+    }
+  }
+  if(typeof document !== 'undefined' && document.addEventListener){
+    document.addEventListener('visibilitychange', onVisibilityChange);
+  }
   window.addEventListener('scroll', function(e){
     if(e && e.target && e.target !== window && e.target !== document && e.target !== document.documentElement && e.target !== document.body) return;
     _scrolling=true;
     if(_scrollTimer) clearTimeout(_scrollTimer);
     _scrollTimer=setTimeout(function(){
       _scrolling=false; _scrollTimer=null;
-      if(_pendingUpdate){ var d=_pendingUpdate; _pendingUpdate=null; try { apply(d); } catch(e){} }
+      if(_pendingUpdate){
+        if(typeof document !== 'undefined' && document.hidden){
+          var now = Date.now();
+          if(now - _lastHiddenApply >= HIDDEN_INTERVAL){
+            _lastHiddenApply = now;
+            flushPending();
+          }
+        } else {
+          flushPending();
+        }
+      }
     }, 180);
   }, {passive:true, capture:true});
   // END sse-render-gate
@@ -7249,10 +7365,13 @@ SSE_SCRIPT = """<script>
     if(es){ es.close(); es=null; }
   }
   document.addEventListener('visibilitychange', function(){
-    if(document.hidden){ disconnect(); }
-    else{ connect(); }
+    if(!document.hidden){
+      if(!es || es.readyState === 2 /* CLOSED */){
+        connect();
+      }
+    }
   });
-  if(!document.hidden) connect();
+  connect();
 })();
 </script>"""
 
@@ -7692,7 +7811,21 @@ def run_hermes_update() -> None:
     threading.Thread(target=_run, daemon=True).start()
 
 
-def service_active(name: str, user: bool = False) -> bool:
+_service_active_cache: dict[tuple[str, bool], dict] = {}
+_service_active_cache_lock = threading.Lock()
+SERVICE_ACTIVE_TTL = 3.0  # seconds (2-5s window)
+
+
+def service_active(name: str, user: bool = False, fresh: bool = False, ttl: float = SERVICE_ACTIVE_TTL) -> bool:
+    """Check if systemd service is active, with TTL cache (2-5s) and fast timeout (1-2s)."""
+    now = time.monotonic()
+    key = (name, user)
+    if not fresh:
+        with _service_active_cache_lock:
+            entry = _service_active_cache.get(key)
+            if entry and (now - entry["at"] < ttl):
+                return entry["val"]
+
     cmd = ["systemctl"]
     env = os.environ.copy()
     if user:
@@ -7701,11 +7834,26 @@ def service_active(name: str, user: bool = False) -> bool:
     cmd += ["is-active", name]
     try:
         r = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=INFO_TIMEOUT, env=env
+            cmd, capture_output=True, text=True, timeout=SYSTEMCTL_TIMEOUT, env=env
         )
-        return r.stdout.strip() == "active"
+        is_act = (r.stdout.strip() == "active")
     except Exception:
-        return False
+        is_act = False
+
+    with _service_active_cache_lock:
+        _service_active_cache[key] = {"at": now, "val": is_act}
+    return is_act
+
+
+def invalidate_service_cache(*names: str) -> None:
+    with _service_active_cache_lock:
+        if names:
+            name_set = set(names)
+            keys_to_del = [k for k in _service_active_cache if k[0] in name_set]
+            for k in keys_to_del:
+                _service_active_cache.pop(k, None)
+        else:
+            _service_active_cache.clear()
 
 
 _config_cache = {"mtime": 0.0, "val": {}}
@@ -9382,6 +9530,10 @@ CREATE TABLE IF NOT EXISTS task_attachments (
     uploaded_by  TEXT,
     created_at   INTEGER NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
+CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);
 """
 
 
@@ -9427,15 +9579,25 @@ def get_kanban_db_path(slug: str = "") -> Path:
     return root / "kanban" / "boards" / slug / "kanban.db"
 
 
+_kanban_initialized_dbs: set[str] = set()
+_kanban_init_lock = threading.Lock()
+
+
 def ensure_kanban_db(db_path: Path) -> sqlite3.Connection:
     """Open SQLite connection with WAL mode and create tables if missing."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path), timeout=10.0)
+    conn = sqlite3.connect(str(db_path), timeout=30.0)
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.row_factory = sqlite3.Row
-    with conn:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        conn.executescript(KANBAN_SCHEMA_SQL)
+    spath = str(db_path.resolve())
+    with _kanban_init_lock:
+        if spath not in _kanban_initialized_dbs:
+            with conn:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("PRAGMA foreign_keys=ON")
+                conn.executescript(KANBAN_SCHEMA_SQL)
+            _kanban_initialized_dbs.add(spath)
     return conn
 
 
@@ -9451,6 +9613,7 @@ def list_kanban_boards() -> list[dict]:
     try:
         if def_path.is_file():
             con = sqlite3.connect(str(def_path), timeout=3.0)
+            con.execute("PRAGMA synchronous=NORMAL")
             def_count = con.execute("SELECT COUNT(*) FROM tasks WHERE status != 'archived'").fetchone()[0]
             con.close()
     except Exception:
@@ -9475,6 +9638,7 @@ def list_kanban_boards() -> list[dict]:
                     try:
                         if b_path.is_file():
                             con = sqlite3.connect(str(b_path), timeout=3.0)
+                            con.execute("PRAGMA synchronous=NORMAL")
                             b_count = con.execute("SELECT COUNT(*) FROM tasks WHERE status != 'archived'").fetchone()[0]
                             con.close()
                     except Exception:
@@ -11045,8 +11209,60 @@ def get_cpu_percent() -> float:
         return 0.0
 
 
-def get_docker_metric(cname: str) -> tuple[str, str, float]:
-    """Return (status, pid, mem_mb) for a Docker container."""
+_docker_metric_cache: dict[str, dict] = {}
+_docker_metric_cache_lock = threading.Lock()
+DOCKER_METRIC_TTL = 3.0  # seconds (2-5s window)
+
+_systemctl_show_cache: dict[tuple[str, bool, str], dict] = {}
+_systemctl_show_lock = threading.Lock()
+SYSTEMCTL_SHOW_TTL = 3.0  # seconds (2-5s window)
+
+
+def _read_proc_rss_mb(pid: str | int) -> float:
+    """Read VmRSS memory in MB directly from /proc/<pid>/status."""
+    if not pid or str(pid) in ("0", "-", "?"):
+        return 0.0
+    try:
+        with open(f"/proc/{pid}/status") as f:
+            for l in f:
+                if l.startswith("VmRSS:"):
+                    return round(int(l.split()[1]) / 1024, 1)
+    except Exception:
+        pass
+    return 0.0
+
+
+def _read_docker_mem(cid: str, dpid: str) -> float:
+    """Read Docker container memory in MB from cgroup or /proc without subprocess."""
+    if cid:
+        p_cg = f"/sys/fs/cgroup/system.slice/docker-{cid}.scope/memory.current"
+        if os.path.exists(p_cg):
+            try:
+                with open(p_cg) as f:
+                    return round(int(f.read().strip()) / (1024 * 1024), 1)
+            except Exception:
+                pass
+    return _read_proc_rss_mb(dpid)
+
+
+def get_docker_metric(cname: str, fresh: bool = False, ttl: float = DOCKER_METRIC_TTL) -> tuple[str, str, float]:
+    """Return (status, pid, mem_mb) for a Docker container, cached with TTL.
+    Uses /proc and sysfs cgroup directly for fast status & memory checks."""
+    now = time.monotonic()
+    if not fresh:
+        with _docker_metric_cache_lock:
+            entry = _docker_metric_cache.get(cname)
+            if entry and (now - entry["at"] < ttl):
+                dst, dpid, cid = entry["raw"]
+                if dst.lower() == "running" and dpid and dpid != "0":
+                    if not os.path.exists(f"/proc/{dpid}"):
+                        pass  # Container process died, refresh below
+                    else:
+                        mem = _read_docker_mem(cid, dpid)
+                        return dst, dpid, mem
+                else:
+                    return entry["val"]
+
     try:
         r = subprocess.run(
             ["docker", "inspect", cname, "--format", "{{.State.Status}}\t{{.State.Pid}}\t{{.Id}}"],
@@ -11056,53 +11272,93 @@ def get_docker_metric(cname: str) -> tuple[str, str, float]:
             parts = r.stdout.strip().split("\t")
             if len(parts) >= 3:
                 dst, dpid, cid = parts[0], parts[1], parts[2]
-                mem = 0.0
-                p_cg = f"/sys/fs/cgroup/system.slice/docker-{cid}.scope/memory.current"
-                if os.path.exists(p_cg):
-                    try:
-                        with open(p_cg) as f:
-                            mem = round(int(f.read().strip()) / (1024 * 1024), 1)
-                    except Exception:
-                        pass
-                if mem == 0.0 and dpid and dpid != "0":
-                    try:
-                        with open(f"/proc/{dpid}/status") as f:
-                            for l in f:
-                                if l.startswith("VmRSS:"):
-                                    mem = round(int(l.split()[1]) / 1024, 1)
-                                    break
-                    except Exception:
-                        pass
-                return dst, dpid, mem
+                mem = _read_docker_mem(cid, dpid)
+                val = (dst, dpid, mem)
+                with _docker_metric_cache_lock:
+                    _docker_metric_cache[cname] = {"at": now, "val": val, "raw": (dst, dpid, cid)}
+                return val
     except Exception:
         pass
-    return "stopped", "0", 0.0
+    val = ("stopped", "0", 0.0)
+    with _docker_metric_cache_lock:
+        _docker_metric_cache[cname] = {"at": now, "val": val, "raw": ("stopped", "0", "")}
+    return val
 
 
-def get_process_list() -> list[dict]:
-    """Inspect managed services and Docker containers for Linux service manager view."""
+def invalidate_docker_metric_cache(*cnames: str) -> None:
+    with _docker_metric_cache_lock:
+        if cnames:
+            for c in cnames:
+                _docker_metric_cache.pop(c, None)
+        else:
+            _docker_metric_cache.clear()
+
+
+def get_systemd_show(unit: str, user: bool = False, props: str = "MainPID", fresh: bool = False, ttl: float = SYSTEMCTL_SHOW_TTL) -> dict[str, str]:
+    """Inspect systemd unit properties with TTL cache (2-5s) and fast /proc verification."""
+    now = time.monotonic()
+    key = (unit, user, props)
+    if not fresh:
+        with _systemctl_show_lock:
+            entry = _systemctl_show_cache.get(key)
+            if entry and (now - entry["at"] < ttl):
+                pid = entry["props"].get("MainPID")
+                if pid and pid != "0":
+                    if not os.path.exists(f"/proc/{pid}"):
+                        pass  # Service died, refresh below
+                    else:
+                        return dict(entry["props"])
+                else:
+                    return dict(entry["props"])
+
+    cmd = ["systemctl"]
+    env = os.environ.copy()
+    if user:
+        cmd.append("--user")
+        env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
+    cmd += ["show", unit, f"--property={props}"]
+    try:
+        r = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=SYSTEMCTL_TIMEOUT, env=env
+        )
+        res = dict(line.split("=", 1) for line in r.stdout.strip().split("\n") if "=" in line)
+    except Exception:
+        res = {}
+
+    with _systemctl_show_lock:
+        _systemctl_show_cache[key] = {"at": now, "props": res}
+    return dict(res)
+
+
+def invalidate_systemctl_show_cache(*units: str) -> None:
+    with _systemctl_show_lock:
+        if units:
+            u_set = set(units)
+            to_del = [k for k in _systemctl_show_cache if k[0] in u_set]
+            for k in to_del:
+                _systemctl_show_cache.pop(k, None)
+        else:
+            _systemctl_show_cache.clear()
+
+
+def invalidate_process_list_cache() -> None:
+    invalidate_service_cache()
+    invalidate_docker_metric_cache()
+    invalidate_systemctl_show_cache()
+    _invalidate_status_cache("processes_table")
+
+
+def get_process_list(fresh: bool = False) -> list[dict]:
+    """Inspect managed services and Docker containers for Linux service manager view.
+    Subprocess results are cached with TTL 3s, memory/status read via /proc directly."""
     procs = []
 
     # 1. Hermes Gateway (Bot Telegram)
     try:
-        r = subprocess.run(
-            ["systemctl", "--user", "show", "hermes-gateway", "--property=ActiveState,MainPID"],
-            capture_output=True, text=True, timeout=INFO_TIMEOUT,
-            env={**os.environ, "XDG_RUNTIME_DIR": "/run/user/0"}
-        )
-        props = dict(line.split("=", 1) for line in r.stdout.strip().split("\n") if "=" in line)
+        props = get_systemd_show("hermes-gateway", user=True, props="ActiveState,MainPID", fresh=fresh)
         st = props.get("ActiveState", "inactive")
         pid = props.get("MainPID", "0")
-        mem = 0.0
-        if pid and pid != "0":
-            try:
-                with open(f"/proc/{pid}/status") as f:
-                    for l in f:
-                        if l.startswith("VmRSS:"):
-                            mem = round(int(l.split()[1]) / 1024, 1)
-                            break
-            except Exception:
-                pass
+        mem = _read_proc_rss_mb(pid)
         procs.append({
             "id": "hermes-gateway",
             "name": "Hermes Gateway (Messaging)",
@@ -11120,7 +11376,7 @@ def get_process_list() -> list[dict]:
 
     # 2. 9router AI Engine
     try:
-        dst, dpid, dmem = get_docker_metric("9router")
+        dst, dpid, dmem = get_docker_metric("9router", fresh=fresh)
         is_run = (dst.lower() == "running")
         procs.append({
             "id": "9router",
@@ -11140,15 +11396,7 @@ def get_process_list() -> list[dict]:
     # 3. Hermes Control Panel (:9120)
     try:
         cur_pid = os.getpid()
-        panel_mem = 0.0
-        try:
-            with open(f"/proc/{cur_pid}/status") as f:
-                for l in f:
-                    if l.startswith("VmRSS:"):
-                        panel_mem = round(int(l.split()[1]) / 1024, 1)
-                        break
-        except Exception:
-            pass
+        panel_mem = _read_proc_rss_mb(cur_pid)
         procs.append({
             "id": "hermes-panel",
             "name": "Panel Kontrol Hermes (:9120)",
@@ -11168,23 +11416,11 @@ def get_process_list() -> list[dict]:
         dash_mem = 0.0
         dash_pid = "-"
         if dash_active:
-            r = subprocess.run(
-                ["systemctl", "show", "hermes-dashboard", "--property=MainPID"],
-                capture_output=True, text=True, timeout=INFO_TIMEOUT
-            )
-            for line in r.stdout.strip().split("\n"):
-                if line.startswith("MainPID="):
-                    p = line.split("=")[1]
-                    if p and p != "0":
-                        dash_pid = p
-                        try:
-                            with open(f"/proc/{p}/status") as f:
-                                for l in f:
-                                    if l.startswith("VmRSS:"):
-                                        dash_mem = round(int(l.split()[1]) / 1024, 1)
-                                        break
-                        except Exception:
-                            pass
+            props = get_systemd_show("hermes-dashboard", props="MainPID", fresh=fresh)
+            p = props.get("MainPID", "0")
+            if p and p != "0":
+                dash_pid = p
+                dash_mem = _read_proc_rss_mb(p)
         procs.append({
             "id": "hermes-dashboard",
             "name": "Dasbor Web Hermes (:9119)",
@@ -11202,7 +11438,7 @@ def get_process_list() -> list[dict]:
 
     # 5. Cloudflared Tunnel
     try:
-        dst, dpid, dmem = get_docker_metric("cloudflared")
+        dst, dpid, dmem = get_docker_metric("cloudflared", fresh=fresh)
         is_run = (dst.lower() == "running")
         procs.append({
             "id": "cloudflared",
@@ -11221,7 +11457,7 @@ def get_process_list() -> list[dict]:
 
     # 6. Pi-hole DNS
     try:
-        dst, dpid, dmem = get_docker_metric("pihole-pihole-1")
+        dst, dpid, dmem = get_docker_metric("pihole-pihole-1", fresh=fresh)
         is_run = (dst.lower() == "running")
         procs.append({
             "id": "pihole-pihole-1",
@@ -11245,25 +11481,11 @@ def get_process_list() -> list[dict]:
         casa_mem = 0.0
         if casa_active:
             for u in ("casaos.service", "casaos-gateway.service"):
-                r = subprocess.run(
-                    ["systemctl", "show", u, "--property=MainPID"],
-                    capture_output=True, text=True, timeout=INFO_TIMEOUT
-                )
-                p = ""
-                for line in r.stdout.strip().split("\n"):
-                    if line.startswith("MainPID="):
-                        p = line.split("=", 1)[1].strip()
-                        break
+                props = get_systemd_show(u, props="MainPID", fresh=fresh)
+                p = props.get("MainPID", "").strip()
                 if p and p != "0":
                     casa_pid = p
-                    try:
-                        with open(f"/proc/{p}/status") as f:
-                            for l in f:
-                                if l.startswith("VmRSS:"):
-                                    casa_mem = round(int(l.split()[1]) / 1024, 1)
-                                    break
-                    except Exception:
-                        pass
+                    casa_mem = _read_proc_rss_mb(p)
                     break
         procs.append({
             "id": "casaos",
@@ -12490,10 +12712,67 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def _get_preferred_encoding(self) -> str | None:
+        """Parse Accept-Encoding header and return 'gzip', 'deflate', or None."""
+        ae = self.headers.get("Accept-Encoding", "")
+        if not ae:
+            return None
+        encodings = {}
+        for item in ae.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            parts = item.split(";", 1)
+            coding = parts[0].strip().lower()
+            q = 1.0
+            if len(parts) > 1:
+                q_part = parts[1].strip()
+                if q_part.lower().startswith("q="):
+                    try:
+                        q = float(q_part[2:].strip())
+                    except ValueError:
+                        q = 0.0
+            encodings[coding] = q
+
+        star_q = encodings.get("*", 0.0)
+        gzip_q = encodings.get("gzip", star_q)
+        deflate_q = encodings.get("deflate", star_q)
+
+        # ponytail: standard preference gzip over deflate when q-values equal; extend if br needed
+        if gzip_q > 0 and gzip_q >= deflate_q:
+            return "gzip"
+        elif deflate_q > 0:
+            return "deflate"
+        return None
+
+    def _compress_payload(self, data: bytes) -> tuple[bytes, str | None]:
+        """Compress payload with gzip or deflate if > 1KB and client supports it."""
+        if len(data) <= 1024:
+            return data, None
+        encoding = self._get_preferred_encoding()
+        if not encoding:
+            return data, None
+        try:
+            if encoding == "gzip":
+                compressed = gzip.compress(data, compresslevel=6)
+            elif encoding == "deflate":
+                compressed = zlib.compress(data, level=6)
+            else:
+                return data, None
+            if len(compressed) < len(data):
+                return compressed, encoding
+        except Exception:
+            pass
+        return data, None
+
     def _send_html(self, body: str, code: int = 200):
         data = body.encode("utf-8")
+        data, encoding = self._compress_payload(data)
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+            self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.send_header("Pragma", "no-cache")
@@ -12515,19 +12794,25 @@ class Handler(BaseHTTPRequestHandler):
         )
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         self.end_headers()
-        self.wfile.write(data)
+        if self.command != "HEAD":
+            self.wfile.write(data)
 
     def _send_json(self, data: dict, code: int = 200):
         body = json.dumps(data).encode("utf-8")
+        body, encoding = self._compress_payload(body)
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+            self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def _send_file(self, path, filename: str, content_type: str, as_attachment: bool = False):
         """Serve one kanban attachment inline (or download) as text/plain.

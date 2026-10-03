@@ -1,5 +1,7 @@
 import importlib
+import gzip
 import io
+import zlib
 import json
 import os
 import subprocess
@@ -65,6 +67,18 @@ class TestHermesControlPanel(unittest.TestCase):
             return res.code, res.headers, res.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as e:
             return e.code, e.headers, e.read().decode("utf-8", errors="replace")
+
+    def _request_raw(self, path: str, method: str = "GET", headers: dict = None, data: bytes = None):
+        url = f"http://127.0.0.1:{self.port}{path}"
+        req = urllib.request.Request(url, data=data, method=method)
+        if headers:
+            for k, v in headers.items():
+                req.add_header(k, v)
+        try:
+            res = self.opener.open(req)
+            return res.code, res.headers, res.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers, e.read()
 
     # --- PR 1: Safe updater error handling ---
     def test_01_update_router_safe_on_popen_exception(self):
@@ -1580,6 +1594,71 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("/process-action?service=casaos&action=stop", panel.NAV_SCRIPT)
         self.assertIn("Hentikan CasaOS", panel.NAV_SCRIPT)
         self.assertIn("Hentikan layanan CasaOS? Dasbor web CasaOS tidak dapat diakses sampai dinyalakan kembali.", panel.NAV_SCRIPT)
+    # --- HTTP Gzip & Deflate Compression Middleware Tests ---
+    def test_gzip_compression_on_status_page(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        code, headers, raw = self._request_raw("/status", headers={"Cookie": cookie, "Accept-Encoding": "gzip"})
+        self.assertEqual(code, 200)
+        self.assertEqual(headers.get("Content-Encoding"), "gzip")
+        self.assertIn("Accept-Encoding", headers.get("Vary", ""))
+        decompressed = gzip.decompress(raw).decode("utf-8")
+        self.assertIn("<!doctype html>", decompressed.lower())
+        self.assertIn("Hermes Control Panel", decompressed)
+        # Verify significant payload reduction: 400KB+ to < 85KB (~80% reduction)
+        self.assertLess(len(raw), 85000)
+        self.assertGreater(len(decompressed), 350000)
+
+    def test_deflate_compression_on_status_page(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        code, headers, raw = self._request_raw("/status", headers={"Cookie": cookie, "Accept-Encoding": "deflate"})
+        self.assertEqual(code, 200)
+        self.assertEqual(headers.get("Content-Encoding"), "deflate")
+        self.assertIn("Accept-Encoding", headers.get("Vary", ""))
+        decompressed = zlib.decompress(raw).decode("utf-8")
+        self.assertIn("<!doctype html>", decompressed.lower())
+        self.assertLess(len(raw), 85000)
+        self.assertGreater(len(decompressed), 350000)
+
+    def test_no_compression_without_accept_encoding(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        code, headers, raw = self._request_raw("/status", headers={"Cookie": cookie})
+        self.assertEqual(code, 200)
+        self.assertIsNone(headers.get("Content-Encoding"))
+        self.assertGreater(len(raw), 350000)
+
+    def test_no_compression_for_small_payload(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        code, headers, raw = self._request_raw("/nonexistent-page-test", headers={"Cookie": cookie, "Accept-Encoding": "gzip"})
+        self.assertEqual(code, 404)
+        self.assertIsNone(headers.get("Content-Encoding"))
+        self.assertLessEqual(len(raw), 1024)
+
+    def test_compression_qvalue_precedence(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        # When deflate has higher q-value, choose deflate
+        code, headers, raw = self._request_raw("/status", headers={"Cookie": cookie, "Accept-Encoding": "gzip;q=0.5, deflate;q=1.0"})
+        self.assertEqual(code, 200)
+        self.assertEqual(headers.get("Content-Encoding"), "deflate")
+
+        # When gzip has q=0 and deflate > 0, choose deflate
+        code, headers, raw = self._request_raw("/status", headers={"Cookie": cookie, "Accept-Encoding": "gzip;q=0, deflate;q=0.8"})
+        self.assertEqual(code, 200)
+        self.assertEqual(headers.get("Content-Encoding"), "deflate")
+
+        # When all encodings have q=0, do not compress
+        code, headers, raw = self._request_raw("/status", headers={"Cookie": cookie, "Accept-Encoding": "gzip;q=0, deflate;q=0"})
+        self.assertEqual(code, 200)
+        self.assertIsNone(headers.get("Content-Encoding"))
+
+    def test_compression_api_status_json(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        code, headers, raw = self._request_raw("/api/status", headers={"Cookie": cookie, "Accept-Encoding": "gzip"})
+        self.assertEqual(code, 200)
+        self.assertEqual(headers.get("Content-Encoding"), "gzip")
+        decompressed = gzip.decompress(raw).decode("utf-8")
+        data = json.loads(decompressed)
+        self.assertIn("cells", data)
+
 
 
 class TestGatewayConfigSync(unittest.TestCase):
@@ -1867,6 +1946,36 @@ runTimers();
 process.stdout.write(JSON.stringify({during: during, after: applied}));
 """)
         self.assertEqual(json.loads(out), {"during": 1, "after": ["d1", "d3"]})
+
+    @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
+    def test_54_updates_debounced_when_tab_hidden(self):
+        out = self._run_sse_gate(r"""
+document.hidden = true;
+onUpdate('h1');
+onUpdate('h2');
+onUpdate('h3');
+var during = applied.slice();
+runTimers();
+var afterTimer = applied.slice();
+onUpdate('h4');
+onUpdate('h5');
+document.hidden = false;
+onVisibilityChange();
+var afterVisible = applied.slice();
+onUpdate('v1');
+var normalRate = applied.slice();
+process.stdout.write(JSON.stringify({
+  during: during,
+  afterTimer: afterTimer,
+  afterVisible: afterVisible,
+  normalRate: normalRate
+}));
+""")
+        res = json.loads(out)
+        self.assertEqual(res["during"], ["h1"], "intermediate updates when tab hidden must be debounced")
+        self.assertEqual(res["afterTimer"], ["h1", "h3"], "throttled timer applies latest pending update")
+        self.assertEqual(res["afterVisible"], ["h1", "h3", "h5"], "tab becoming visible immediately flushes latest update")
+        self.assertEqual(res["normalRate"], ["h1", "h3", "h5", "v1"], "updates resume immediate normal rate when visible")
 
 
 def _gw_form_js() -> str:
@@ -2494,6 +2603,14 @@ class TestKanbanBoard(unittest.TestCase):
         tables = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
         for expected in ("tasks", "task_links", "task_comments", "task_events", "task_runs"):
             self.assertIn(expected, tables)
+        # Verify SQLite optimizations: WAL, synchronous=NORMAL, indexes
+        jm = cur.execute("PRAGMA journal_mode").fetchone()[0]
+        self.assertEqual(jm.lower(), "wal")
+        sync = cur.execute("PRAGMA synchronous").fetchone()[0]
+        self.assertEqual(sync, 1)  # 1 = NORMAL
+        indexes = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='tasks'").fetchall()]
+        for idx in ("idx_tasks_status", "idx_tasks_assignee", "idx_tasks_priority"):
+            self.assertIn(idx, indexes)
         con.close()
 
     def test_02_create_and_list_tasks(self):
@@ -2619,6 +2736,46 @@ class TestKanbanBoard(unittest.TestCase):
         # File permissions check (0600)
         mode = os.stat(self.cfg_path).st_mode & 0o777
         self.assertEqual(mode, 0o600)
+
+    def test_08b_kanban_parallel_writes(self):
+        errors = []
+        task_ids = []
+        lock = threading.Lock()
+        def worker(idx):
+            try:
+                ok, msg, tid = panel.create_kanban_task(
+                    title=f"Parallel Task {idx}",
+                    body="Stress write test",
+                    priority=idx % 3,
+                    status="todo"
+                )
+                if not ok:
+                    with lock:
+                        errors.append(f"create failed: {msg}")
+                    return
+                with lock:
+                    task_ids.append(tid)
+                ok, msg = panel.update_kanban_task_status(tid, "ready")
+                if not ok:
+                    with lock:
+                        errors.append(f"update status failed: {msg}")
+                ok, msg = panel.add_kanban_comment(tid, f"Comment from worker {idx}")
+                if not ok:
+                    with lock:
+                        errors.append(f"comment failed: {msg}")
+            except Exception as e:
+                with lock:
+                    errors.append(str(e))
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(len(task_ids), 20)
+        tasks = panel.list_kanban_tasks()
+        self.assertGreaterEqual(len(tasks), 20)
 
     def test_09_ui_tab_presence(self):
         self.assertIn("kanban", panel.VALID_TABS)
@@ -2914,6 +3071,106 @@ class TestMarkdownRenderingAndKanbanAttachments(unittest.TestCase):
         self.assertIn("renderMarkdown(t.body)", js)
         self.assertIn("renderMarkdown(outText)", js)
         self.assertIn("renderMarkdown(bodyTxt)", js)
+
+
+class TestSubprocessCachingAndOptimization(unittest.TestCase):
+    """Test subprocess TTL caching, non-blocking SSE polling, and fast /proc status checks."""
+
+    def setUp(self):
+        panel.invalidate_process_list_cache()
+
+    def tearDown(self):
+        panel.invalidate_process_list_cache()
+
+    def test_systemctl_timeout_is_capped(self):
+        self.assertTrue(hasattr(panel, "SYSTEMCTL_TIMEOUT"))
+        self.assertLessEqual(panel.SYSTEMCTL_TIMEOUT, 2.0)
+        self.assertGreaterEqual(panel.SYSTEMCTL_TIMEOUT, 1.0)
+
+    def test_docker_metric_subprocess_caching(self):
+        call_count = 0
+        def fake_run(cmd, *args, **kwargs):
+            nonlocal call_count
+            if isinstance(cmd, list) and len(cmd) >= 2 and cmd[0] == "docker" and cmd[1] == "inspect":
+                call_count += 1
+                return mock.MagicMock(stdout="running\t99999\tabcdef123456\n", returncode=0)
+            return mock.MagicMock(stdout="", returncode=0)
+
+        with mock.patch.object(panel.subprocess, "run", side_effect=fake_run):
+            with mock.patch("os.path.exists", return_value=True):
+                st1, pid1, mem1 = panel.get_docker_metric("test-container")
+                self.assertEqual(st1, "running")
+                self.assertEqual(pid1, "99999")
+                self.assertEqual(call_count, 1)
+
+                st2, pid2, mem2 = panel.get_docker_metric("test-container")
+                self.assertEqual(st2, "running")
+                self.assertEqual(pid2, "99999")
+                self.assertEqual(call_count, 1, "Subprocess must not be called again within window TTL")
+
+    def test_service_active_subprocess_caching(self):
+        call_count = 0
+        def fake_run(cmd, *args, **kwargs):
+            nonlocal call_count
+            if isinstance(cmd, list) and cmd[0] == "systemctl" and "is-active" in cmd:
+                call_count += 1
+                return mock.MagicMock(stdout="active\n", returncode=0)
+            return mock.MagicMock(stdout="", returncode=0)
+
+        with mock.patch.object(panel.subprocess, "run", side_effect=fake_run):
+            res1 = panel.service_active("test-unit.service")
+            self.assertTrue(res1)
+            self.assertEqual(call_count, 1)
+
+            res2 = panel.service_active("test-unit.service")
+            self.assertTrue(res2)
+            self.assertEqual(call_count, 1, "Subprocess must not be called again within window TTL")
+
+    def test_get_process_list_no_new_subprocess_in_ttl(self):
+        call_count = 0
+        def fake_run(cmd, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if isinstance(cmd, list) and len(cmd) >= 3 and cmd[0] == "systemctl" and cmd[1] == "show":
+                return mock.MagicMock(stdout="MainPID=11111\nActiveState=active\n", returncode=0)
+            if isinstance(cmd, list) and len(cmd) >= 2 and cmd[0] == "systemctl" and cmd[1] == "is-active":
+                return mock.MagicMock(stdout="active\n", returncode=0)
+            if isinstance(cmd, list) and len(cmd) >= 2 and cmd[0] == "docker" and cmd[1] == "inspect":
+                return mock.MagicMock(stdout="running\t22222\tcontainer123\n", returncode=0)
+            return mock.MagicMock(stdout="", returncode=0)
+
+        with mock.patch.object(panel.subprocess, "run", side_effect=fake_run):
+            with mock.patch("os.path.exists", return_value=True):
+                procs1 = panel.get_process_list()
+                first_calls = call_count
+                self.assertGreater(first_calls, 0)
+
+                procs2 = panel.get_process_list()
+                self.assertEqual(call_count, first_calls, "No new subprocesses must be called within TTL window")
+                self.assertEqual(len(procs1), len(procs2))
+
+    def test_ttl_cached_stale_while_revalidate(self):
+        call_count = 0
+        def loader():
+            nonlocal call_count
+            call_count += 1
+            return f"val_{call_count}"
+
+        v1 = panel._ttl_cached("test_swr", 0.05, loader)
+        self.assertEqual(v1, "val_1")
+        self.assertEqual(call_count, 1)
+
+        v2 = panel._ttl_cached("test_swr", 0.05, loader)
+        self.assertEqual(v2, "val_1")
+        self.assertEqual(call_count, 1)
+
+        time.sleep(0.06)
+        v3 = panel._ttl_cached("test_swr", 0.05, loader)
+        self.assertEqual(v3, "val_1", "Must return stale value immediately without blocking")
+
+        time.sleep(0.05)
+        v4 = panel._ttl_cached("test_swr", 0.05, loader)
+        self.assertEqual(v4, "val_2")
 
 
 if __name__ == "__main__":
