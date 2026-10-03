@@ -1,4 +1,5 @@
 import importlib
+import io
 import json
 import os
 import subprocess
@@ -1509,6 +1510,76 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertTrue(recent_file.exists(), "Active scratch file (<= 24h) must NOT be deleted")
             # Old junk must be deleted (age > 24h)
             self.assertFalse(old_file.exists(), "Old scratch file (> 24h) MUST be deleted")
+
+    def test_casaos_process_list_detection(self):
+        """CasaOS process entry is included in get_process_list with correct attributes."""
+        orig_open = open
+
+        def custom_open(path, *args, **kwargs):
+            if str(path) == "/proc/12345/status":
+                return io.StringIO("VmRSS:\t   20480 kB\n")
+            return orig_open(path, *args, **kwargs)
+
+        def custom_run(cmd, *args, **kwargs):
+            if isinstance(cmd, list) and len(cmd) >= 3 and cmd[0] == "systemctl" and cmd[1] == "show" and "casaos" in cmd[2]:
+                return mock.MagicMock(stdout="MainPID=12345\n", returncode=0)
+            return mock.MagicMock(stdout="", returncode=0)
+
+        # 1. When CasaOS is active
+        with mock.patch.object(panel, "service_active", side_effect=lambda name, user=False: name == "casaos.service"):
+            with mock.patch.object(panel.subprocess, "run", side_effect=custom_run):
+                with mock.patch("builtins.open", side_effect=custom_open):
+                    procs = panel.get_process_list()
+                    casa = next((p for p in procs if p["id"] == "casaos"), None)
+                    self.assertIsNotNone(casa)
+                    self.assertEqual(casa["id"], "casaos")
+                    self.assertEqual(casa["name"], "CasaOS (Dasbor & Manajemen Host)")
+                    self.assertEqual(casa["kind"], "Layanan Systemd")
+                    self.assertEqual(casa["status"], "Berjalan")
+                    self.assertTrue(casa["is_active"])
+                    self.assertEqual(casa["pid"], "12345")
+                    self.assertEqual(casa["mem_mb"], 20.0)
+                    self.assertEqual(casa["stop_url"], "/process-action?service=casaos&action=stop")
+                    self.assertEqual(casa["start_url"], "/process-action?service=casaos&action=start")
+                    self.assertEqual(casa["restart_url"], "/process-action?service=casaos&action=restart")
+
+        # 2. When CasaOS is inactive
+        with mock.patch.object(panel, "service_active", return_value=False):
+            procs = panel.get_process_list()
+            casa = next((p for p in procs if p["id"] == "casaos"), None)
+            self.assertIsNotNone(casa)
+            self.assertEqual(casa["status"], "Berhenti")
+            self.assertFalse(casa["is_active"])
+            self.assertEqual(casa["pid"], "-")
+            self.assertEqual(casa["mem_mb"], 0.0)
+
+    def test_casaos_process_actions_endpoint(self):
+        """Endpoint /process-action executes systemctl commands for CasaOS units."""
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        expected_units = [
+            "casaos.service",
+            "casaos-gateway.service",
+            "casaos-app-management.service",
+            "casaos-user-service.service",
+            "casaos-local-storage.service",
+            "casaos-message-bus.service",
+        ]
+        for action in ("stop", "start", "restart"):
+            panel._last_action_at = 0.0
+            with mock.patch.object(panel.subprocess, "run") as mock_sub:
+                code, _, _ = self._request(
+                    f"/process-action?service=casaos&action={action}",
+                    method="POST",
+                    headers={"Cookie": cookie},
+                )
+                self.assertEqual(code, 302)
+                mock_sub.assert_called_with(["systemctl", action] + expected_units, timeout=15)
+
+    def test_casaos_confirm_action_ui(self):
+        """UI confirmation rule for stopping CasaOS is registered."""
+        self.assertIn("/process-action?service=casaos&action=stop", panel.NAV_SCRIPT)
+        self.assertIn("Hentikan CasaOS", panel.NAV_SCRIPT)
+        self.assertIn("Hentikan layanan CasaOS? Dasbor web CasaOS tidak dapat diakses sampai dinyalakan kembali.", panel.NAV_SCRIPT)
 
 
 class TestGatewayConfigSync(unittest.TestCase):

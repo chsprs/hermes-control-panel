@@ -7296,6 +7296,7 @@ var CONFIRM_ROUTES = [
   {match:'/process-action?service=9router&action=stop', title:'Hentikan 9router', msg:'Hentikan kontainer 9router? AI routing akan mati sampai dinyalakan lagi.'},
   {match:'/process-action?service=cloudflared&action=stop', title:'Hentikan Cloudflared', msg:'Hentikan tunnel Cloudflared? Akses eksternal putus sampai dinyalakan lagi.'},
   {match:'/process-action?service=pihole-pihole-1&action=stop', title:'Hentikan Pi-hole', msg:'Hentikan Pi-hole? DNS dan anti-iklan mati sampai dinyalakan lagi.'},
+  {match:'/process-action?service=casaos&action=stop', title:'Hentikan CasaOS', msg:'Hentikan layanan CasaOS? Dasbor web CasaOS tidak dapat diakses sampai dinyalakan kembali.'},
   {match:'/process-action?service=hermes-dashboard&action=restart', title:'Mulai Ulang Dasbor', msg:'Mulai ulang layanan hermes-dashboard? Halaman dasbor :9119 terputus sebentar.'},
   {match:'/process-action?service=hermes-panel&action=restart', title:'Mulai Ulang Panel', msg:'Mulai ulang layanan hermes-panel? Panel tersambung lagi dalam beberapa detik.'},
   {match:'/process-action?action=restart', title:'Mulai Ulang Tugas', msg:'Mulai ulang layanan yang dipilih sekarang?'},
@@ -11237,6 +11238,48 @@ def get_process_list() -> list[dict]:
     except Exception:
         pass
 
+    # 7. CasaOS
+    try:
+        casa_active = service_active("casaos.service") or service_active("casaos-gateway.service")
+        casa_pid = "-"
+        casa_mem = 0.0
+        if casa_active:
+            for u in ("casaos.service", "casaos-gateway.service"):
+                r = subprocess.run(
+                    ["systemctl", "show", u, "--property=MainPID"],
+                    capture_output=True, text=True, timeout=INFO_TIMEOUT
+                )
+                p = ""
+                for line in r.stdout.strip().split("\n"):
+                    if line.startswith("MainPID="):
+                        p = line.split("=", 1)[1].strip()
+                        break
+                if p and p != "0":
+                    casa_pid = p
+                    try:
+                        with open(f"/proc/{p}/status") as f:
+                            for l in f:
+                                if l.startswith("VmRSS:"):
+                                    casa_mem = round(int(l.split()[1]) / 1024, 1)
+                                    break
+                    except Exception:
+                        pass
+                    break
+        procs.append({
+            "id": "casaos",
+            "name": "CasaOS (Dasbor & Manajemen Host)",
+            "kind": "Layanan Systemd",
+            "status": "Berjalan" if casa_active else "Berhenti",
+            "is_active": casa_active,
+            "pid": casa_pid,
+            "mem_mb": casa_mem,
+            "stop_url": "/process-action?service=casaos&action=stop",
+            "start_url": "/process-action?service=casaos&action=start",
+            "restart_url": "/process-action?service=casaos&action=restart",
+        })
+    except Exception:
+        pass
+
     return procs
 
 
@@ -13316,6 +13359,16 @@ class Handler(BaseHTTPRequestHandler):
                         subprocess.run(["docker", action, "cloudflared"], timeout=15)
                     elif service in ("pihole", "pihole-pihole-1") and action in ("start", "stop", "restart"):
                         subprocess.run(["docker", action, "pihole-pihole-1"], timeout=15)
+                    elif service == "casaos" and action in ("start", "stop", "restart"):
+                        casaos_units = [
+                            "casaos.service",
+                            "casaos-gateway.service",
+                            "casaos-app-management.service",
+                            "casaos-user-service.service",
+                            "casaos-local-storage.service",
+                            "casaos-message-bus.service",
+                        ]
+                        subprocess.run(["systemctl", action] + casaos_units, timeout=15)
                     elif service == "hermes-dashboard" and action == "restart":
                         subprocess.run(["systemctl", "restart", "hermes-dashboard"], timeout=15)
                     elif service == "hermes-panel" and action == "restart":
