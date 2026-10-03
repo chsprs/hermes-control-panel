@@ -7943,6 +7943,9 @@ def create_agent_profile(name: str, clone_from: str = "", description: str = "")
     if not name or name.lower() == "default" or not _PROFILE_NAME_RE.match(name):
         return False, "Nama profil tidak valid. Gunakan huruf kecil, angka, '-' atau '_', maksimal 64 karakter."
     name = name.lower()
+    clone_from = (clone_from or "").strip().lower()
+    if clone_from and clone_from != "default" and not _PROFILE_NAME_RE.match(clone_from):
+        return False, "Sumber clone profil tidak valid."
     root = get_hermes_root()
     target_dir = root / "profiles" / name
     if target_dir.exists():
@@ -7982,6 +7985,8 @@ def delete_agent_profile(name: str) -> tuple[bool, str]:
     name = (name or "").strip().lower()
     if not name or name == "default":
         return False, "Profil default tidak dapat dihapus."
+    if not _PROFILE_NAME_RE.match(name):
+        return False, "Nama profil tidak valid."
     root = get_hermes_root()
     target_dir = root / "profiles" / name
     if not target_dir.is_dir():
@@ -8002,6 +8007,8 @@ def rename_agent_profile(old_name: str, new_name: str) -> tuple[bool, str]:
     new_name = (new_name or "").strip()
     if not old_name or old_name == "default":
         return False, "Profil default tidak dapat di-rename."
+    if not _PROFILE_NAME_RE.match(old_name):
+        return False, "Nama profil lama tidak valid."
     if not new_name or new_name.lower() == "default" or not _PROFILE_NAME_RE.match(new_name):
         return False, "Nama profil baru tidak valid."
     new_name = new_name.lower()
@@ -8376,6 +8383,8 @@ def set_profile_toolset_enabled(name: str, toolset: str, enabled: bool) -> tuple
 def get_agent_profile_soul(name: str) -> str:
     """Read SOUL.md of profile."""
     name = (name or "").strip().lower()
+    if not name or (name != "default" and not _PROFILE_NAME_RE.match(name)):
+        return ""
     root = get_hermes_root()
     target_file = (root / "SOUL.md") if name == "default" else (root / "profiles" / name / "SOUL.md")
     try:
@@ -8389,6 +8398,8 @@ def get_agent_profile_soul(name: str) -> str:
 def save_agent_profile_soul(name: str, content: str) -> tuple[bool, str]:
     """Atomically write SOUL.md with 0644 mode."""
     name = (name or "").strip().lower()
+    if not name or (name != "default" and not _PROFILE_NAME_RE.match(name)):
+        return False, "Nama profil tidak valid."
     root = get_hermes_root()
     target_dir = root if name == "default" else (root / "profiles" / name)
     if not target_dir.is_dir():
@@ -8408,6 +8419,8 @@ def save_agent_profile_soul(name: str, content: str) -> tuple[bool, str]:
 def set_agent_profile_model(name: str, provider: str, model: str) -> tuple[bool, str]:
     """Update model assignment in a profile's config.yaml."""
     name = (name or "").strip().lower()
+    if not name or (name != "default" and not _PROFILE_NAME_RE.match(name)):
+        return False, "Nama profil tidak valid."
     root = get_hermes_root()
     cfg_file = (root / "config.yaml") if name == "default" else (root / "profiles" / name / "config.yaml")
     if not cfg_file.parent.is_dir():
@@ -8780,9 +8793,9 @@ def get_kanban_db_path(slug: str = "") -> Path:
     """Resolve path to kanban.db for a given board slug (or current board)."""
     if not slug:
         slug = get_current_kanban_board()
-    slug = slug.strip().lower()
+    slug = (slug or "").strip().lower()
     root = get_hermes_root()
-    if slug == "default":
+    if slug == "default" or not _KANBAN_SLUG_RE.match(slug):
         return root / "kanban.db"
     return root / "kanban" / "boards" / slug / "kanban.db"
 
@@ -9098,7 +9111,7 @@ def get_kanban_attachments_root(slug: str = "") -> Path:
         slug = get_current_kanban_board()
     slug = (slug or "").strip().lower()
     root = get_hermes_root()
-    if slug == "default":
+    if slug == "default" or not _KANBAN_SLUG_RE.match(slug):
         return root / "kanban" / "attachments"
     return root / "kanban" / "boards" / slug / "attachments"
 

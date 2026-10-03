@@ -2058,6 +2058,45 @@ class TestAgentProfiles(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_14_profile_path_traversal_prevention(self):
+        """SEC-PT-01 s/d SEC-PT-04: Cegah path traversal pada profil hermes."""
+        # SEC-PT-01: delete_agent_profile validasi _PROFILE_NAME_RE
+        for bad in ("..", "../other", "/etc", "foo/bar", "evil\x00name"):
+            ok, msg = panel.delete_agent_profile(bad)
+            self.assertFalse(ok, f"Expected delete failure for {bad!r}")
+            self.assertIn("tidak valid", msg)
+        self.assertTrue(self.root.is_dir())
+        self.assertTrue((self.root / "config.yaml").is_file())
+
+        # SEC-PT-02: rename_agent_profile validasi old_name dengan _PROFILE_NAME_RE
+        for bad in ("..", "../other", "/etc", "foo/bar"):
+            ok, msg = panel.rename_agent_profile(bad, "valid-target")
+            self.assertFalse(ok, f"Expected rename failure for bad old_name {bad!r}")
+            self.assertIn("tidak valid", msg)
+
+        # SEC-PT-03: create_agent_profile validasi clone_from (hanya default atau _PROFILE_NAME_RE)
+        for bad in ("..", "../../etc", "/etc/passwd", "foo/bar"):
+            ok, msg = panel.create_agent_profile("valid-prof", clone_from=bad)
+            self.assertFalse(ok, f"Expected clone failure for {bad!r}")
+            self.assertIn("tidak valid", msg)
+        self.assertFalse((self.root / "profiles" / "valid-prof").exists())
+
+        # SEC-PT-04: get_agent_profile_soul, save_agent_profile_soul, set_agent_profile_model
+        for bad in ("..", "../other", "/etc", "foo/bar"):
+            soul = panel.get_agent_profile_soul(bad)
+            self.assertEqual(soul, "")
+            ok_s, msg_s = panel.save_agent_profile_soul(bad, "malicious-soul")
+            self.assertFalse(ok_s)
+            self.assertIn("tidak valid", msg_s)
+            ok_m, msg_m = panel.set_agent_profile_model(bad, "custom:9router", "test-model")
+            self.assertFalse(ok_m)
+            self.assertIn("tidak valid", msg_m)
+
+        # Pastikan root SOUL.md dan config.yaml tidak termutasi oleh traversal
+        self.assertFalse((self.root / "SOUL.md").exists())
+        main_cfg = panel.yaml.safe_load((self.root / "config.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(main_cfg.get("model", {}).get("default"), "ag-gemini-3.8-flash-high")
+
 
 class TestKanbanBoard(unittest.TestCase):
     """Test Kanban board persistence, multi-board isolation, task lifecycle, and config sync."""
@@ -2372,6 +2411,23 @@ class TestKanbanBoard(unittest.TestCase):
         t3 = panel.get_kanban_task(task_id)
         state3, _ = panel.kanban_task_liveness(t3, now=now)
         self.assertEqual(state3, "stale")
+
+    def test_14_kanban_board_slug_traversal_prevention(self):
+        """SEC-PT-05: Validasi board slug pada get_kanban_db_path dan get_kanban_attachments_root."""
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("HERMES_KANBAN_ATTACHMENTS_ROOT", None)
+            for bad in ("..", "../../../etc", "evil/path", "board name", "-start"):
+                # Bad slug wajib fallback ke default board kanban.db / attachments
+                db_path = panel.get_kanban_db_path(bad)
+                self.assertEqual(db_path, self.root / "kanban.db")
+                att_root = panel.get_kanban_attachments_root(bad)
+                self.assertEqual(att_root, self.root / "kanban" / "attachments")
+
+            # Slug valid non-default tetap menuju boards/<slug>
+            db_path_valid = panel.get_kanban_db_path("my-board")
+            self.assertEqual(db_path_valid, self.root / "kanban" / "boards" / "my-board" / "kanban.db")
+            att_root_valid = panel.get_kanban_attachments_root("my-board")
+            self.assertEqual(att_root_valid, self.root / "kanban" / "boards" / "my-board" / "attachments")
 
 
 if __name__ == "__main__":
