@@ -806,16 +806,27 @@ class TestHermesControlPanel(unittest.TestCase):
             cm.__exit__.return_value = None
             mock_url.return_value = cm
 
+            def _urls_called():
+                # call_args would grab whatever the background panel threads
+                # happened to call last (dockerhub polls) — check all calls.
+                urls = []
+                for c in mock_url.call_args_list:
+                    req = c[0][0] if c[0] else None
+                    urls.append(getattr(req, "full_url", str(req)))
+                return urls
+
             panel.get_available_models()
-            called_req = mock_url.call_args[0][0]
-            url = called_req.full_url if hasattr(called_req, "full_url") else str(called_req)
-            self.assertIn("127.0.0.1:20199/v1/models", url)
+            self.assertTrue(
+                any("127.0.0.1:20199/v1/models" in u for u in _urls_called()),
+                _urls_called(),
+            )
 
             cm.read.return_value = json.dumps({"currentVersion": "1.0", "latestVersion": "1.1", "hasUpdate": True}).encode("utf-8")
             panel.get_router_release()
-            called_url = mock_url.call_args[0][0]
-            url2 = called_url.full_url if hasattr(called_url, "full_url") else str(called_url)
-            self.assertIn("127.0.0.1:20199/api/version", url2)
+            self.assertTrue(
+                any("127.0.0.1:20199/api/version" in u for u in _urls_called()),
+                _urls_called(),
+            )
 
         # 4. _open_policy_violation recognizes allow_all_users inside extra
         cfg = {"platforms": {"whatsapp": {"enabled": True, "extra": {"dm_policy": "open", "allow_all_users": True}}}}
@@ -1105,6 +1116,19 @@ class TestHermesControlPanel(unittest.TestCase):
 
     def test_70_kanban_http_api_and_auth(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        # Isolate the board: without this the POSTs below land in the real
+        # ~/.hermes/kanban.db and leave junk "Live API Task" cards on the
+        # user's board (happened 3x before this patch).
+        import tempfile
+        from pathlib import Path
+        tmpdir = tempfile.mkdtemp(prefix="panel-kanban-http-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmpdir, ignore_errors=True))
+        cfg = str(Path(tmpdir) / "config.yaml")
+        Path(cfg).write_text("model:\n  default: test-model\n", encoding="utf-8")
+        patcher = mock.patch.object(panel, "CONFIG_PATH", cfg)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
         # 1. GET /api/kanban/tasks without auth -> 401
         code, _, _ = self._request("/api/kanban/tasks", method="GET")
         self.assertEqual(code, 401)
@@ -2293,6 +2317,61 @@ class TestKanbanBoard(unittest.TestCase):
         # stored_path outside the board's attachments root must be refused.
         self.assertIsNone(panel.resolve_kanban_attachment(ids["evil.md"]))
         self.assertIsNone(panel.resolve_kanban_attachment(999999))
+
+
+    def test_13_liveness_prefers_active_run_over_stale_task_timestamps(self):
+        """Re-claim: tasks.started_at/last_heartbeat_at masih milik run lama.
+
+        Run baru yang belum heartbeat pertama harus terbaca live ('baru mulai'),
+        bukan MACET — sinyal yang dipakai adalah timestamp run aktif.
+        """
+        _, _, task_id = panel.create_kanban_task(title="Re-claim liveness", status="todo")
+        db_path = panel.get_kanban_db_path()
+        con = panel.ensure_kanban_db(db_path)
+        now = int(time.time())
+        old = now - 68 * 3600  # run lama 68 jam lalu
+        with con:
+            con.execute(
+                "UPDATE tasks SET status='running', started_at=?, last_heartbeat_at=?, worker_pid=1 "
+                "WHERE id=?", (old, old, task_id))
+            cur = con.execute(
+                "INSERT INTO task_runs (task_id, profile, status, worker_pid, started_at) "
+                "VALUES (?, 'default', 'running', 1, ?)", (task_id, now - 60))
+            run_id = cur.lastrowid
+            con.execute("UPDATE tasks SET current_run_id=? WHERE id=?", (run_id, task_id))
+        con.close()
+
+        t = panel.get_kanban_task(task_id)
+        self.assertEqual(t["active_run_id"], run_id)
+        self.assertEqual(t["active_run_started_at"], now - 60)
+        self.assertIsNone(t["active_run_last_heartbeat_at"])
+        # run baru 60 dtk, PID hidup, belum heartbeat -> live, bukan MACET
+        state, detail = panel.kanban_task_liveness(t, now=now)
+        self.assertEqual(state, "live", detail)
+        self.assertIn("baru mulai", detail)
+
+        # daftar kartu memakai jalur yang sama
+        listed = [x for x in panel.list_kanban_tasks() if x["id"] == task_id][0]
+        self.assertEqual(listed["live_state"], "live", listed.get("live_detail"))
+
+        # PID run aktif mati -> baru boleh stale
+        con = panel.ensure_kanban_db(db_path)
+        with con:
+            con.execute("UPDATE task_runs SET worker_pid=99999999 WHERE id=?", (run_id,))
+        con.close()
+        t2 = panel.get_kanban_task(task_id)
+        state2, detail2 = panel.kanban_task_liveness(t2, now=now)
+        self.assertEqual(state2, "stale", detail2)
+
+        # heartbeat basi di run aktif -> stale walau task-level timestamp baru
+        con = panel.ensure_kanban_db(db_path)
+        with con:
+            con.execute("UPDATE task_runs SET worker_pid=NULL, last_heartbeat_at=? WHERE id=?",
+                        (now - 4000, run_id))
+        con.close()
+        t3 = panel.get_kanban_task(task_id)
+        state3, _ = panel.kanban_task_liveness(t3, now=now)
+        self.assertEqual(state3, "stale")
 
 
 if __name__ == "__main__":

@@ -8902,7 +8902,16 @@ def kanban_task_liveness(t: dict, now: int | None = None) -> tuple[str, str]:
         return "", ""
     hb = t.get("last_heartbeat_at")
     started = t.get("started_at")
-    pid = t.get("worker_pid")
+    # Sinyal run aktif menang: tasks.started_at memakai COALESCE (tidak ditimpa
+    # saat re-claim) dan tasks.last_heartbeat_at masih milik run sebelumnya
+    # sampai heartbeat pertama run baru (~60 dtk) — dua-duanya bisa membuat run
+    # yang baru spawn terbaca MACET dari timestamp task yang lama.
+    if t.get("active_run_id"):
+        hb = t.get("active_run_last_heartbeat_at")
+        started = t.get("active_run_started_at")
+    pid = t.get("active_run_worker_pid") if t.get("active_run_id") else None
+    if not pid:
+        pid = t.get("worker_pid")
     try:
         hb_age = (now - int(hb)) if hb is not None else None
     except Exception:
@@ -8933,6 +8942,32 @@ def kanban_task_liveness(t: dict, now: int | None = None) -> tuple[str, str]:
     return ("stale", f"tanpa sinyal {_fmt_age_s(hb_age)} (>1 jam) — macet, reclaim")
 
 
+def _attach_active_run(con, d: dict) -> dict:
+    """Lampirkan timestamp run aktif (``current_run_id``) ke dict task.
+
+    Tanpa ini, liveness membaca ``tasks.started_at`` (COALESCE, tetap nilai run
+    lama saat re-claim) dan ``tasks.last_heartbeat_at`` (masih milik run lama
+    sampai heartbeat pertama run baru ~60 dtk) sehingga run yang baru di-spawn
+    terbaca MACET.
+    """
+    run_id = d.get("current_run_id")
+    if not run_id:
+        return d
+    try:
+        row = con.execute(
+            "SELECT id, started_at, last_heartbeat_at, worker_pid FROM task_runs WHERE id = ?",
+            (int(run_id),),
+        ).fetchone()
+    except Exception:
+        row = None
+    if row:
+        d["active_run_id"] = row["id"]
+        d["active_run_started_at"] = row["started_at"]
+        d["active_run_last_heartbeat_at"] = row["last_heartbeat_at"]
+        d["active_run_worker_pid"] = row["worker_pid"]
+    return d
+
+
 def _enrich_kanban_liveness(t: dict, now: int | None = None) -> dict:
     """Tempel live_state/live_detail/hb_age_s/pid_alive ke dict task (additive)."""
     try:
@@ -8940,11 +8975,17 @@ def _enrich_kanban_liveness(t: dict, now: int | None = None) -> dict:
     except Exception:
         return t
     try:
-        hb = t.get("last_heartbeat_at")
+        hb = (
+            t.get("active_run_last_heartbeat_at")
+            if t.get("active_run_id")
+            else t.get("last_heartbeat_at")
+        )
         t["hb_age_s"] = (now - int(hb)) if hb is not None else None
     except Exception:
         t["hb_age_s"] = None
-    pid = t.get("worker_pid")
+    pid = t.get("active_run_worker_pid") if t.get("active_run_id") else None
+    if not pid:
+        pid = t.get("worker_pid")
     if pid:
         try:
             os.kill(int(pid), 0)
@@ -8990,6 +9031,7 @@ def list_kanban_tasks(board: str = "", status: str = None, assignee: str = None)
         now = int(time.time())
         for r in rows:
             d = dict(r)
+            _attach_active_run(con, d)
             _enrich_kanban_liveness(d, now=now)
             tasks.append(d)
         return tasks
@@ -9012,6 +9054,7 @@ def get_kanban_task(task_id: str, board: str = "") -> dict | None:
         if not r:
             return None
         t = dict(r)
+        _attach_active_run(con, t)
 
         comments = [dict(c) for c in con.execute(
             "SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at ASC", (task_id,)
