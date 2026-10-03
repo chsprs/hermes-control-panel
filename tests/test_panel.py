@@ -1146,6 +1146,54 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertTrue(json.loads(body).get("ok"))
 
 
+    def test_71_kanban_attachment_http(self):
+        """Attachment download: auth required, 404 on unknown, text/plain on hit."""
+        import tempfile
+        from pathlib import Path
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        tmpdir = tempfile.mkdtemp(prefix="panel-att-http-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(tmpdir, ignore_errors=True))
+        cfg = str(Path(tmpdir) / "config.yaml")
+        Path(cfg).write_text("model:\n  default: test-model\n", encoding="utf-8")
+
+        with mock.patch.object(panel, "CONFIG_PATH", cfg):
+            # 1. no auth -> 401
+            code, _, _ = self._request("/api/kanban/attachment?id=1", method="GET")
+            self.assertEqual(code, 401)
+
+            _, _, task_id = panel.create_kanban_task(title="Lampiran HTTP", status="todo")
+            att_dir = panel.get_kanban_attachments_root() / task_id
+            att_dir.mkdir(parents=True, exist_ok=True)
+            blob = att_dir / "hasil.md"
+            blob.write_text("# Hasil\n25 bug", encoding="utf-8")
+            con = panel.ensure_kanban_db(panel.get_kanban_db_path())
+            with con:
+                con.execute(
+                    "INSERT INTO task_attachments (task_id, filename, stored_path, size, created_at) "
+                    "VALUES (?, 'hasil.md', ?, ?, ?)",
+                    (task_id, str(blob), blob.stat().st_size, int(time.time())))
+                aid = con.execute("SELECT id FROM task_attachments ORDER BY id DESC LIMIT 1").fetchone()["id"]
+            con.close()
+
+            # 2. unknown id -> 404
+            code, _, _ = self._request("/api/kanban/attachment?id=999999", method="GET",
+                                       headers={"Cookie": cookie})
+            self.assertEqual(code, 404)
+
+            # 3. bad id -> 400
+            code, _, _ = self._request("/api/kanban/attachment?id=abc", method="GET",
+                                       headers={"Cookie": cookie})
+            self.assertEqual(code, 400)
+
+            # 4. valid -> 200 text/plain, content served, never HTML
+            code, headers, body = self._request(f"/api/kanban/attachment?id={aid}", method="GET",
+                                                headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+            self.assertIn("text/plain", headers.get("Content-Type", ""))
+            self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
+            self.assertIn("25 bug", body)
+
+
 class TestGatewayConfigSync(unittest.TestCase):
     """Panel edits must land where Hermes' gateway loader actually reads them.
 
@@ -2175,6 +2223,76 @@ class TestKanbanBoard(unittest.TestCase):
         self.assertIn("kb-pulse", panel.PAGE)
         self.assertIn("kb-badge-stale", panel.PAGE)
         self.assertIn("_enrich_kanban_liveness", panel.list_kanban_tasks.__code__.co_names)
+
+
+    def test_11_task_result_runs_and_attachments_exposed(self):
+        """A finished task's result/run-summary/attachments must reach the UI payload."""
+        _, _, task_id = panel.create_kanban_task(title="Lapor hasil audit", status="todo")
+        db_path = panel.get_kanban_db_path()
+        con = panel.ensure_kanban_db(db_path)
+        now = int(time.time())
+        with con:
+            con.execute("UPDATE tasks SET status='done', result='LAPORAN: 25 bug ditemukan' WHERE id=?", (task_id,))
+            con.execute(
+                "INSERT INTO task_runs (task_id, profile, status, outcome, summary, started_at, ended_at) "
+                "VALUES (?, 'default', 'done', 'completed', 'Ringkasan run terakhir', ?, ?)",
+                (task_id, now - 10, now),
+            )
+            att_dir = panel.get_kanban_attachments_root() / task_id
+            att_dir.mkdir(parents=True, exist_ok=True)
+            blob = att_dir / "laporan.md"
+            blob.write_text("# Laporan\nisi", encoding="utf-8")
+            con.execute(
+                "INSERT INTO task_attachments (task_id, filename, stored_path, size, created_at) "
+                "VALUES (?, 'laporan.md', ?, ?, ?)",
+                (task_id, str(blob), blob.stat().st_size, now),
+            )
+        con.close()
+
+        t = panel.get_kanban_task(task_id)
+        self.assertEqual(t["result"], "LAPORAN: 25 bug ditemukan")
+        self.assertEqual(len(t["runs"]), 1)
+        self.assertEqual(t["runs"][0]["summary"], "Ringkasan run terakhir")
+        self.assertEqual(len(t["attachments"]), 1)
+        self.assertEqual(t["attachments"][0]["filename"], "laporan.md")
+
+        # UI must actually consume those fields, not just receive them.
+        for marker in ("view-task-output", "view-task-runs-list", "view-task-attachments-list"):
+            self.assertIn(marker, panel.PAGE)
+        js = panel.PAGE[panel.PAGE.index("function openViewTaskModal"):]
+        js = js[:js.index("function formatKanbanBytes")]
+        for field in ("t.result", "t.runs", "t.attachments"):
+            self.assertIn(field, js)
+
+    def test_12_attachment_resolution_guards_traversal(self):
+        _, _, task_id = panel.create_kanban_task(title="Lampiran traversal", status="todo")
+        db_path = panel.get_kanban_db_path()
+        root = panel.get_kanban_attachments_root()
+        good_dir = root / task_id
+        good_dir.mkdir(parents=True, exist_ok=True)
+        good = good_dir / "ok.md"
+        good.write_text("aman", encoding="utf-8")
+        outside = self.root / "outside.md"
+        outside.write_text("rahasia", encoding="utf-8")
+
+        con = panel.ensure_kanban_db(db_path)
+        now = int(time.time())
+        with con:
+            con.execute(
+                "INSERT INTO task_attachments (task_id, filename, stored_path, size, created_at) "
+                "VALUES (?, 'ok.md', ?, ?, ?)", (task_id, str(good), good.stat().st_size, now))
+            con.execute(
+                "INSERT INTO task_attachments (task_id, filename, stored_path, size, created_at) "
+                "VALUES (?, 'evil.md', ?, ?, ?)", (task_id, str(outside), outside.stat().st_size, now))
+        con.close()
+
+        ids = {a["filename"]: a["id"] for a in panel.get_kanban_task(task_id)["attachments"]}
+        res = panel.resolve_kanban_attachment(ids["ok.md"])
+        self.assertIsNotNone(res)
+        self.assertEqual(res[0].read_text(encoding="utf-8"), "aman")
+        # stored_path outside the board's attachments root must be refused.
+        self.assertIsNone(panel.resolve_kanban_attachment(ids["evil.md"]))
+        self.assertIsNone(panel.resolve_kanban_attachment(999999))
 
 
 if __name__ == "__main__":

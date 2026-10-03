@@ -1254,6 +1254,18 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.3rem">Deskripsi / Acceptance Criteria</div>
       <div id="view-task-body" style="font-size:0.82rem;line-height:1.5;background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:6px;padding:0.65rem;white-space:pre-wrap;max-height:160px;overflow-y:auto"></div>
     </div>
+    <div id="view-task-output-wrap" style="margin-bottom:0.75rem;display:none">
+      <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.3rem">Hasil / Output</div>
+      <div id="view-task-output" style="font-size:0.82rem;line-height:1.5;background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.25);border-radius:6px;padding:0.65rem;white-space:pre-wrap;max-height:260px;overflow-y:auto"></div>
+    </div>
+    <div id="view-task-runs-wrap" style="margin-bottom:0.75rem;display:none">
+      <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.3rem">Riwayat Run (<span id="view-task-runs-count">0</span>)</div>
+      <div id="view-task-runs-list" style="display:flex;flex-direction:column;gap:0.4rem;max-height:180px;overflow-y:auto"></div>
+    </div>
+    <div id="view-task-attachments-wrap" style="margin-bottom:0.75rem;display:none">
+      <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.3rem">Lampiran (<span id="view-task-attachments-count">0</span>)</div>
+      <div id="view-task-attachments-list" style="display:flex;flex-direction:column;gap:0.4rem"></div>
+    </div>
     <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;padding:0.5rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:0.75rem">
       <span style="font-size:0.75rem;color:var(--text-dim)">Pindahkan Kolom:</span>
       <select id="view-task-move-status" onchange="moveCurrentTaskStatus(this.value)" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.5rem;font-size:0.75rem">
@@ -3105,6 +3117,107 @@ function openViewTaskModal(taskId){{
         }}
       }}
 
+      // --- Hasil / Output: task.result, fallback run terakhir yg punya summary ---
+      var outWrap = document.getElementById('view-task-output-wrap');
+      var outEl = document.getElementById('view-task-output');
+      var runs = t.runs || [];
+      var outText = (t.result || '').trim();
+      if(!outText){{
+        for(var ri = 0; ri < runs.length; ri++){{
+          var rs = (runs[ri].summary || '').trim();
+          if(rs){{ outText = rs; break; }}
+        }}
+      }}
+      if(outWrap && outEl){{
+        if(outText){{
+          outEl.textContent = outText;
+          outWrap.style.display = 'block';
+        }} else {{
+          outWrap.style.display = 'none';
+        }}
+      }}
+
+      // --- Riwayat Run ---
+      var runsWrap = document.getElementById('view-task-runs-wrap');
+      var runsList = document.getElementById('view-task-runs-list');
+      var runsCount = document.getElementById('view-task-runs-count');
+      if(runsWrap && runsList){{
+        runsList.innerHTML = '';
+        if(runsCount) runsCount.textContent = runs.length;
+        if(runs.length === 0){{
+          runsWrap.style.display = 'none';
+        }} else {{
+          runsWrap.style.display = 'block';
+          runs.forEach(function(r){{
+            var item = document.createElement('div');
+            item.style.cssText = 'background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:4px;padding:0.45rem 0.6rem;font-size:0.75rem';
+            var head = document.createElement('div');
+            head.style.cssText = 'display:flex;justify-content:space-between;gap:0.5rem;color:var(--text-muted);font-size:0.68rem;margin-bottom:0.2rem';
+            var left = document.createElement('span');
+            var bits = [];
+            bits.push('#' + r.id);
+            if(r.profile) bits.push(r.profile);
+            if(r.status) bits.push(r.status);
+            if(r.outcome) bits.push(r.outcome);
+            left.textContent = bits.join(' · ');
+            var right = document.createElement('span');
+            right.textContent = r.started_at ? new Date(r.started_at * 1000).toLocaleString() : '';
+            head.appendChild(left);
+            head.appendChild(right);
+            item.appendChild(head);
+            var bodyTxt = (r.summary || '').trim();
+            if(bodyTxt){{
+              var bd = document.createElement('div');
+              bd.style.cssText = 'white-space:pre-wrap;line-height:1.45';
+              bd.textContent = bodyTxt;
+              item.appendChild(bd);
+            }}
+            if(r.error){{
+              var er = document.createElement('div');
+              er.style.cssText = 'color:var(--danger);white-space:pre-wrap;margin-top:0.25rem;font-family:var(--font-mono);font-size:0.7rem';
+              er.textContent = 'Error: ' + r.error;
+              item.appendChild(er);
+            }}
+            runsList.appendChild(item);
+          }});
+        }}
+      }}
+
+      // --- Lampiran ---
+      var attWrap = document.getElementById('view-task-attachments-wrap');
+      var attList = document.getElementById('view-task-attachments-list');
+      var attCount = document.getElementById('view-task-attachments-count');
+      var atts = t.attachments || [];
+      if(attWrap && attList){{
+        attList.innerHTML = '';
+        if(attCount) attCount.textContent = atts.length;
+        if(atts.length === 0){{
+          attWrap.style.display = 'none';
+        }} else {{
+          attWrap.style.display = 'block';
+          atts.forEach(function(a){{
+            var row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.25);border-radius:4px;padding:0.4rem 0.6rem;font-size:0.75rem';
+            var nm = document.createElement('span');
+            nm.style.cssText = 'flex:1;font-family:var(--font-mono);word-break:break-all';
+            nm.textContent = a.filename || ('attachment #' + a.id);
+            var sz = document.createElement('span');
+            sz.style.cssText = 'color:var(--text-dim);font-size:0.68rem;white-space:nowrap';
+            sz.textContent = formatKanbanBytes(a.size);
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-on';
+            btn.style.cssText = 'width:auto;min-height:26px;padding:0.15rem 0.55rem;font-size:0.7rem;margin:0';
+            btn.textContent = 'Lihat';
+            btn.onclick = function(){{ openKanbanAttachment(a.id); }};
+            row.appendChild(nm);
+            row.appendChild(sz);
+            row.appendChild(btn);
+            attList.appendChild(row);
+          }});
+        }}
+      }}
+
       var cList = document.getElementById('view-task-comments-list');
       var cCount = document.getElementById('view-task-comments-count');
       if(cList){{
@@ -3139,6 +3252,20 @@ function openViewTaskModal(taskId){{
       modal.classList.add('show');
     }})
     .catch(function(err){{ alert('Error: ' + err); }});
+}}
+
+function formatKanbanBytes(n){{
+  n = Number(n) || 0;
+  if(n < 1024) return n + ' B';
+  if(n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  return (n/(1024*1024)).toFixed(1) + ' MB';
+}}
+
+function openKanbanAttachment(aid){{
+  if(!aid) return;
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : '';
+  window.open('/api/kanban/attachment?id=' + encodeURIComponent(aid) + '&board=' + encodeURIComponent(board), '_blank');
 }}
 
 function closeViewTaskModal(){{
@@ -8604,6 +8731,17 @@ CREATE TABLE IF NOT EXISTS task_runs (
     error               TEXT,
     worker_started_at   INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS task_attachments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id      TEXT NOT NULL,
+    filename     TEXT NOT NULL,
+    stored_path  TEXT NOT NULL,
+    content_type TEXT,
+    size         INTEGER NOT NULL DEFAULT 0,
+    uploaded_by  TEXT,
+    created_at   INTEGER NOT NULL
+);
 """
 
 
@@ -8890,11 +9028,67 @@ def get_kanban_task(task_id: str, board: str = "") -> dict | None:
         ).fetchall()]
         t["runs"] = runs
 
+        try:
+            t["attachments"] = [dict(a) for a in con.execute(
+                "SELECT * FROM task_attachments WHERE task_id = ? ORDER BY created_at ASC, id ASC", (task_id,)
+            ).fetchall()]
+        except Exception:
+            t["attachments"] = []
+
         return t
     except Exception:
         return None
     finally:
         con.close()
+
+
+def get_kanban_attachments_root(slug: str = "") -> Path:
+    """Attachments root for a board (mirrors hermes_cli.kanban_db).
+
+    default -> <root>/kanban/attachments, named board -> <root>/kanban/boards/<slug>/attachments.
+    HERMES_KANBAN_ATTACHMENTS_ROOT wins, same as the runtime.
+    """
+    override = (os.environ.get("HERMES_KANBAN_ATTACHMENTS_ROOT") or "").strip()
+    if override:
+        return Path(override).expanduser()
+    if not slug:
+        slug = get_current_kanban_board()
+    slug = (slug or "").strip().lower()
+    root = get_hermes_root()
+    if slug == "default":
+        return root / "kanban" / "attachments"
+    return root / "kanban" / "boards" / slug / "attachments"
+
+
+def resolve_kanban_attachment(attachment_id: int, board: str = "") -> tuple[Path, str, str] | None:
+    """Resolve an attachment row to (path, filename, content_type).
+
+    Defence in depth against a tampered row: the blob must still live under
+    the board's attachments root, so a stored_path pointing elsewhere is refused.
+    """
+    db_path = get_kanban_db_path(board)
+    try:
+        con = ensure_kanban_db(db_path)
+    except Exception:
+        return None
+    try:
+        row = con.execute("SELECT * FROM task_attachments WHERE id = ?", (int(attachment_id),)).fetchone()
+    except Exception:
+        row = None
+    finally:
+        con.close()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        root = get_kanban_attachments_root(board).resolve()
+        stored = Path(d.get("stored_path") or "").resolve()
+        stored.relative_to(root)
+    except Exception:
+        return None
+    if not stored.is_file():
+        return None
+    return stored, (d.get("filename") or stored.name), (d.get("content_type") or "application/octet-stream")
 
 
 def create_kanban_task(
@@ -11602,6 +11796,29 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_file(self, path, filename: str, content_type: str):
+        """Serve one kanban attachment inline as text/plain.
+
+        Always text/plain + nosniff so a crafted HTML/SVG blob can never run
+        script in the panel origin; the original name rides in the header only.
+        """
+        try:
+            data = Path(path).read_bytes()
+        except Exception:
+            self._send_json({"ok": False, "error": "Lampiran tidak bisa dibaca"}, code=404)
+            return
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", (filename or "lampiran").strip()) or "lampiran"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Content-Disposition", f'inline; filename="{safe_name}"')
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _redirect_to_status(self, just: str = "", tab: str = ""):
         _invalidate_status_cache(
             "processes_table",
@@ -11884,6 +12101,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": "Tugas tidak ditemukan"}, code=404)
                 return
             self._send_json({"ok": True, "task": t})
+            return
+
+        if parsed.path == "/api/kanban/attachment":
+            aid = (qs.get("id") or [""])[0]
+            b = (qs.get("board") or [""])[0]
+            try:
+                aid_int = int(aid)
+            except Exception:
+                self._send_json({"ok": False, "error": "ID lampiran tidak valid"}, code=400)
+                return
+            resolved = resolve_kanban_attachment(aid_int, board=b)
+            if not resolved:
+                self._send_json({"ok": False, "error": "Lampiran tidak ditemukan"}, code=404)
+                return
+            self._send_file(*resolved)
             return
 
         if parsed.path == "/api/kanban/config":
