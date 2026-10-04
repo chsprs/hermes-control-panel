@@ -34,8 +34,10 @@ same HTML fragments the initial page uses, so the client never re-implements it.
 """
 
 import copy
+import ctypes
 import glob
 import gzip
+import gc
 import hashlib
 import hmac
 import html
@@ -8872,6 +8874,7 @@ def get_profile_skill_inventory(name: str) -> dict:
             ".venv", "venv", "node_modules", "site-packages", "__pycache__",
             ".tox", ".nox", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
     support = {"references", "templates", "assets", "scripts"}
+    raw_entries: list[dict] = []
     if skills_dir.is_dir():
         for dirpath, dirnames, filenames in os.walk(skills_dir, followlinks=True):
             dirnames[:] = sorted(d for d in dirnames if d not in excl)
@@ -8917,7 +8920,7 @@ def get_profile_skill_inventory(name: str) -> dict:
                             k, _, v = ln.partition(":")
                             fm.setdefault(k.strip(), v.strip())
             skill_name = str(fm.get("name") or md.parent.name).strip()[:64]
-            if not skill_name or skill_name in found:
+            if not skill_name:
                 continue
             # Platform gate ala skill_matches_platform: platforms: absen = semua OS
             plats = fm.get("platforms")
@@ -8963,12 +8966,42 @@ def get_profile_skill_inventory(name: str) -> dict:
             cat = None
             if len(rel.parts) >= 2:
                 cat = rel.parts[0]
-            found[skill_name] = {
+            raw_entries.append({
+                "tier": 1,
+                "root": skills_dir,
+                "path": md,
                 "name": skill_name,
                 "description": desc[:300],
                 "category": cat,
-                "enabled": skill_name not in disabled,
-                "essential": skill_name == "hermes-agent",
+                "visible": True,
+            })
+    try:
+        if "/opt/AppData/hermes-native/hermes-lib" not in sys.path:
+            sys.path.insert(0, "/opt/AppData/hermes-native/hermes-lib")
+        from agent.skill_utils import resolve_skill_catalog as _resolve_cat, is_disabled_entry as _is_dis
+        resolved = _resolve_cat(raw_entries)
+        for s in resolved:
+            load_name = s.get("load_name")
+            if not load_name:
+                continue
+            found[load_name] = {
+                "name": load_name,
+                "description": s["description"],
+                "category": s["category"],
+                "enabled": not _is_dis(s, disabled),
+                "essential": s["name"] == "hermes-agent" or load_name == "hermes-agent",
+            }
+    except Exception:
+        for s in raw_entries:
+            nm_cand = s["name"]
+            if nm_cand in found:
+                continue
+            found[nm_cand] = {
+                "name": nm_cand,
+                "description": s["description"],
+                "category": s["category"],
+                "enabled": nm_cand not in disabled,
+                "essential": nm_cand == "hermes-agent",
             }
     skills = sorted(found.values(), key=lambda s: ((s["category"] or ""), s["name"]))
     n_en = sum(1 for s in skills if s["enabled"])
@@ -8982,35 +9015,43 @@ def get_profile_skill_content(name: str, skill: str) -> dict:
     sk = (skill or "").strip()
     if not nm or not _PROFILE_NAME_RE.match(nm):
         return {"ok": False, "error": "Nama profil tidak valid."}
-    if not sk or "/" in sk or "\\" in sk or sk in (".", "..") or not re.match(r"^[A-Za-z0-9 _-]+$", sk):
+    if not sk or "\\" in sk or ".." in sk or sk.startswith("/") or sk.endswith("/") or not re.match(r"^[A-Za-z0-9 _/-]+$", sk):
         return {"ok": False, "error": "Nama skill tidak valid."}
     root = get_hermes_root()
     home = root if nm == "default" else (root / "profiles" / nm)
     skills_dir = home / "skills"
     target: Path | None = None
     if skills_dir.is_dir():
-        for dirpath, dirnames, filenames in os.walk(skills_dir, followlinks=True):
-            dirnames[:] = [d for d in dirnames if d not in (".git", ".hub", "__pycache__", "node_modules")]
-            if "SKILL.md" not in filenames:
-                continue
-            md = Path(dirpath) / "SKILL.md"
-            try:
-                head = md.read_text(encoding="utf-8-sig")[:2000]
-            except Exception:
-                continue
-            fm_name = ""
-            if head.startswith("---"):
-                m = re.search(r"\n---\s*\n", head[3:])
-                if m:
-                    try:
-                        fm = yaml.safe_load(head[3:3 + m.start()]) or {}
-                        if isinstance(fm, dict) and fm.get("name"):
-                            fm_name = str(fm["name"]).strip()
-                    except Exception:
-                        pass
-            if fm_name == sk or md.parent.name == sk:
-                target = md
-                break
+        cand = skills_dir / sk / "SKILL.md"
+        if cand.is_file():
+            target = cand
+        else:
+            for dirpath, dirnames, filenames in os.walk(skills_dir, followlinks=True):
+                dirnames[:] = [d for d in dirnames if d not in (".git", ".hub", "__pycache__", "node_modules")]
+                if "SKILL.md" not in filenames:
+                    continue
+                md = Path(dirpath) / "SKILL.md"
+                try:
+                    rel_p = Path(dirpath).relative_to(skills_dir).as_posix()
+                except ValueError:
+                    rel_p = ""
+                try:
+                    head = md.read_text(encoding="utf-8-sig")[:2000]
+                except Exception:
+                    continue
+                fm_name = ""
+                if head.startswith("---"):
+                    m = re.search(r"\n---\s*\n", head[3:])
+                    if m:
+                        try:
+                            fm = yaml.safe_load(head[3:3 + m.start()]) or {}
+                            if isinstance(fm, dict) and fm.get("name"):
+                                fm_name = str(fm["name"]).strip()
+                        except Exception:
+                            pass
+                if fm_name == sk or md.parent.name == sk or rel_p == sk:
+                    target = md
+                    break
     if target is None:
         return {"ok": False, "error": f"Skill '{sk}' tidak ditemukan di profil '{nm}'."}
     try:
@@ -9033,7 +9074,7 @@ def set_profile_skill_enabled(name: str, skill: str, enabled: bool) -> tuple[boo
     sk = (skill or "").strip()
     if not nm or not _PROFILE_NAME_RE.match(nm):
         return False, "Nama profil tidak valid."
-    if not sk or "/" in sk or "\\" in sk or not re.match(r"^[A-Za-z0-9 _-]+$", sk):
+    if not sk or "\\" in sk or ".." in sk or sk.startswith("/") or sk.endswith("/") or not re.match(r"^[A-Za-z0-9 _/-]+$", sk):
         return False, "Nama skill tidak valid."
     if sk == "hermes-agent" and not enabled:
         return False, "Skill 'hermes-agent' esensial, tak bisa dinonaktifkan."
@@ -12379,6 +12420,32 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
 # --- SSE (Server-Sent Events) infrastructure ---
 _sse_clients: list = []  # list of (queue.Queue, threading.Event) tuples
 _sse_clients_lock = threading.Lock()
+_sse_active_event = threading.Event()
+
+
+def _trim_memory():
+    """Run garbage collection and return free heap memory to the OS via malloc_trim."""
+    try:
+        gc.collect()
+    except Exception:
+        pass
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+        if hasattr(libc, "malloc_trim"):
+            libc.malloc_trim(0)
+    except Exception:
+        try:
+            import ctypes.util
+            c_lib = ctypes.util.find_library("c")
+            if c_lib:
+                libc = ctypes.CDLL(c_lib)
+                if hasattr(libc, "malloc_trim"):
+                    libc.malloc_trim(0)
+        except Exception:
+            pass
+
+
+trim_memory = _trim_memory
 # Keys SSE_SCRIPT's apply() actually reads. build_fragments() also renders static slots
 # (model_chips alone is ~38 KB) that the page never replaces over SSE; sending them made every
 # phone download and JSON.parse ~93 KB per second for nothing. /api/status still returns everything.
@@ -12400,20 +12467,26 @@ def _sse_push_loop():
     """Background worker thread:
     When clients are connected (user HAS the web page open and visible), compute
     fragments every 1s and push live updates immediately.
-    When NO clients are connected, sleep efficiently without polling/computing."""
+    When NO clients are connected, sleep deeply without CPU context-switch berkala."""
     global _sse_last_data
     last_state: dict = {}
     tick_count = 0
     while True:
-        # Visibility check: only run work if at least one client is active
-        with _sse_clients_lock:
-            has_clients = len(_sse_clients) > 0
+        # Zero-Wakeup CPU: deep sleep without CPU context switch while no clients
+        _sse_active_event.wait()
 
-        if not has_clients:
-            time.sleep(1)
-            continue
+        with _sse_clients_lock:
+            if not _sse_clients:
+                _sse_active_event.clear()
+                continue
 
         time.sleep(1)
+
+        with _sse_clients_lock:
+            if not _sse_clients:
+                _sse_active_event.clear()
+                continue
+
         tick_count += 1
         try:
             frag = build_fragments()
@@ -12474,6 +12547,7 @@ def _sse_push_loop():
             with _sse_last_data_lock:
                 _sse_last_data = data
 
+            needs_trim = False
             with _sse_clients_lock:
                 dead = []
                 for q, evt in _sse_clients:
@@ -12489,6 +12563,12 @@ def _sse_push_loop():
                         _sse_clients.remove(d)
                     except (ValueError, Exception):
                         pass
+                if not _sse_clients and dead:
+                    _sse_active_event.clear()
+                    needs_trim = True
+
+            if needs_trim:
+                _trim_memory()
         except Exception as e:
             sys.stderr.write(f"[panel] SSE push loop error: {e}\n")
             continue
@@ -13155,7 +13235,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_file(*resolved, as_attachment=dl)
             return
 
-        if parsed.path == "/events":
+        if parsed.path in ("/events", "/api/events"):
             # SSE endpoint: stream updates to client
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -13167,6 +13247,7 @@ class Handler(BaseHTTPRequestHandler):
             evt = threading.Event()
             with _sse_clients_lock:
                 _sse_clients.append((q, evt))
+                _sse_active_event.set()
             try:
                 # Send current state immediately
                 frag = build_fragments()
@@ -13187,11 +13268,17 @@ class Handler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError, OSError):
                 pass
             finally:
+                needs_trim = False
                 with _sse_clients_lock:
                     try:
                         _sse_clients.remove((q, evt))
                     except ValueError:
                         pass
+                    if not _sse_clients:
+                        _sse_active_event.clear()
+                        needs_trim = True
+                if needs_trim:
+                    _trim_memory()
             return
 
         if parsed.path in LEGACY_GET_SHORTCUTS:

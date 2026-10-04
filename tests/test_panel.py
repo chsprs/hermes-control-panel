@@ -2056,6 +2056,58 @@ process.stdout.write(serializeGwFormToYaml('discord'));
         for k in panel.SSE_CLIENT_KEYS:
             self.assertIn(k, frag, f"Key '{k}' in SSE_CLIENT_KEYS must be returned by build_fragments()")
 
+    def test_49b_sse_zero_wakeup_and_auto_trim_lifecycle(self):
+        """Zero-wakeup event toggles with active clients; trim runs on last disconnect."""
+        import queue
+        self.assertIsInstance(panel._sse_active_event, threading.Event)
+
+        # Baseline: cleared when client list empty
+        with panel._sse_clients_lock:
+            panel._sse_clients.clear()
+            panel._sse_active_event.clear()
+        self.assertFalse(panel._sse_active_event.is_set())
+
+        # 1. First client connects -> event set
+        q1 = queue.Queue(maxsize=10)
+        e1 = threading.Event()
+        with panel._sse_clients_lock:
+            panel._sse_clients.append((q1, e1))
+            panel._sse_active_event.set()
+        self.assertTrue(panel._sse_active_event.is_set())
+
+        # 2. Second client connects -> event remains set
+        q2 = queue.Queue(maxsize=10)
+        e2 = threading.Event()
+        with panel._sse_clients_lock:
+            panel._sse_clients.append((q2, e2))
+            panel._sse_active_event.set()
+        self.assertTrue(panel._sse_active_event.is_set())
+
+        # 3. Client 1 leaves -> 1 client remains, event still set
+        with panel._sse_clients_lock:
+            panel._sse_clients.remove((q1, e1))
+            if not panel._sse_clients:
+                panel._sse_active_event.clear()
+        self.assertTrue(panel._sse_active_event.is_set())
+
+        # 4. Last client leaves -> event cleared & memory trim called
+        with mock.patch.object(panel, "_trim_memory") as mock_trim:
+            needs_trim = False
+            with panel._sse_clients_lock:
+                panel._sse_clients.remove((q2, e2))
+                if not panel._sse_clients:
+                    panel._sse_active_event.clear()
+                    needs_trim = True
+            if needs_trim:
+                panel._trim_memory()
+            self.assertFalse(panel._sse_active_event.is_set())
+            mock_trim.assert_called_once()
+
+        # 5. _trim_memory executes safely and runs gc.collect + malloc_trim
+        with mock.patch("gc.collect") as mock_gc:
+            panel._trim_memory()
+            self.assertTrue(mock_gc.called)
+
     def test_50_rendered_js_syntax(self):
         """All <script> blocks in build_status_page() must be valid JavaScript (no SyntaxError)."""
         html = panel.build_status_page()
