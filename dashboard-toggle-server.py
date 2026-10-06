@@ -589,11 +589,14 @@ box-shadow:0 0 8px var(--success)}}
 .live-badge.connected .dot{{background:var(--success)}}
 
 /* Apple CC Segmented Nav */
-.tabs{{display:flex;gap:.3rem;margin:0 auto 1.35rem;width:100%;max-width:520px;
+.tabs{{display:flex;gap:.35rem;margin:0 auto 1.35rem;width:100%;max-width:760px;
 background:rgba(20,25,35,0.75);
-padding:.3rem;border-radius:var(--radius-xl);border:1px solid var(--border)}}
-.tab{{flex:1 1 0;min-height:42px;display:flex;align-items:center;justify-content:center;
-border-radius:12px;text-align:center;gap:.35rem;
+padding:.3rem;border-radius:var(--radius-xl);border:1px solid var(--border);
+overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
+scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x}}
+.tabs::-webkit-scrollbar{{display:none}}
+.tab{{flex:1 0 auto;min-height:42px;display:flex;align-items:center;justify-content:center;
+border-radius:12px;text-align:center;gap:.35rem;padding:0 .85rem;
 font-weight:500;font-size:.82rem;cursor:pointer;border:none;white-space:nowrap;
 background:transparent;color:var(--text-muted);transition:all .18s var(--ease)}}
 .tab:hover{{color:var(--text);background:rgba(255,255,255,0.04)}}
@@ -624,7 +627,7 @@ display:flex;align-items:center;gap:.5rem}}
 /* Bento Tile Grid */
 .cc-grid{{display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:.75rem}}
 @media (max-width: 440px){{.cc-grid{{grid-template-columns:1fr}}}}
-@media (max-width:390px){{.tab{{font-size:.74rem;min-height:38px;gap:.2rem}}.tabs{{gap:.2rem;padding:.25rem}}}}
+@media (max-width:390px){{.tab{{font-size:.78rem;min-height:40px;padding:0 .65rem;gap:.25rem}}.tabs{{gap:.25rem;padding:.25rem}}}}
 
 .cc-tile{{background:rgba(255,255,255,0.025);border:1px solid var(--border-subtle);
 border-radius:var(--radius-lg);padding:1rem;display:flex;flex-direction:column;
@@ -974,7 +977,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 @media (min-width: 1024px) {{
   body {{ padding: 2.4rem 2.5rem 3.5rem; }}
   .header {{ max-width:1040px; margin:0 auto 1.5rem; }}
-  .tabs {{ max-width:520px; margin:0 auto 1.5rem; }}
+  .tabs {{ max-width:760px; margin:0 auto 1.5rem; }}
   .card, .perf-tile {{ padding:1.4rem; }}
   .models-grid {{ grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); }}
 }}
@@ -2441,7 +2444,12 @@ function switchTab(name, tab){{
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   var p = document.getElementById('tab-'+name);
   if(p) p.classList.add('active');
-  if(tab) tab.classList.add('active');
+  if(tab){{
+    tab.classList.add('active');
+    try {{
+      tab.scrollIntoView({{ behavior: 'smooth', block: 'nearest', inline: 'center' }});
+    }} catch(e) {{}}
+  }}
   safeStore('setItem', 'activeTab', name);
   scrollAllLogsToBottom();
   restorePatchPages();
