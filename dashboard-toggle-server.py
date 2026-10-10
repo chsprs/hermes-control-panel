@@ -7557,25 +7557,61 @@ _hermes_update_running = False
 _hermes_update_result = {"status": "idle", "exit_code": None, "summary": "", "finished_at": 0.0}
 
 
-def _clear_stale_hermes_git_lock() -> None:
-    """Remove abandoned shallow.lock, never an active updater's lock."""
-    lock = Path(HERMES_LIB_DIR) / ".git" / "shallow.lock"
+def _pid_is_hermes_update(pid: int) -> bool:
+    """True only if pid is an active hermes update command (not gateway run)."""
+    if pid <= 0 or pid == os.getpid():
+        return False
     try:
-        if not lock.exists() or time.time() - lock.stat().st_mtime <= 600:
-            return
-        for proc in Path("/proc").iterdir():
-            if not proc.name.isdigit():
-                continue
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+        if not raw:
+            return False
+        args = [a.decode("utf-8", "replace") for a in raw.split(b"\x00") if a]
+        if not args:
+            return False
+        # Ignore gateway run / background runners
+        if any("gateway" in a for a in args) and any("run" in a for a in args):
+            return False
+        # Must have 'update' as a distinct argument
+        if "update" not in args:
+            return False
+        first_few = " ".join(args[:3]).lower()
+        return "hermes" in first_few
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def _clear_stale_hermes_git_lock() -> None:
+    """Remove abandoned git locks and stale update markers, never an active updater's lock."""
+    if is_hermes_updating():
+        return
+    git_dir = Path(HERMES_LIB_DIR) / ".git"
+    now = time.time()
+    if git_dir.exists():
+        for lock in git_dir.glob("*.lock"):
             try:
-                cmd = (proc / "cmdline").read_bytes().replace(b"\\0", b" ").decode(errors="replace")
-            except Exception:
-                continue
-            active_git = bool(re.search(r"(?:^|[\s/])git(?:[\s/]|$)", cmd))
-            if HERMES_LIB_DIR in cmd and (active_git or "hermes update" in cmd):
-                return
-        lock.unlink()
-    except OSError:
-        pass
+                if lock.is_file() and (now - lock.stat().st_mtime) > 120:
+                    lock.unlink()
+            except OSError:
+                pass
+        claim = git_dir / "hermes-update-pull.claim"
+        if claim.is_file():
+            try:
+                if (now - claim.stat().st_mtime) > 120:
+                    claim.unlink()
+            except OSError:
+                pass
+    prog = Path("/root/.hermes/.hermes-update-in-progress")
+    if prog.is_file():
+        try:
+            lines = prog.read_text().splitlines()
+            if lines and lines[0].strip().isdigit():
+                owner_pid = int(lines[0].strip())
+                if not _pid_is_hermes_update(owner_pid):
+                    prog.unlink()
+            elif (now - prog.stat().st_mtime) > 120:
+                prog.unlink()
+        except OSError:
+            pass
 
 
 def _refresh_hermes_update() -> None:
@@ -7606,24 +7642,25 @@ def _refresh_hermes_update() -> None:
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 cmp_data = json.loads(resp.read().decode("utf-8"))
-                # When comparing local...main:
-                # 'ahead_by' in GitHub API compare/local...main means commits main is ahead of local (i.e. behind count)
-                # 'total_commits' gives the count of new commits
                 behind = int(cmp_data.get("ahead_by", 0) or cmp_data.get("total_commits", 0) or 0)
                 status = "available" if behind > 0 else "current"
         except Exception:
-            # Fallback to git fetch + rev-list if GitHub API fails
-            subprocess.run(["git", "-C", HERMES_LIB_DIR, "fetch", "--depth", "1", "--quiet", "origin", "main"],
-                           capture_output=True, timeout=30)
-            target_r = subprocess.run(["git", "-C", HERMES_LIB_DIR, "rev-parse", "FETCH_HEAD"],
-                                      capture_output=True, text=True, timeout=5)
-            target_sha = target_r.stdout.strip()
-            if target_sha and local_sha:
-                behind = 0 if target_sha == local_sha else 1
-                status = "available" if behind > 0 else "current"
+            # Fallback to git fetch + rev-parse if GitHub API fails
+            try:
+                subprocess.run(["git", "-C", HERMES_LIB_DIR, "fetch", "--depth", "1", "--quiet", "origin", "main"],
+                               capture_output=True, timeout=30)
+                target_r = subprocess.run(["git", "-C", HERMES_LIB_DIR, "rev-parse", "FETCH_HEAD"],
+                                          capture_output=True, text=True, timeout=5)
+                target_sha = target_r.stdout.strip()
+                if target_sha and local_sha:
+                    behind = 0 if target_sha == local_sha else 1
+                    status = "available" if behind > 0 else "current"
+                else:
+                    status = "unknown"
+            except Exception:
+                status = "unknown"
 
-        # Sanity check: if behind count is unreasonably large (>500 on shallow check) or 0
-        if behind == 0:
+        if behind == 0 and status != "unknown":
             status = "current"
 
         patch_notes = []
@@ -7709,9 +7746,11 @@ def get_hermes_patch_notes() -> list[str]:
 def get_hermes_update() -> dict:
     """Return cached update status; kick off background refresh if stale."""
     with _hermes_update_lock:
-        age = time.time() - _hermes_update_cache["at"]
-        if age > 1800 and not _hermes_update_running:
-            _hermes_update_cache["at"] = time.time()  # debounce
+        now = time.time()
+        age = now - _hermes_update_cache.get("at", 0)
+        stale_threshold = 60 if _hermes_update_cache.get("status") == "unknown" else 1800
+        if age > stale_threshold and not is_hermes_updating():
+            _hermes_update_cache["at"] = now  # debounce
             threading.Thread(target=_refresh_hermes_update, daemon=True).start()
     with _hermes_update_lock:
         return dict(_hermes_update_cache)
@@ -7725,17 +7764,22 @@ def is_hermes_updating() -> bool:
     if prog.exists():
         try:
             lines = prog.read_text().splitlines()
-            if lines:
+            if lines and lines[0].strip().isdigit():
                 pid = int(lines[0].strip())
-                os.kill(pid, 0)
-                return True
+                if _pid_is_hermes_update(pid):
+                    return True
+                else:
+                    with suppress(OSError):
+                        prog.unlink()
         except (OSError, ValueError):
             pass
     try:
-        r = subprocess.run(["pgrep", "-f", "hermes update"], capture_output=True, text=True, timeout=2)
-        pids = [int(p) for p in r.stdout.strip().split() if p.isdigit() and int(p) != os.getpid()]
-        if pids:
-            return True
+        for proc in Path("/proc").iterdir():
+            if not proc.name.isdigit():
+                continue
+            pid = int(proc.name)
+            if _pid_is_hermes_update(pid):
+                return True
     except Exception:
         pass
     return False
@@ -7771,19 +7815,18 @@ def run_hermes_update() -> None:
     def _run():
         global _hermes_update_running, _hermes_update_result, _hermes_update_cache
         try:
-            lock = Path(HERMES_LIB_DIR) / ".git" / "shallow.lock"
-            if lock.exists():
-                age = time.time() - lock.stat().st_mtime
-                if age > 600:
-                    lock.unlink()
+            _clear_stale_hermes_git_lock()
             os.makedirs(os.path.dirname(HERMES_UPDATE_LOG_PATH), exist_ok=True)
             with open(HERMES_UPDATE_LOG_PATH, "w", encoding="utf-8") as log:
-                log.write("[panel] official command: hermes update --yes --no-backup\n")
+                log.write("[panel] official command: hermes update --yes --no-backup --no-gateway-restart\n")
                 log.flush()
+                env = os.environ.copy()
+                env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
+                env.setdefault("PYTHONUNBUFFERED", "1")
                 proc = subprocess.Popen(
-                    [HERMES_BIN, "update", "--yes", "--no-backup"],
+                    [HERMES_BIN, "update", "--yes", "--no-backup", "--no-gateway-restart"],
                     stdout=log, stderr=subprocess.STDOUT, text=True,
-                    start_new_session=True,
+                    start_new_session=True, env=env,
                 )
                 try:
                     rc = proc.wait(timeout=HERMES_UPDATE_TIMEOUT)
@@ -7800,6 +7843,9 @@ def run_hermes_update() -> None:
                     log.write(f"\n[panel] ERROR: timeout {HERMES_UPDATE_TIMEOUT} detik\n")
                     rc = 124
             if rc == 0:
+                with open(HERMES_UPDATE_LOG_PATH, "a", encoding="utf-8") as log:
+                    log.write("\n[panel] Pembaruan kode selesai. Memulai ulang hermes-gateway via systemd...\n")
+                restart_bot()
                 summary = "Hermes sukses diperbarui: dependency, validasi, dan mulai ulang selesai"
             else:
                 summary = f"Hermes update gagal (exit {rc}); cek log lengkap"
@@ -10712,59 +10758,76 @@ def _refresh_update_cache() -> None:
     """Compare Docker Hub digest, Docker Hub tags, and 9router release/version API."""
     global _update_refreshing
     try:
-        local = get_local_image_digest()
-        remote = get_remote_image_digest()
-        release = get_router_release()
-        docker_tag = get_dockerhub_latest_tag()
+        try:
+            local = get_local_image_digest()
+            remote = get_remote_image_digest()
+            release = get_router_release()
+            docker_tag = get_dockerhub_latest_tag()
 
-        digest_known = bool(local and remote)
-        digest_differs = bool(digest_known and local != remote)
+            digest_known = bool(local and remote)
+            digest_differs = bool(digest_known and local != remote)
 
-        installed_ver = release.get("current")
-        if not installed_ver or installed_ver == "?":
-            installed_ver = get_cached_router_version()
+            installed_ver = release.get("current")
+            if not installed_ver or installed_ver == "?":
+                installed_ver = get_cached_router_version()
 
-        # Compare installed version with latest tag on Docker Hub
-        tag_is_newer = False
-        if docker_tag and installed_ver and installed_ver != "?":
-            tag_is_newer = _parse_semver(docker_tag) > _parse_semver(installed_ver)
+            # Compare installed version with latest tag on Docker Hub
+            tag_is_newer = False
+            if docker_tag and installed_ver and installed_ver != "?":
+                tag_is_newer = _parse_semver(docker_tag) > _parse_semver(installed_ver)
 
-        # Docker container can ONLY update if a new image exists on Docker Hub!
-        has_docker_update = digest_differs or tag_is_newer
+            # Docker container can ONLY update if a new image exists on Docker Hub!
+            has_docker_update = digest_differs or tag_is_newer
 
-        # Check if npm has released a newer version before Docker Hub builds it
-        npm_latest = release.get("latest", "")
-        npm_ahead = False
-        if npm_latest and npm_latest != "?" and installed_ver and installed_ver != "?":
-            npm_ahead = _parse_semver(npm_latest) > _parse_semver(installed_ver)
+            # Check if npm has released a newer version before Docker Hub builds it
+            npm_latest = release.get("latest", "")
+            npm_ahead = False
+            if npm_latest and npm_latest != "?" and installed_ver and installed_ver != "?":
+                npm_ahead = _parse_semver(npm_latest) > _parse_semver(installed_ver)
 
-        if has_docker_update:
-            status = "available"
-            target_ver = docker_tag or npm_latest or "baru"
-        elif digest_known and local == remote:
-            status = "current"
-            target_ver = docker_tag or installed_ver
-        elif installed_ver and installed_ver != "?":
-            status = "current"
-            target_ver = installed_ver
-        else:
-            status = "unknown"
-            target_ver = "?"
+            if has_docker_update:
+                status = "available"
+                target_ver = docker_tag or npm_latest or "baru"
+            elif digest_known and local == remote:
+                status = "current"
+                target_ver = docker_tag or installed_ver
+            elif installed_ver and installed_ver != "?":
+                status = "current"
+                target_ver = installed_ver
+            else:
+                status = "unknown"
+                target_ver = "?"
 
-        data = {
-            "checked_at": time.time(),
-            "status": status,
-            "local": local,
-            "remote": remote,
-            "version": installed_ver,
-            "latest_version": target_ver,
-            "docker_tag": docker_tag,
-            "npm_latest": npm_latest,
-            "npm_ahead": npm_ahead,
-            "digest_update": digest_differs,
-            "tag_update": tag_is_newer,
-            "patch_notes": get_9router_patch_notes(),
-        }
+            data = {
+                "checked_at": time.time(),
+                "status": status,
+                "local": local,
+                "remote": remote,
+                "version": installed_ver,
+                "latest_version": target_ver,
+                "docker_tag": docker_tag,
+                "npm_latest": npm_latest,
+                "npm_ahead": npm_ahead,
+                "digest_update": digest_differs,
+                "tag_update": tag_is_newer,
+                "patch_notes": get_9router_patch_notes(),
+            }
+        except Exception as exc:
+            sys.stderr.write(f"[panel] 9router update check error: {exc}\n")
+            data = {
+                "checked_at": time.time(),
+                "status": "unknown",
+                "local": "",
+                "remote": "",
+                "version": get_cached_router_version(),
+                "latest_version": "?",
+                "docker_tag": "",
+                "npm_latest": "",
+                "npm_ahead": False,
+                "digest_update": False,
+                "tag_update": False,
+                "patch_notes": get_9router_patch_notes(),
+            }
         try:
             tmp = UPDATE_CACHE_PATH + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
@@ -10788,11 +10851,14 @@ def get_update_status() -> str:
         with open(UPDATE_CACHE_PATH, encoding="utf-8") as f:
             data = json.load(f)
         status = data.get("status", "checking")
-        # Only definitive answers are cacheable; 'unknown' always re-checks so a
-        # transient Docker Hub blip recovers on the next page load.
-        fresh = status in ("current", "available") and (
-            time.time() - data.get("checked_at", 0) < UPDATE_CACHE_TTL
-        )
+        now = time.time()
+        checked_at = data.get("checked_at", 0)
+        if status in ("current", "available"):
+            fresh = (now - checked_at) < UPDATE_CACHE_TTL
+        elif status == "unknown":
+            fresh = (now - checked_at) < 60
+        else:
+            fresh = (now - checked_at) < 30
     except Exception:
         status, fresh = "checking", False
 
@@ -12102,7 +12168,7 @@ def build_fragments() -> dict:
                 f'<a href="/update-router">paksa perbarui</a></div>' + cek_btn + router_patch_notes_html
             )
         else:  # checking — the auto-poll picks up the settled result
-            update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan 9router…</div>' + router_patch_notes_html
+            update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan 9router…</div>' + cek_btn + router_patch_notes_html
 
     # Hermes update status
     hermes_upd = get_hermes_update()
@@ -12113,6 +12179,7 @@ def build_fragments() -> dict:
     hermes_log = html.escape(redact_sensitive_tokens(tail_hermes_update_log()))
     hermes_notes = get_hermes_patch_notes()
     hermes_patch_notes_html = render_patch_notes_block("Hermes Agent", hermes_notes)
+    hermes_cek_btn = f'<a class="toggle restart" href="/check-hermes-update">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
 
     if hermes_result.get("running"):
         cells["hermes"] = f'<span class="value warn">Update berjalan…</span>'
@@ -12125,19 +12192,30 @@ def build_fragments() -> dict:
         hermes_update_block = (
             f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);color:#141922" href="/update-hermes">'
             f'{ICON_ARROW_UP_CIRCLE}Perbarui Hermes ({hermes_behind} komit)</a>'
-            f'<a class="toggle restart" href="/check-hermes-update">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
+            + hermes_cek_btn
             + hermes_patch_notes_html
         )
     elif hermes_status == "current":
         cells["hermes"] = f'<span class="value up">{html.escape(hermes_local)} (terbaru)</span>'
         hermes_update_block = (
             f'<div class="update-hint">{ICON_CHECK}Hermes sudah versi terbaru ({html.escape(hermes_local)})</div>'
-            f'<a class="toggle restart" href="/check-hermes-update">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
+            + hermes_cek_btn
             + hermes_patch_notes_html
         )
-    else:
+    elif hermes_status == "unknown":
         cells["hermes"] = f'<span class="value">{html.escape(hermes_local)}</span>'
-        hermes_update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan Hermes…</div>' + hermes_patch_notes_html
+        hermes_update_block = (
+            f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek pembaruan Hermes — periksa koneksi atau coba lagi</div>'
+            + hermes_cek_btn
+            + hermes_patch_notes_html
+        )
+    else:  # checking
+        cells["hermes"] = f'<span class="value">{html.escape(hermes_local)}</span>'
+        hermes_update_block = (
+            f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan Hermes…</div>'
+            + hermes_cek_btn
+            + hermes_patch_notes_html
+        )
 
     # Permanently render Hermes log card whenever log file exists or update result exists
     hermes_log_card = ""
@@ -13816,12 +13894,15 @@ class Handler(BaseHTTPRequestHandler):
                     update_router()
                     target_tab = "control"
                 elif parsed.path == "/check-update":
-                    # Force a fresh check: drop the cache so /status re-checks in
-                    # the background (its "checking" state auto-refreshes).
+                    # Force a fresh check: drop cache and kick off background refresh
                     try:
                         os.remove(UPDATE_CACHE_PATH)
                     except OSError:
                         pass
+                    with _update_refresh_lock:
+                        if not _update_refreshing:
+                            _update_refreshing = True
+                            threading.Thread(target=_refresh_update_cache, daemon=True).start()
                     target_tab = "control"
                 elif parsed.path == "/clean-junk":
                     cleanup_system_junk()

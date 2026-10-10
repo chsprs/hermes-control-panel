@@ -1868,6 +1868,37 @@ class TestGatewayConfigSync(unittest.TestCase):
             src = f.read()
         self.assertNotIn("timeout 900 detik", src, "timeout message must use the real value")
 
+    def test_45b_is_hermes_updating_filters_accurately(self):
+        """is_hermes_updating must only match real update CLI, never gateway run or unrelated commands."""
+        self.assertFalse(panel._pid_is_hermes_update(0))
+        self.assertFalse(panel._pid_is_hermes_update(os.getpid()))
+
+        # Mock cmdline for gateway run containing 'hermes update' in repair text
+        with mock.patch("pathlib.Path.read_bytes") as mock_read:
+            # Gateway run process
+            mock_read.return_value = b"python3\x00/path/to/hermes\x00gateway\x00run\x00--arg\x00repair 'hermes update'\x00"
+            self.assertFalse(panel._pid_is_hermes_update(99999))
+
+            # Real hermes update process
+            mock_read.return_value = b"/usr/local/bin/hermes\x00update\x00--yes\x00--no-backup\x00"
+            self.assertTrue(panel._pid_is_hermes_update(99999))
+
+    def test_45c_clear_stale_hermes_git_lock(self):
+        """Stale git and update locks older than 120s are cleaned when updater is not active."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            git_dir = panel.Path(td) / ".git"
+            git_dir.mkdir(parents=True)
+            lock = git_dir / "hermes-update.lock"
+            lock.write_text("12345\n")
+            old_time = time.time() - 300
+            os.utime(lock, (old_time, old_time))
+
+            with mock.patch.object(panel, "HERMES_LIB_DIR", td), \
+                 mock.patch.object(panel, "is_hermes_updating", return_value=False):
+                panel._clear_stale_hermes_git_lock()
+                self.assertFalse(lock.exists(), "Stale hermes-update.lock must be cleaned")
+
     def test_38_form_patch_merges_onto_editor_base_yaml(self):
         self._write_cfg(self._split_cfg())
         base = "enabled: true\nreactions: false\nextra:\n  rich_messages: true\n  bridge_port: 3000\n"
