@@ -81,6 +81,7 @@ MODELS_TIMEOUT = 6.0  # /v1/models is heavier than the plain reachability
 ROUTER_HOST_OVERRIDE = os.environ.get("ROUTER_HOST", "").strip()
 HERMES_DASHBOARD_URL = os.environ.get("HERMES_DASHBOARD_URL", "").strip()
 CONFIG_PATH = os.environ.get("HERMES_CONFIG_PATH", "/root/.hermes/config.yaml")
+PANEL_ENV_PATH = os.environ.get("PANEL_ENV_PATH", "/etc/hermes-panel.env")
 SESSION_COOKIE_NAME = "hermes_panel_session"
 # The cookie never carries the credential in the clear: it carries an HMAC of a
 # fixed label keyed by the credential, so a leaked cookie reveals no password.
@@ -90,6 +91,11 @@ SESSION_VALUE = (
     if AUTH_SECRET
     else ""
 )
+
+
+def is_auth_required() -> bool:
+    """True if a password or token is configured, requiring authentication."""
+    return bool(PASSWORD or TOKEN)
 # Login form lockout: N failed attempts from one IP -> cool down.
 LOGIN_MAX_ATTEMPTS = 5
 LOGIN_LOCKOUT_SECONDS = 60
@@ -141,6 +147,7 @@ MUTATING_PATHS = frozenset({
     "/set-aux-model", "/reset-aux",
     "/set-fallback-model", "/remove-fallback-model",
     "/set-reasoning-effort",
+    "/set-password",
     "/process-action",
     "/save-gateway-platform", "/toggle-gateway-platform", "/remove-gateway-platform",
     "/api/gateway-config-preview",
@@ -1823,6 +1830,9 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div id="clean-log-show" style="display:none;margin-top:.6rem">
       <button type="button" class="btn btn-action-sm" onclick="toggleLog('cleanLogDismissed','clean-log-show')">Tampilkan Log Pembersihan</button>
     </div>
+  </div>
+  <div class="card card-info" id="auth-setting-slot" style="margin-bottom:1.25rem">
+    {auth_setting_block}
   </div>
   <div class="card card-info" style="margin-bottom:1.25rem">
     <div class="aux-header">
@@ -7407,6 +7417,7 @@ var MUTATING_PREFIXES = [
   '/set-aux-model', '/reset-aux',
   '/set-fallback-model', '/remove-fallback-model',
   '/set-reasoning-effort',
+  '/set-password',
   '/process-action', '/switch-model',
   '/save-gateway-platform', '/toggle-gateway-platform', '/remove-gateway-platform',
   '/set-active-profile', '/create-profile', '/delete-profile', '/rename-profile',
@@ -11947,6 +11958,87 @@ def get_rate_limited_providers() -> list[dict]:
     return details
 
 
+def set_panel_password(new_password: str, env_path: str = None) -> tuple[bool, str]:
+    """Update or remove PANEL_PASSWORD in /etc/hermes-panel.env (mode 0600) and in-memory globals."""
+    global PASSWORD, TOKEN, AUTH_SECRET, SESSION_VALUE
+    if "\n" in new_password or "\r" in new_password:
+        return False, "Password tidak boleh mengandung baris baru"
+    new_password = new_password.strip()
+    target_path = env_path or PANEL_ENV_PATH
+    try:
+        lines = []
+        if os.path.exists(target_path):
+            with open(target_path, "r", encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        # Filter out existing PANEL_PASSWORD and legacy PANEL_TOKEN
+        new_lines = [l for l in lines if not l.startswith(("PANEL_PASSWORD=", "PANEL_TOKEN="))]
+        if new_password:
+            new_lines.append("PANEL_PASSWORD=" + json.dumps(new_password, ensure_ascii=False))
+        parent = os.path.dirname(os.path.abspath(target_path))
+        os.makedirs(parent, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=parent, prefix=".hermes-panel.env.")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("\n".join(new_lines) + ("\n" if new_lines else ""))
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, target_path)
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+    except Exception as exc:
+        return False, f"Gagal menyimpan ke {target_path}: {exc}"
+
+    PASSWORD = new_password
+    if env_path is None:
+        TOKEN = ""  # Clear legacy token to ensure passwordless mode is clean on live server
+    AUTH_SECRET = PASSWORD or TOKEN
+    SESSION_VALUE = (
+        hmac.new(AUTH_SECRET.encode("utf-8"), b"hermes-panel-session", hashlib.sha256).hexdigest()
+        if AUTH_SECRET
+        else ""
+    )
+    msg = "Kata sandi panel berhasil diatur." if new_password else "Kata sandi panel berhasil dihapus (mode bebas tanpa login aktif)."
+    return True, msg
+
+
+def render_auth_setting_block() -> str:
+    """Render password management card for Control tab."""
+    active = is_auth_required()
+    if active:
+        badge = '<span class="badge" style="background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3)">Kata Sandi Aktif</span>'
+        clear_btn = (
+            '<button type="submit" name="clear" value="1" class="btn btn-action-sm btn-off" '
+            'style="width:auto;margin:0" onclick="return confirm(\'Hapus kata sandi dan aktifkan akses bebas tanpa login?\')">'
+            'Hapus Kata Sandi</button>'
+        )
+    else:
+        badge = '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);border:1px solid var(--border)">Akses Bebas (Tanpa Sandi)</span>'
+        clear_btn = ''
+
+    return (
+        f'<div class="aux-header">'
+        f'<div class="card-title" style="margin-bottom:0">{ICON_SHIELD} Keamanan & Kata Sandi Panel</div>'
+        f'{badge}'
+        f'</div>'
+        f'<div class="aux-desc">'
+        f'Panel berjalan di jaringan lokal / Tailscale. Kata sandi bersifat opsional. '
+        f'Dapat diatur atau dikosongkan kapan saja untuk akses langsung tanpa login.'
+        f'</div>'
+        f'<form method="post" action="/set-password" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:0.75rem">'
+        f'<input type="password" name="password" placeholder="Kata sandi baru (kosongkan untuk hapus)" autocomplete="new-password" '
+        f'style="background:var(--surface-elevated);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:0.45rem 0.75rem;font-size:0.82rem;min-width:220px;flex:1 1 200px">'
+        f'<button type="submit" class="btn btn-action-sm" style="width:auto;margin:0">Simpan Kata Sandi</button>'
+        f'{clear_btn}'
+        f'</form>'
+        f'<div style="font-size:0.72rem;color:var(--text-dim);margin-top:0.5rem;line-height:1.4">'
+        f'Reset via terminal server: <code>python3 dashboard-toggle-server.py --reset-password</code>'
+        f'</div>'
+    )
+
+
 def build_fragments() -> dict:
     """Compute every dynamic HTML fragment (plus a couple of raw flags) in one
     place, so the initial full-page render and the /api/status poll can never
@@ -12283,6 +12375,7 @@ def build_fragments() -> dict:
         "ram_pct": round(ram_pct, 1),
         "cell_load": cell_load,
         "profiles_block": render_profiles_block(),
+        "auth_setting_block": render_auth_setting_block(),
         "kanban_board_options": render_kanban_board_options(),
         "kanban_dispatcher_badge": render_kanban_dispatcher_badge(),
         "kanban_board_block": render_kanban_board_block(),
@@ -12424,6 +12517,14 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         countdown_block = (
             f'<div class="hint">{ICON_CHECK}Konfigurasi Kanban Hermes berhasil disimpan!</div>'
         )
+    elif just == "password-set":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Kata sandi panel berhasil diatur dan sesi aktif telah diperbarui.</div>'
+        )
+    elif just == "password-cleared":
+        countdown_block = (
+            f'<div class="hint">{ICON_CHECK}Kata sandi berhasil dihapus. Akses bebas LAN tanpa login sekarang aktif.</div>'
+        )
     else:
         countdown_block = ""
 
@@ -12458,6 +12559,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         aux_tasks_block=frag["aux_tasks_block"],
         backup_models_block=frag["backup_models_block"],
         profiles_block=frag.get("profiles_block", ""),
+        auth_setting_block=frag.get("auth_setting_block", ""),
         kanban_board_options=frag.get("kanban_board_options", ""),
         kanban_dispatcher_badge=frag.get("kanban_dispatcher_badge", ""),
         kanban_board_block=frag.get("kanban_board_block", ""),
@@ -12725,6 +12827,8 @@ class Handler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _token_matches(candidate: str) -> bool:
+        if not is_auth_required():
+            return True
         return (
             bool(TOKEN)
             and bool(candidate)
@@ -12733,6 +12837,8 @@ class Handler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _password_matches(candidate: str) -> bool:
+        if not is_auth_required():
+            return True
         return (
             bool(PASSWORD)
             and bool(candidate)
@@ -12741,6 +12847,8 @@ class Handler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _session_value_matches(candidate: str) -> bool:
+        if not is_auth_required():
+            return True
         return (
             bool(SESSION_VALUE)
             and bool(candidate)
@@ -12748,6 +12856,8 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def _has_valid_session(self) -> bool:
+        if not is_auth_required():
+            return True
         try:
             cookie = http_cookies.SimpleCookie()
             cookie.load(self.headers.get("Cookie", ""))
@@ -13030,6 +13140,8 @@ class Handler(BaseHTTPRequestHandler):
         redirects to the same page without the token (only for GET page
         routes). All other requests must present a valid cookie.
         """
+        if not is_auth_required():
+            return True, False
         query_token = (qs.get("token") or [""])[0]
         if self._token_matches(query_token):
             return True, self.command == "GET"
@@ -13137,6 +13249,9 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
         if parsed.path == "/login":
+            if not is_auth_required():
+                self._redirect_to_status()
+                return
             self._handle_login(parsed, body_qs, json_data)
             return
 
@@ -13157,7 +13272,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/logout":
             self.send_response(302)
             self._clear_session_cookie()
-            self.send_header("Location", "/login")
+            self.send_header("Location", "/status" if not is_auth_required() else "/login")
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
@@ -13170,7 +13285,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Strip password query param from GET to keep it out of browser URL and history
                 self._redirect_to_login(error="Password tidak boleh dimasukkan di URL.")
                 return
-            if authed:
+            if not is_auth_required() or authed:
                 self._redirect_to_status()
                 return
             self._send_html(build_login_page((qs.get("error") or [""])[0]))
@@ -13377,6 +13492,22 @@ class Handler(BaseHTTPRequestHandler):
         if json_data is None:
             json_data = {}
         is_ajax = bool(json_data) or bool((qs.get("ajax") or [""])[0]) or "application/json" in self.headers.get("Accept", "")
+
+        if parsed.path == "/set-password":
+            raw_pwd = str(json_data.get("password") if "password" in json_data else (qs.get("password") or [""])[0]).strip()
+            clear = _to_bool(json_data.get("clear") if "clear" in json_data else (qs.get("clear") or ["0"])[0], default=False)
+            new_pwd = "" if clear else raw_pwd
+            ok, msg = set_panel_password(new_pwd)
+            if is_ajax:
+                code = 200 if ok else 400
+                self._send_json({"ok": ok, "message": msg, "auth_required": is_auth_required()}, code=code)
+                return
+            if not ok:
+                self._send_html(f"<h1>400 — {html.escape(msg)}</h1>", 400)
+                return
+            just = "password-set" if new_pwd else "password-cleared"
+            self._redirect_to_status(just=just, tab="control")
+            return
 
         if parsed.path == "/api/gateway-config-preview":
             plat = str(json_data.get("platform") or "").strip().lower()
@@ -13956,13 +14087,68 @@ class TimeoutThreadingHTTPServer(ThreadingHTTPServer):
 
 
 if __name__ == "__main__":
-    if not (TOKEN or PASSWORD):
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1].lower()
+        if cmd in ("--reset-password", "--clear-password", "reset-password", "clear-password"):
+            ok, msg = set_panel_password("")
+            if ok:
+                print(f"[OK] {msg}")
+                try:
+                    subprocess.run(["systemctl", "restart", "hermes-panel.service"], timeout=10, capture_output=True)
+                    print("[OK] Layanan hermes-panel.service berhasil dimuat ulang.")
+                except Exception:
+                    pass
+                sys.exit(0)
+            else:
+                print(f"[ERROR] {msg}", file=sys.stderr)
+                sys.exit(1)
+        elif cmd in ("--set-password", "set-password"):
+            if len(sys.argv) > 2:
+                pwd = sys.argv[2]
+            else:
+                import getpass
+                try:
+                    pwd = getpass.getpass("Kata sandi baru: ")
+                except Exception:
+                    pwd = input("Kata sandi baru: ")
+            ok, msg = set_panel_password(pwd)
+            if ok:
+                print(f"[OK] {msg}")
+                try:
+                    subprocess.run(["systemctl", "restart", "hermes-panel.service"], timeout=10, capture_output=True)
+                    print("[OK] Layanan hermes-panel.service berhasil dimuat ulang.")
+                except Exception:
+                    pass
+                sys.exit(0)
+            else:
+                print(f"[ERROR] {msg}", file=sys.stderr)
+                sys.exit(1)
+        elif cmd in ("--check", "check"):
+            st = "Aktif" if is_auth_required() else "Tanpa Password (Bebas)"
+            print(f"[INFO] Status Autentikasi Panel: {st}")
+            sys.exit(0)
+        elif cmd in ("--help", "-h"):
+            print("Hermes Control Panel")
+            print("Perintah CLI:")
+            print("  python3 dashboard-toggle-server.py                   Mulai server panel")
+            print("  python3 dashboard-toggle-server.py --reset-password  Hapus kata sandi (mode bebas LAN)")
+            print("  python3 dashboard-toggle-server.py --set-password P  Atur kata sandi baru")
+            print("  python3 dashboard-toggle-server.py --check           Cek status kata sandi")
+            sys.exit(0)
+
+    if os.environ.get("PANEL_REQUIRE_AUTH") == "1" and not is_auth_required():
         print(
             "[ERROR] Set PANEL_PASSWORD (login form) and/or PANEL_TOKEN "
-            "(CasaOS shortcut URLs) in the environment.",
+            "(CasaOS shortcut URLs) in the environment when PANEL_REQUIRE_AUTH=1.",
             file=sys.stderr,
         )
         sys.exit(2)
+
+    if not is_auth_required():
+        print("[INFO] Hermes Control Panel berjalan tanpa kata sandi (akses bebas LAN).", file=sys.stderr)
+    else:
+        print("[INFO] Hermes Control Panel berjalan dengan proteksi kata sandi aktif.", file=sys.stderr)
+
     signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
     server = TimeoutThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.serve_forever()

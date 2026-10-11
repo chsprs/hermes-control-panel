@@ -215,15 +215,116 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn("window.location.hostname", link)
 
     # --- PR 6: Authentication & POST mutations ---
-    def test_12_server_exits_without_token(self):
+    def test_12_server_starts_without_password_in_open_mode(self):
+        script_path = os.path.join(REPO_ROOT, "dashboard-toggle-server.py")
+        env = {
+            k: v for k, v in os.environ.items()
+            if k not in ("PANEL_TOKEN", "PANEL_PASSWORD", "PANEL_REQUIRE_AUTH")
+        }
+        res = subprocess.run([sys.executable, script_path, "--check"], env=env, capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("Tanpa Password", res.stdout)
+
+    def test_12b_server_exits_when_auth_strictly_required_without_token(self):
         script_path = os.path.join(REPO_ROOT, "dashboard-toggle-server.py")
         env = {
             k: v for k, v in os.environ.items()
             if k not in ("PANEL_TOKEN", "PANEL_PASSWORD")
         }
+        env["PANEL_REQUIRE_AUTH"] = "1"
         res = subprocess.run([sys.executable, script_path], env=env, capture_output=True, text=True)
         self.assertEqual(res.returncode, 2)
         self.assertIn("PANEL_PASSWORD", res.stderr)
+
+    def test_12c_set_and_reset_password_cli_and_helpers(self):
+        import tempfile
+        old_pwd, old_tok = panel.PASSWORD, panel.TOKEN
+        try:
+            panel.TOKEN = ""
+            with tempfile.TemporaryDirectory() as td:
+                dummy_env = os.path.join(td, "panel.env")
+                with open(dummy_env, "w") as f:
+                    f.write("PANEL_PORT=9120\nPANEL_PASSWORD=initial123\n")
+
+                ok, msg = panel.set_panel_password("newsecret456", env_path=dummy_env)
+                self.assertTrue(ok)
+                self.assertTrue(panel.is_auth_required())
+                with open(dummy_env) as f:
+                    content = f.read()
+                self.assertIn('PANEL_PASSWORD="newsecret456"', content)
+
+                ok, msg = panel.set_panel_password("", env_path=dummy_env)
+                self.assertTrue(ok)
+                self.assertFalse(panel.is_auth_required())
+                with open(dummy_env) as f:
+                    content = f.read()
+                self.assertNotIn("PANEL_PASSWORD", content)
+                self.assertNotIn("PANEL_TOKEN", content)
+                self.assertIn("PANEL_PORT=9120", content)
+        finally:
+            panel.PASSWORD = old_pwd
+            panel.TOKEN = old_tok
+            panel.AUTH_SECRET = panel.PASSWORD or panel.TOKEN
+            panel.SESSION_VALUE = (
+                panel.hmac.new(panel.AUTH_SECRET.encode("utf-8"), b"hermes-panel-session", panel.hashlib.sha256).hexdigest()
+                if panel.AUTH_SECRET else ""
+            )
+
+    def test_12d_passwordless_mode_access(self):
+        old_pwd, old_tok = panel.PASSWORD, panel.TOKEN
+        try:
+            panel.PASSWORD = ""
+            panel.TOKEN = ""
+            self.assertFalse(panel.is_auth_required())
+            code, _, _ = self._request("/status")
+            self.assertEqual(code, 200)
+            code, _, _ = self._request("/api/status")
+            self.assertEqual(code, 200)
+            code, headers, _ = self._request("/login")
+            self.assertEqual(code, 302)
+            self.assertEqual(headers.get("Location"), "/status")
+        finally:
+            panel.PASSWORD = old_pwd
+            panel.TOKEN = old_tok
+            panel.AUTH_SECRET = panel.PASSWORD or panel.TOKEN
+            panel.SESSION_VALUE = (
+                panel.hmac.new(panel.AUTH_SECRET.encode("utf-8"), b"hermes-panel-session", panel.hashlib.sha256).hexdigest()
+                if panel.AUTH_SECRET else ""
+            )
+
+    def test_12e_set_password_mutation_route(self):
+        import tempfile
+        old_pwd, old_tok = panel.PASSWORD, panel.TOKEN
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                dummy_env = os.path.join(td, "panel.env")
+                with mock.patch.object(panel, "PANEL_ENV_PATH", dummy_env):
+                    cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+                    code, headers, _ = self._request(
+                        "/set-password", method="POST",
+                        headers={"Cookie": cookie, "Content-Type": "application/x-www-form-urlencoded"},
+                        data=b"password=freshpass99",
+                    )
+                    self.assertEqual(code, 302)
+                    self.assertIn("password-set", headers.get("Location", ""))
+
+                    # Update cookie to new session value after password change
+                    cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+                    code, headers, _ = self._request(
+                        "/set-password", method="POST",
+                        headers={"Cookie": cookie, "Content-Type": "application/x-www-form-urlencoded"},
+                        data=b"clear=1",
+                    )
+                    self.assertEqual(code, 302)
+                    self.assertIn("password-cleared", headers.get("Location", ""))
+        finally:
+            panel.PASSWORD = old_pwd
+            panel.TOKEN = old_tok
+            panel.AUTH_SECRET = panel.PASSWORD or panel.TOKEN
+            panel.SESSION_VALUE = (
+                panel.hmac.new(panel.AUTH_SECRET.encode("utf-8"), b"hermes-panel-session", panel.hashlib.sha256).hexdigest()
+                if panel.AUTH_SECRET else ""
+            )
 
     def test_13_unauthenticated_page_redirects_to_login(self):
         code, headers, _ = self._request("/status")
