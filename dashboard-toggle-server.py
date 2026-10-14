@@ -7991,6 +7991,39 @@ def set_reasoning_effort(effort: str) -> bool:
             return False
 
 
+def iter_custom_provider_entries(cfg: dict) -> list[dict]:
+    """Custom endpoints from both Hermes schemas, in the legacy list shape.
+
+    Hermes v12+ keeps them in the ``providers:`` map (``api``/``transport``); older configs keep a
+    ``custom_providers:`` list (``base_url``/``api_mode``). Hermes reads both, so the panel must too:
+    ``providers:`` entries are mapped to ``name``/``base_url``/``api_mode`` and a name already seen
+    in the legacy list is not repeated.
+    """
+    entries: list[dict] = []
+    seen: set = set()
+    legacy = cfg.get("custom_providers") if isinstance(cfg, dict) else None
+    for cp in legacy if isinstance(legacy, list) else ():
+        if isinstance(cp, dict):
+            entries.append(cp)
+            if cp.get("name"):
+                seen.add(str(cp["name"]))
+    providers = cfg.get("providers") if isinstance(cfg, dict) else None
+    for key, entry in (providers.items() if isinstance(providers, dict) else ()):
+        if not isinstance(entry, dict) or entry.get("enabled") is False:
+            continue
+        name = str(entry.get("name") or key)
+        if name in seen:
+            continue
+        seen.add(name)
+        mapped = dict(entry)
+        mapped["name"] = name
+        mapped["base_url"] = entry.get("api") or entry.get("base_url") or entry.get("url") or ""
+        if entry.get("transport") and not entry.get("api_mode"):
+            mapped["api_mode"] = entry["transport"]
+        entries.append(mapped)
+    return entries
+
+
 def get_router_api_key() -> str:
     """Read 9router credentials from the active parsed config.
 
@@ -8012,6 +8045,7 @@ def get_router_api_key() -> str:
             provider = model_custom.get("9router")
             if isinstance(provider, dict):
                 candidates.append(provider)
+        candidates.extend(cp for cp in iter_custom_provider_entries(data) if cp.get("name") == "9router")
         for item in candidates:
             if not isinstance(item, dict):
                 continue
@@ -8108,7 +8142,7 @@ def sync_hermes_provider_cache(all_model_ids: list[str]) -> bool:
         now = time.time()
         updated = False
 
-        cps = cfg.get("custom_providers") or []
+        cps = iter_custom_provider_entries(cfg)
         for cp in cps:
             if not isinstance(cp, dict):
                 continue
@@ -8242,7 +8276,7 @@ def get_all_configured_providers() -> list[dict]:
             seen.add(label)
             seen.add(p_name)
         # Custom providers
-        for cp in data.get("custom_providers", []):
+        for cp in iter_custom_provider_entries(data):
             if isinstance(cp, dict):
                 cname = cp.get("name", "")
                 if cname and cname not in seen:

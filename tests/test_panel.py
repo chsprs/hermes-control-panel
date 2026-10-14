@@ -1138,6 +1138,37 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertEqual(cache[other]["models"], ["private-model"])
             self.assertIn(["public-model"], [entry["models"] for entry in cache.values()])
 
+    def test_66b_sync_cache_reads_v12_providers_with_same_key(self):
+        # Hermes' v12 `providers:` map (api/transport) must land on the same cache row as the
+        # legacy custom_providers list entry, or /model --refresh misses the warmed catalog.
+        import tempfile
+        legacy = {"name": "9router", "base_url": "http://127.0.0.1:20128/v1", "api_key": "test-key",
+                  "api_mode": "chat_completions"}
+        v12 = {"providers": {"9router": {"api": "http://127.0.0.1:20128/v1", "name": "9router",
+                                         "api_key": "test-key", "transport": "chat_completions"}}}
+        keys = []
+        for cfg in ({"custom_providers": [legacy]}, v12):
+            with tempfile.TemporaryDirectory() as home, mock.patch.dict(os.environ, {"HERMES_HOME": home}):
+                with mock.patch.object(panel, "get_parsed_config", return_value=cfg):
+                    self.assertTrue(panel.sync_hermes_provider_cache(["public-model"]))
+                with open(os.path.join(home, "provider_models_cache.json"), encoding="utf-8") as f:
+                    keys.append(sorted(json.load(f)))
+        self.assertEqual(keys[0], keys[1])
+        self.assertEqual(len(keys[1]), 1)
+
+    def test_66c_configured_providers_include_v12_providers(self):
+        cfg = {"model": {"provider": "custom:9router"},
+               "providers": {"9router": {"api": "http://127.0.0.1:20128/v1", "name": "9router"},
+                             "bynara": {"api": "https://router.bynara.id/v1", "name": "bynara"}}}
+        with mock.patch.object(panel, "get_parsed_config", return_value=cfg):
+            names = [p["name"] for p in panel.get_all_configured_providers()]
+        self.assertEqual(names, ["9router", "bynara"])
+
+    def test_66d_router_api_key_from_v12_providers(self):
+        cfg = {"providers": {"9router": {"api": "http://127.0.0.1:20128/v1", "api_key": "v12-key"}}}
+        with mock.patch.object(panel, "get_parsed_config", return_value=cfg):
+            self.assertEqual(panel.get_router_api_key(), "v12-key")
+
     def test_67_panel_fetch_does_not_sync_hermes_cache(self):
         response = mock.MagicMock()
         response.__enter__.return_value = response
