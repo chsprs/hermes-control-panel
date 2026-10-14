@@ -74,9 +74,7 @@ STARTUP_COUNTDOWN_SECONDS = 15  # systemd reports "active" almost instantly,
 # but the actual web server takes ~10-15s to bind and answer.
 ROUTER_MODELS_URL = "http://{host}:20128/v1/models"
 ROUTER_VERSION_URL = "http://{host}:20128/api/version"
-MODELS_TIMEOUT = 6.0  # /v1/models is heavier than the plain reachability
-# ping — 9router has shown response times up to several seconds under load
-# this session, so give it more room than the quick INFO_TIMEOUT checks.
+MODELS_TIMEOUT = 2.0  # 9router models timeout with fast DB fallback
 
 ROUTER_HOST_OVERRIDE = os.environ.get("ROUTER_HOST", "").strip()
 HERMES_DASHBOARD_URL = os.environ.get("HERMES_DASHBOARD_URL", "").strip()
@@ -8264,41 +8262,91 @@ def get_all_configured_providers() -> list[dict]:
     return providers
 
 
+def get_combos_from_db() -> list[str]:
+    """Fallback: read combo models directly from 9router SQLite database."""
+    try:
+        if os.path.exists(ROUTER_DB_PATH):
+            conn = sqlite3.connect(f"file:{ROUTER_DB_PATH}?mode=ro", uri=True, timeout=1.0)
+            cur = conn.cursor()
+            cur.execute("SELECT name FROM combos ORDER BY name ASC")
+            combos = [r[0] for r in cur.fetchall() if r[0]]
+            conn.close()
+            return combos
+    except Exception:
+        pass
+    return []
+
+
 def get_available_models() -> dict:
     """Fetch live models from 9router /v1/models and group ALL models by provider/category."""
     key = get_router_api_key()
-    if not key:
-        return {"9router (Kombo)": []}
-    try:
-        host = get_9router_host()
-        port = get_9router_port()
-        url = f"http://{host}:{port}/v1/models"
-        req = urllib.request.Request(
-            url, headers={"Authorization": f"Bearer {key}", "Accept": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=MODELS_TIMEOUT) as resp:
-            data = json.load(resp)
+    if key:
+        try:
+            host = get_9router_host()
+            port = get_9router_port()
+            url = f"http://{host}:{port}/v1/models"
+            req = urllib.request.Request(
+                url, headers={"Authorization": f"Bearer {key}", "Accept": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=MODELS_TIMEOUT) as resp:
+                data = json.load(resp)
 
-        return _group_available_models(data)
-    except Exception:
-        pass
+            grouped = _group_available_models(data)
+            if any(grouped.values()):
+                return grouped
+        except Exception:
+            pass
+
+    # Fast fallback: read combos directly from 9router SQLite database
+    combos = get_combos_from_db()
+    if combos:
+        return {"9router (Kombo)": combos}
 
     return {"9router (Kombo)": []}
 
 
+_models_bg_refreshing = False
+_models_bg_lock = threading.Lock()
+
+
 def get_available_models_cached() -> dict:
-    """Cached version of get_available_models()."""
+    """Cached version of get_available_models(). Never blocks request thread on stale data."""
+    now = time.time()
     with _models_cache_lock:
-        if _models_cache["val"] and time.time() - _models_cache["at"] < MODELS_CACHE_TTL:
-            return _models_cache["val"]
-    val = get_available_models()
-    if any(val.values()):
-        with _models_cache_lock:
-            _models_cache["val"] = val
-            _models_cache["at"] = time.time()
-        return val
+        val = _models_cache.get("val")
+        at = _models_cache.get("at", 0.0)
+        is_fresh = bool(val and any(val.values()) and (now - at < MODELS_CACHE_TTL))
+        if is_fresh:
+            return val
+        if val and any(val.values()):
+            # Return current data immediately, refresh in background
+            global _models_bg_refreshing
+            with _models_bg_lock:
+                if not _models_bg_refreshing:
+                    _models_bg_refreshing = True
+                    def _bg_fetch():
+                        global _models_bg_refreshing
+                        try:
+                            fresh_val = get_available_models()
+                            if any(fresh_val.values()):
+                                with _models_cache_lock:
+                                    _models_cache["val"] = fresh_val
+                                    _models_cache["at"] = time.time()
+                        finally:
+                            with _models_bg_lock:
+                                _models_bg_refreshing = False
+                    threading.Thread(target=_bg_fetch, daemon=True).start()
+            return val
+
+    # Cold start: fetch with bounded timeout and SQLite fallback
+    fresh_val = get_available_models()
     with _models_cache_lock:
-        return _models_cache["val"] if isinstance(_models_cache["val"], dict) else {"9router": [], "OpenCode Zen": [], "Nous Portal": [], "Provider Lain": []}
+        if any(fresh_val.values()):
+            _models_cache["val"] = fresh_val
+            _models_cache["at"] = now
+            return fresh_val
+        _models_cache["at"] = now - MODELS_CACHE_TTL + 30
+        return _models_cache["val"] if isinstance(_models_cache.get("val"), dict) else {"9router (Kombo)": []}
 
 
 def set_current_model(model_id: str) -> bool:
@@ -9422,21 +9470,33 @@ def render_gateway_profile_badge(name: str, statuses: dict[str, dict] | None = N
 
 def _profile_skill_tool_summary(name: str) -> tuple[int, object, str]:
     """Ringkasan kecil utk kartu profil: (skills_aktif, tools_aktif, ket_nonaktif)."""
-    try:
-        inv = get_profile_skill_inventory(name)
-        skills_en = int(inv.get("enabled_count", 0)) if inv.get("ok") else 0
-    except Exception:
-        skills_en = 0
-    try:
-        ts = get_profile_toolsets(name)
-        dis = ts.get("disabled_toolsets", []) if ts.get("ok") else []
-        cli = ts.get("cli_toolsets") if ts.get("ok") else None
-        base = len(cli) if isinstance(cli, list) else 22
-        tools_en = max(0, base - len([d for d in dis if isinstance(cli, list) and d in (cli or [])]) if isinstance(cli, list) else base)
-        tools_dis = f" · {len(dis)} mati" if dis else ""
-    except Exception:
-        tools_en, tools_dis = "?", ""
-    return skills_en, tools_en, tools_dis
+    def _compute():
+        try:
+            nm = (name or "").strip().lower()
+            root = get_hermes_root()
+            home = root if nm == "default" else (root / "profiles" / nm)
+            total_skills = _count_skills_in_dir(home / "skills")
+            cfg_file, _ = _profile_cfg_file(nm)
+            cfg = _read_profile_cfg(cfg_file) if cfg_file else {}
+            sk_cfg = cfg.get("skills") if isinstance(cfg.get("skills"), dict) else {}
+            raw_dis = sk_cfg.get("disabled") if isinstance(sk_cfg, dict) else []
+            items = [raw_dis] if isinstance(raw_dis, str) else (list(raw_dis) if isinstance(raw_dis, (list, tuple, set)) else [])
+            dis_skills = {str(v).strip() for v in items if str(v).strip()}
+            skills_en = max(0, total_skills - len(dis_skills))
+        except Exception:
+            skills_en = 0
+        try:
+            ts = get_profile_toolsets(name)
+            dis = ts.get("disabled_toolsets", []) if ts.get("ok") else []
+            cli = ts.get("cli_toolsets") if ts.get("ok") else None
+            base = len(cli) if isinstance(cli, list) else 22
+            tools_en = max(0, base - len([d for d in dis if isinstance(cli, list) and d in (cli or [])]) if isinstance(cli, list) else base)
+            tools_dis = f" · {len(dis)} mati" if dis else ""
+        except Exception:
+            tools_en, tools_dis = "?", ""
+        return skills_en, tools_en, tools_dis
+
+    return _ttl_cached(f"profile_skill_tool_summary:{name}", 60.0, _compute)
 
 
 def _render_profiles_block_uncached() -> str:
@@ -9537,8 +9597,8 @@ def _render_profiles_block_uncached() -> str:
 
 
 def render_profiles_block() -> str:
-    """Render profile cards and active banner (cached with TTL 3s)."""
-    return _ttl_cached("profiles_block", 3.0, _render_profiles_block_uncached)
+    """Render profile cards and active banner (cached with TTL 30s)."""
+    return _ttl_cached("profiles_block", 30.0, _render_profiles_block_uncached)
 
 
 # --- Hermes Kanban Multi-Agent Board Management ---
