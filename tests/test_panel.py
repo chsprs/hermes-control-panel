@@ -2309,7 +2309,7 @@ process.stdout.write(serializeGwFormToYaml('discord'));
         self.assertIn("skills", fake_cfg, "skills root block must never be touched")
 
         # 2. Model pickers use data attributes
-        self.assertIn('data-provider="custom:9router"', panel.PAGE)
+        self.assertIn('data-provider="9router"', panel.PAGE)
         self.assertIn('data-model="\' + safeId + \'"', panel.PAGE)
 
         # 3. WA modal does not auto startWaPair

@@ -2292,10 +2292,10 @@ function renderFallbackPickerItems(q){{
           var safeId = escGw(mId);
           var isFree = mId.toLowerCase().indexOf('free') !== -1;
           var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
-          out += '<a class="aux-model-opt" href="javascript:void(0)" data-provider="custom:9router" data-model="' + safeId + '" onclick="selectFallbackModel(this.getAttribute(\\'data-provider\\'), this.getAttribute(\\'data-model\\'))">' +
+          out += '<a class="aux-model-opt" href="javascript:void(0)" data-provider="9router" data-model="' + safeId + '" onclick="selectFallbackModel(this.getAttribute(\\'data-provider\\'), this.getAttribute(\\'data-model\\'))">' +
                    '<div style="min-width:0;flex:1">' +
                      '<div class="aux-model-opt-name" style="overflow:hidden;text-overflow:ellipsis">' + safeId + '</div>' +
-                     '<div class="aux-model-opt-sub">custom:9router</div>' +
+                     '<div class="aux-model-opt-sub">9router</div>' +
                    '</div>' +
                    badge +
                  '</a>';
@@ -2370,10 +2370,10 @@ function renderAuxPickerItems(q){{
           var safeId = escGw(mId);
           var isFree = mId.toLowerCase().indexOf('free') !== -1;
           var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
-          out += '<a class="aux-model-opt" href="javascript:void(0)" data-provider="custom:9router" data-model="' + safeId + '" onclick="selectAuxModel(this.getAttribute(\\'data-provider\\'), this.getAttribute(\\'data-model\\'))">' +
+          out += '<a class="aux-model-opt" href="javascript:void(0)" data-provider="9router" data-model="' + safeId + '" onclick="selectAuxModel(this.getAttribute(\\'data-provider\\'), this.getAttribute(\\'data-model\\'))">' +
                    '<div style="min-width:0;flex:1">' +
                      '<div class="aux-model-opt-name" style="overflow:hidden;text-overflow:ellipsis">' + safeId + '</div>' +
-                     '<div class="aux-model-opt-sub">custom:9router</div>' +
+                     '<div class="aux-model-opt-sub">9router</div>' +
                    '</div>' +
                    badge +
                  '</a>';
@@ -8491,7 +8491,7 @@ def set_aux_task_model(task: str, provider: str, model: str) -> bool:
                     dele["provider"] = ""
                     dele["model"] = ""
                 else:
-                    dele["provider"] = provider
+                    dele["provider"] = "9router" if provider in ("9router", "custom:9router") else provider
                     dele["model"] = model
             else:
                 aux = cfg.setdefault("auxiliary", {})
@@ -8506,9 +8506,13 @@ def set_aux_task_model(task: str, provider: str, model: str) -> bool:
                     task_cfg.pop("base_url", None)
                     task_cfg.pop("api_key", None)
                 else:
-                    task_cfg["provider"] = provider
+                    clean_provider = "9router" if provider in ("9router", "custom:9router") else provider
+                    task_cfg["provider"] = clean_provider
                     task_cfg["model"] = model
-                    if provider == "custom:9router":
+                    if clean_provider == "9router":
+                        task_cfg.pop("base_url", None)
+                        task_cfg.pop("api_key", None)
+                    elif provider == "custom:9router":
                         task_cfg["base_url"] = f"http://{host}:20128/v1"
                         task_cfg["api_key"] = key or ""
 
