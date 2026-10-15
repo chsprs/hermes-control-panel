@@ -8600,7 +8600,7 @@ def get_fallback_models_config() -> list[dict]:
             if model:
                 result.append({
                     "index": idx,
-                    "provider": provider or "custom:9router",
+                    "provider": provider or "9router",
                     "model": model,
                     "base_url": base_url,
                     "display": f"{provider} · {model}" if provider else model,
@@ -8623,8 +8623,10 @@ def set_fallback_model(index: int, provider: str, model: str) -> bool:
             host = get_9router_host()
             base_url = f"http://{host}:20128/v1"
 
+            clean_prov = provider.replace("custom:", "") if provider and provider.startswith("custom:") else (provider or "9router")
+
             entry = {
-                "provider": provider or "custom:9router",
+                "provider": clean_prov,
                 "model": model,
                 "base_url": base_url,
                 "api_key": key or "",
@@ -9406,6 +9408,8 @@ def set_agent_profile_model(name: str, provider: str, model: str) -> tuple[bool,
             m["default"] = model
         if provider:
             m["provider"] = provider
+        elif not m.get("provider"):
+            m["provider"] = "9router"
         fd, tmp = tempfile.mkstemp(dir=str(cfg_file.parent), prefix=".config.yaml.tmp.")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
@@ -9562,7 +9566,8 @@ def _render_profiles_block_uncached() -> str:
         is_act = p["is_active"]
         is_def = p["is_default"]
         model = p["model"] or "mengikuti default"
-        prov = p["provider"] or "custom:9router"
+        raw_prov = p.get("provider") or "9router"
+        prov = raw_prov.replace("custom:", "") if raw_prov.startswith("custom:") else raw_prov
         desc = p.get("description", "")
         skills_cnt = p.get("skill_count", 0)
         has_env = p.get("has_env", False)
@@ -9571,7 +9576,7 @@ def _render_profiles_block_uncached() -> str:
         skills_en, tools_en, tools_dis = _profile_skill_tool_summary(name)
 
         act_badge = '<span class="live-badge badge-up" style="font-size:0.65rem;padding:0.15rem 0.45rem">AKTIF</span>' if is_act else ''
-        type_badge = '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">Default</span>' if is_def else '<span class="badge" style="background:rgba(59,130,246,0.12);color:var(--accent);font-size:0.65rem">Custom</span>'
+        type_badge = '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">Default</span>' if is_def else '<span class="badge" style="background:rgba(59,130,246,0.12);color:var(--accent);font-size:0.65rem">Profil</span>'
         env_badge = '<span class="badge" style="background:rgba(16,185,129,0.12);color:var(--success);font-size:0.65rem">.env ✓</span>' if has_env else '<span class="badge" style="background:rgba(255,255,255,0.04);color:var(--text-dim);font-size:0.65rem">.env -</span>'
         soul_badge = '<span class="badge" style="background:rgba(168,85,247,0.15);color:#c084fc;font-size:0.65rem">SOUL.md ✓</span>' if has_soul else '<span class="badge" style="background:rgba(255,255,255,0.04);color:var(--text-dim);font-size:0.65rem">SOUL.md -</span>'
 
@@ -13971,7 +13976,7 @@ class Handler(BaseHTTPRequestHandler):
                 index = int(index_raw)
             except (ValueError, TypeError):
                 index = -1
-            provider = str(json_data.get("provider") or (qs.get("provider") or ["custom:9router"])[0]).strip()
+            provider = str(json_data.get("provider") or (qs.get("provider") or ["9router"])[0]).strip()
             model = str(json_data.get("model") or (qs.get("model") or [""])[0]).strip()
             is_ajax = bool(json_data) or bool((qs.get("ajax") or [""])[0]) or "application/json" in self.headers.get("Accept", "")
             now = time.monotonic()
