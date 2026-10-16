@@ -1791,6 +1791,20 @@ class TestHermesControlPanel(unittest.TestCase):
         data = json.loads(decompressed)
         self.assertIn("cells", data)
 
+    def test_process_action_generic_docker_container(self):
+        """POST /process-action starts, stops, or restarts arbitrary safe docker containers."""
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.return_value = mock.Mock(returncode=0)
+            code, headers, _ = self._request(
+                "/process-action", method="POST",
+                headers={"Cookie": cookie, "Content-Type": "application/x-www-form-urlencoded"},
+                data=b"service=pihole-pihole-1&action=restart&tab=control",
+            )
+            self.assertEqual(code, 302)
+            self.assertIn("tab=control", headers.get("Location", ""))
+            mock_run.assert_called_with(["docker", "restart", "pihole-pihole-1"], timeout=15)
+
 
 
 class TestGatewayConfigSync(unittest.TestCase):
@@ -3386,6 +3400,85 @@ class TestSubprocessCachingAndOptimization(unittest.TestCase):
         time.sleep(0.05)
         v4 = panel._ttl_cached("test_swr", 0.05, loader)
         self.assertEqual(v4, "val_2")
+
+    def test_docker_containers_info_parsing(self):
+        """get_docker_containers_info parses active and inactive containers, web ports, and metadata."""
+        sample_output = "\n".join([
+            json.dumps({
+                "Names": "test-running",
+                "State": "running",
+                "Status": "Up 2 hours",
+                "Image": "vendor/app:latest",
+                "Ports": "0.0.0.0:8080->80/tcp",
+                "Labels": "icon=https://example.com/icon.png",
+            }),
+            json.dumps({
+                "Names": "test-stopped",
+                "State": "exited",
+                "Status": "Exited (0) 10 minutes ago",
+                "Image": "vendor/offline:latest",
+                "Ports": "",
+                "Labels": "",
+            }),
+        ])
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.return_value = mock.Mock(returncode=0, stdout=sample_output)
+            containers = panel.get_docker_containers_info()
+            self.assertEqual(len(containers), 2)
+
+            c1 = containers[0]
+            self.assertEqual(c1["name"], "test-running")
+            self.assertTrue(c1["is_running"])
+            self.assertEqual(c1["port"], "8080")
+            self.assertEqual(c1["icon"], "https://example.com/icon.png")
+
+            c2 = containers[1]
+            self.assertEqual(c2["name"], "test-stopped")
+            self.assertFalse(c2["is_running"])
+
+    def test_render_docker_apps_block(self):
+        """render_docker_apps_block renders CasaOS-style cards with open and control buttons."""
+        mock_containers = [
+            {
+                "name": "my-app",
+                "title": "My App",
+                "state": "running",
+                "is_running": True,
+                "status": "Up 1 hour",
+                "image": "myapp:latest",
+                "icon": "https://example.com/app.png",
+                "port": "3000",
+                "path": "/app",
+                "scheme": "http",
+            },
+            {
+                "name": "my-offline-app",
+                "title": "Offline App",
+                "state": "exited",
+                "is_running": False,
+                "status": "Exited (0)",
+                "image": "offline:latest",
+                "icon": "https://example.com/offline.png",
+                "port": "4000",
+                "path": "/",
+                "scheme": "http",
+            },
+        ]
+        with mock.patch.object(panel, "get_docker_containers_info", return_value=mock_containers):
+            html = panel._render_docker_apps_block_uncached()
+            self.assertIn("My App", html)
+            self.assertIn("1 Aktif", html)
+            self.assertIn("1 Berhenti", html)
+            self.assertIn("Port: <span", html)
+            self.assertIn("3000", html)
+            # Active app with port has active open link
+            self.assertIn('onclick="window.open(\'http://\'+window.location.hostname+\':3000/app\'', html)
+            self.assertIn("Stop", html)
+            self.assertIn("Restart", html)
+            # Inactive app has disabled open button and Start button
+            self.assertIn("Offline App", html)
+            self.assertIn("Berhenti", html)
+            self.assertIn("Start", html)
 
 
 if __name__ == "__main__":

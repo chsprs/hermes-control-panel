@@ -67,7 +67,7 @@ from urllib.parse import urlparse, parse_qs, quote, urlsplit
 
 TOKEN = os.environ.get("PANEL_TOKEN", "").strip()
 PASSWORD = os.environ.get("PANEL_PASSWORD", "").strip()
-PORT = int(os.environ.get("PANEL_PORT", 9120))
+PORT = int(os.environ.get("PANEL_PORT", 1000))
 SERVICE = os.environ.get("HERMES_DASHBOARD_SERVICE", "hermes-dashboard")
 DEBOUNCE_SECONDS = 3.0
 STARTUP_COUNTDOWN_SECONDS = 15  # systemd reports "active" almost instantly,
@@ -310,6 +310,7 @@ ICON_KANBAN = _icon('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M
 ICON_HERMES = _icon('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>', size=16)
 ICON_TRASH = _icon('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>', size=16)
 ICON_SHIELD = _icon('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', size=16)
+ICON_BOX = _icon('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', size=16)
 
 ICON_HERMES_LOGO = '<img src="https://cdn.jsdelivr.net/gh/selfhst/icons/webp/hermes-agent-light.webp" width="28" height="28" style="vertical-align:middle;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))" alt="Hermes Logo">'
 
@@ -1809,6 +1810,9 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 <!-- CONTROL TAB -->
 <div class="tab-panel" id="tab-control">
   {countdown_block}
+  <div class="card card-info" id="docker-apps-slot" style="margin-bottom:1.25rem">
+    {docker_apps_block}
+  </div>
   <div class="card card-info">
     <div class="card-title">Tautan Cepat</div>
     <div class="btn-row" id="quick-links-slot">
@@ -11624,13 +11628,13 @@ def get_process_list(fresh: bool = False) -> list[dict]:
     except Exception:
         pass
 
-    # 3. Hermes Control Panel (:9120)
+    # 3. Hermes Control Panel
     try:
         cur_pid = os.getpid()
         panel_mem = _read_proc_rss_mb(cur_pid)
         procs.append({
             "id": "hermes-panel",
-            "name": "Panel Kontrol Hermes (:9120)",
+            "name": f"Panel Kontrol Hermes (:{PORT})",
             "kind": "Layanan Systemd",
             "status": "Berjalan",
             "is_active": True,
@@ -11796,6 +11800,244 @@ def render_processes_table() -> str:
         5.0,
         _render_processes_table_uncached,
     )
+
+
+def get_docker_containers_info() -> list[dict]:
+    """Retrieve list of active and inactive docker containers with CasaOS metadata."""
+    try:
+        r = subprocess.run(
+            ["docker", "ps", "-a", "--format", "{{json .}}"],
+            capture_output=True, text=True, timeout=3.0,
+        )
+        if r.returncode != 0:
+            return []
+        lines = [l for l in r.stdout.strip().split("\n") if l]
+    except Exception:
+        return []
+
+    containers = []
+    for line in lines:
+        try:
+            c = json.loads(line)
+        except Exception:
+            continue
+        name = c.get("Names", "").strip()
+        if not name:
+            continue
+        state = c.get("State", "").lower().strip()
+        status = c.get("Status", "").strip()
+        image = c.get("Image", "").strip()
+        labels_raw = c.get("Labels", "")
+
+        labels = {}
+        if labels_raw:
+            for pair in labels_raw.split(","):
+                if "=" in pair:
+                    k, v = pair.split("=", 1)
+                    labels[k.strip()] = v.strip()
+
+        title = name
+        icon = labels.get("icon", "")
+        web_port = ""
+        web_path = "/"
+        web_scheme = "http"
+
+        compose_file = labels.get("com.docker.compose.project.config_files")
+        project = labels.get("com.docker.compose.project")
+        if not compose_file and project:
+            cand = f"/var/lib/casaos/apps/{project}/docker-compose.yml"
+            if os.path.exists(cand):
+                compose_file = cand
+
+        if compose_file and os.path.exists(compose_file):
+            try:
+                with open(compose_file, "r", encoding="utf-8") as f:
+                    y = yaml.safe_load(f) or {}
+                xc = y.get("x-casaos", {})
+                if isinstance(xc, dict):
+                    t = xc.get("title")
+                    if isinstance(t, dict):
+                        title = t.get("custom") or t.get("en_us") or t.get("en_US") or title
+                    elif isinstance(t, str) and t:
+                        title = t
+                    if not icon and xc.get("icon"):
+                        icon = xc.get("icon")
+                    if xc.get("port_map"):
+                        web_port = str(xc.get("port_map")).strip()
+                    if xc.get("index"):
+                        web_path = str(xc.get("index")).strip()
+                    if xc.get("scheme"):
+                        web_scheme = str(xc.get("scheme")).strip()
+            except Exception:
+                pass
+
+        if not web_port:
+            ports_str = c.get("Ports", "")
+            m = re.search(r":(\d+)->", ports_str)
+            if m:
+                web_port = m.group(1)
+
+        if not icon or "192.168" in icon or "127.0.0.1" in icon:
+            low_name = name.lower()
+            low_img = image.lower()
+            if "pihole" in low_name or "pihole" in low_img:
+                icon = "https://cdn.jsdelivr.net/gh/selfhst/icons/webp/pi-hole.webp"
+                if not title or title == name:
+                    title = "Pi-hole"
+                if not web_port:
+                    web_port = "8080"
+                if web_path == "/":
+                    web_path = "/admin"
+            elif "9router" in low_name or "9router" in low_img:
+                icon = "https://cdn.jsdelivr.net/gh/selfhst/icons/webp/9router.webp"
+                if not title or title == name:
+                    title = "9router"
+                if not web_port:
+                    web_port = "20128"
+            elif "cloudflared" in low_name or "cloudflared" in low_img:
+                icon = "https://cdn.jsdelivr.net/gh/selfhst/icons/webp/cloudflare.webp"
+                if not title or title == name:
+                    title = "Cloudflared"
+                if not web_port:
+                    web_port = "14333"
+            elif "jellyfin" in low_name:
+                icon = "https://cdn.jsdelivr.net/gh/selfhst/icons/webp/jellyfin.webp"
+            elif "qbittorrent" in low_name:
+                icon = "https://cdn.jsdelivr.net/gh/selfhst/icons/webp/qbittorrent.webp"
+            else:
+                icon = "https://cdn.jsdelivr.net/gh/selfhst/icons/webp/docker.webp"
+
+        is_running = (state == "running")
+        containers.append({
+            "name": name,
+            "title": title,
+            "state": state,
+            "is_running": is_running,
+            "status": status,
+            "image": image,
+            "icon": icon,
+            "port": web_port,
+            "path": web_path,
+            "scheme": web_scheme,
+        })
+    return containers
+
+
+def _render_docker_apps_block_uncached() -> str:
+    """Render list of active and inactive docker containers like CasaOS dashboard."""
+    containers = get_docker_containers_info()
+    if not containers:
+        return (
+            f'<div class="aux-header">'
+            f'<div class="card-title" style="margin-bottom:0">{ICON_BOX} Aplikasi &amp; Kontainer Docker</div>'
+            f'<span class="badge badge-muted">0 Kontainer</span>'
+            f'</div>'
+            f'<div class="aux-desc">Tidak ada kontainer Docker yang terdeteksi di server.</div>'
+        )
+
+    running_cnt = sum(1 for c in containers if c["is_running"])
+    stopped_cnt = len(containers) - running_cnt
+
+    running_badge = f'<span class="badge badge-up">{running_cnt} Aktif</span>' if running_cnt else ''
+    stopped_badge = (
+        f'<span class="badge" style="background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.25)">{stopped_cnt} Berhenti</span>'
+        if stopped_cnt else ''
+    )
+
+    cards = []
+    for c in containers:
+        name = c["name"]
+        safe_name = html.escape(name.replace("\\", "\\\\").replace("'", "\\'"), quote=True)
+        title = html.escape(c["title"])
+        image = html.escape(c["image"])
+        state = c["state"]
+        is_run = c["is_running"]
+        status = html.escape(c["status"])
+        icon = html.escape(c["icon"], quote=True)
+        port = html.escape(c["port"])
+        path = html.escape(c["path"], quote=True)
+        scheme = html.escape(c["scheme"], quote=True) or "http"
+
+        if is_run:
+            status_badge = '<span class="live-badge badge-up" style="font-size:0.65rem;padding:0.12rem 0.45rem"><span class="kb-dot"></span>Aktif</span>'
+        else:
+            status_badge = '<span class="badge" style="background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.25);font-size:0.65rem;padding:0.12rem 0.45rem">Berhenti</span>'
+
+        if is_run and port:
+            open_btn = (
+                f'<a class="btn-action-sm open" href="{scheme}://192.168.1.100:{port}{path}" target="_blank" rel="noopener" '
+                f'onclick="window.open(\'{scheme}://\'+window.location.hostname+\':{port}{path}\',\'_blank\',\'noopener\');return false;" '
+                f'style="background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3);text-decoration:none;display:inline-flex;align-items:center;gap:4px">'
+                f'{ICON_EXTERNAL_LINK} Buka</a>'
+            )
+        elif port:
+            open_btn = (
+                f'<button type="button" class="btn-action-sm" disabled '
+                f'style="opacity:0.4;cursor:not-allowed;display:inline-flex;align-items:center;gap:4px" '
+                f'title="Nyalakan kontainer dulu untuk membuka Web UI">'
+                f'{ICON_EXTERNAL_LINK} Buka</button>'
+            )
+        else:
+            open_btn = '<span style="font-size:0.68rem;color:var(--text-dim)">(CLI Only)</span>'
+
+        if is_run:
+            lifecycle_btns = (
+                f'<a class="btn-action-sm btn-off" href="/process-action?service={safe_name}&action=stop&tab=control" style="text-decoration:none">Stop</a>'
+                f'<a class="btn-action-sm" href="/process-action?service={safe_name}&action=restart&tab=control" style="text-decoration:none">Restart</a>'
+            )
+        else:
+            lifecycle_btns = (
+                f'<a class="btn-action-sm btn-on" href="/process-action?service={safe_name}&action=start&tab=control" style="text-decoration:none">Start</a>'
+            )
+
+        port_label = f'Port: <span style="color:var(--accent);font-family:var(--font-mono)">{port}</span>' if port else '<span style="color:var(--text-dim)">Port: -</span>'
+
+        card = (
+            f'<div class="card card-status docker-app-card" style="padding:0.9rem;display:flex;flex-direction:column;justify-content:space-between;background:var(--surface-elevated);border:1px solid var(--border);border-radius:8px">'
+            f'  <div>'
+            f'    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
+            f'      <div style="display:flex;align-items:center;gap:10px;min-width:0">'
+            f'        <img src="{icon}" width="38" height="38" style="border-radius:8px;object-fit:contain;background:rgba(255,255,255,0.03);padding:2px;border:1px solid rgba(255,255,255,0.08);flex-shrink:0" onerror="this.src=\'https://cdn.jsdelivr.net/gh/selfhst/icons/webp/docker.webp\'" alt="{title}">'
+            f'        <div style="min-width:0">'
+            f'          <div style="font-size:0.92rem;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{title}</div>'
+            f'          <div style="font-size:0.68rem;color:var(--text-dim);font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{image}">{image}</div>'
+            f'        </div>'
+            f'      </div>'
+            f'      {status_badge}'
+            f'    </div>'
+            f'    <div style="font-size:0.72rem;color:var(--text-dim);margin:0.55rem 0 0.35rem 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px">'
+            f'      <div>{port_label}</div>'
+            f'      <div style="font-size:0.68rem;color:var(--text-dim)">{status}</div>'
+            f'    </div>'
+            f'  </div>'
+            f'  <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:0.55rem;margin-top:0.35rem">'
+            f'    <div>{open_btn}</div>'
+            f'    <div style="display:flex;gap:4px;align-items:center">{lifecycle_btns}</div>'
+            f'  </div>'
+            f'</div>'
+        )
+        cards.append(card)
+
+    grid = f'<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:0.75rem;margin-top:0.85rem">{"".join(cards)}</div>'
+
+    return (
+        f'<div class="aux-header">'
+        f'<div class="card-title" style="margin-bottom:0">{ICON_BOX} Aplikasi &amp; Kontainer Docker</div>'
+        f'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+        f'{running_badge}'
+        f'{stopped_badge}'
+        f'</div>'
+        f'</div>'
+        f'<div class="aux-desc">'
+        f'Daftar kontainer Docker aktif dan nonaktif di server (terintegrasi dengan CasaOS). '
+        f'Klik <strong>Buka</strong> untuk membuka Web UI aplikasi langsung di tab baru, atau gunakan tombol kontrol untuk menghidupkan dan mematikan kontainer.'
+        f'</div>'
+        f'{grid}'
+    )
+
+
+def render_docker_apps_block() -> str:
+    return _ttl_cached("docker_apps_block", 3.0, _render_docker_apps_block_uncached)
 
 
 def _probe_emmc_health() -> tuple[str, str]:
@@ -12478,6 +12720,7 @@ def build_fragments() -> dict:
         "ram_pct": round(ram_pct, 1),
         "cell_load": cell_load,
         "profiles_block": render_profiles_block(),
+        "docker_apps_block": render_docker_apps_block(),
         "auth_setting_block": render_auth_setting_block(),
         "kanban_board_options": render_kanban_board_options(),
         "kanban_dispatcher_badge": render_kanban_dispatcher_badge(),
@@ -12662,6 +12905,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         aux_tasks_block=frag["aux_tasks_block"],
         backup_models_block=frag["backup_models_block"],
         profiles_block=frag.get("profiles_block", ""),
+        docker_apps_block=frag.get("docker_apps_block", ""),
         auth_setting_block=frag.get("auth_setting_block", ""),
         kanban_board_options=frag.get("kanban_board_options", ""),
         kanban_dispatcher_badge=frag.get("kanban_dispatcher_badge", ""),
@@ -12704,6 +12948,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         icon_users=ICON_USERS,
         icon_kanban=ICON_KANBAN,
         icon_hermes=ICON_HERMES,
+        icon_box=ICON_BOX,
         icon_activity=ICON_ACTIVITY,
     )
 
@@ -14073,9 +14318,18 @@ class Handler(BaseHTTPRequestHandler):
                             except Exception:
                                 pass
                         threading.Thread(target=_delayed_restart, daemon=True).start()
+                    elif action in ("start", "stop", "restart") and re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$", service):
+                        subprocess.run(["docker", action, service], timeout=15)
                 except Exception as ex:
                     sys.stderr.write(f"[panel] Process action error for {service} {action}: {ex}\n")
-            self._redirect_to_status(tab="status")
+                finally:
+                    with _status_probe_cache_lock:
+                        _status_probe_cache.pop("docker_apps_block", None)
+                        _status_probe_cache.pop("processes_table", None)
+            target_tab = str(json_data.get("tab") or (qs.get("tab") or ["control"])[0]).strip()
+            if target_tab not in VALID_TABS:
+                target_tab = "control"
+            self._redirect_to_status(tab=target_tab)
             return
 
         # Action route: perform once (debounced against duplicate/prefetch

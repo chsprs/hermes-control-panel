@@ -34,7 +34,7 @@ REPO_URL="https://github.com/chsprs/hermes-control-panel.git"
 RAW_BASE_URL="https://raw.githubusercontent.com/chsprs/hermes-control-panel/main"
 
 # Password-only login. Reuse existing password on reinstall; never print it.
-PANEL_PORT="${PANEL_PORT:-9120}"
+PANEL_PORT="${PANEL_PORT:-1000}"
 if [ -z "${PANEL_PASSWORD:-}" ] && [ -f "${ENV_FILE}" ]; then
     PANEL_PASSWORD=$(python3 - "${ENV_FILE}" <<'PY'
 import shlex, sys
