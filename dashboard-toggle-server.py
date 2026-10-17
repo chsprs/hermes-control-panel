@@ -33,6 +33,7 @@ a loading spinner. All rendering stays server-side — /api/status returns the
 same HTML fragments the initial page uses, so the client never re-implements it.
 """
 
+from contextlib import suppress
 import copy
 import ctypes
 import glob

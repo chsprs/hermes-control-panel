@@ -2045,6 +2045,25 @@ class TestGatewayConfigSync(unittest.TestCase):
                 panel._clear_stale_hermes_git_lock()
                 self.assertFalse(lock.exists(), "Stale hermes-update.lock must be cleaned")
 
+    def test_45d_is_hermes_updating_cleans_stale_progress_file(self):
+        """is_hermes_updating cleans stale .hermes-update-in-progress without NameError."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            prog = panel.Path(td) / ".hermes-update-in-progress"
+            prog.write_text("99999\n")
+            orig_path = panel.Path
+
+            def fake_path_fn(*args, **kwargs):
+                if args and str(args[0]).endswith(".hermes-update-in-progress"):
+                    return prog
+                return orig_path(*args, **kwargs)
+
+            with mock.patch.object(panel, "Path", side_effect=fake_path_fn), \
+                 mock.patch.object(panel, "_pid_is_hermes_update", return_value=False), \
+                 mock.patch.object(panel, "_hermes_update_running", False):
+                self.assertFalse(panel.is_hermes_updating())
+                self.assertFalse(prog.exists(), "Stale .hermes-update-in-progress must be unlinked")
+
     def test_38_form_patch_merges_onto_editor_base_yaml(self):
         self._write_cfg(self._split_cfg())
         base = "enabled: true\nreactions: false\nextra:\n  rich_messages: true\n  bridge_port: 3000\n"
