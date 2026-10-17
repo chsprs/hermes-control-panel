@@ -3743,9 +3743,35 @@ class TestGatewayNetwork(unittest.TestCase):
         page = panel.build_status_page()
         self.assertIn('id="gateway-network-slot"', page)
         self.assertIn("Jalur Jaringan Gateway", page)
+        self.assertIn(f"/assets/network-card.js?v={panel.NETWORK_ASSET_VERSION}", page)
+        self.assertIn(f"/assets/network-card.css?v={panel.NETWORK_ASSET_VERSION}", page)
+        self.assertNotIn("function netRenderCard", page)  # served as a cached asset, not inline
         r = subprocess.run(["node", "--check", "-"], input=panel.NETWORK_SCRIPT.replace("<script>", "").replace("</script>", ""),
                            capture_output=True, text=True, timeout=30)
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_network_assets_served_with_cache_and_auth(self):
+        url = f"http://127.0.0.1:{self.port}/assets/network-card.js?v={panel.NETWORK_ASSET_VERSION}"
+        req = urllib.request.Request(url)
+        req.add_header("Cookie", f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}")
+        with urllib.request.urlopen(req) as r:
+            body = r.read().decode()
+            self.assertIn("javascript", r.headers["Content-Type"])
+            self.assertIn("immutable", r.headers["Cache-Control"])
+        self.assertIn("function netRenderCard", body)
+        req = urllib.request.Request(url.replace(".js", ".css"))
+        req.add_header("Cookie", f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}")
+        with urllib.request.urlopen(req) as r:
+            self.assertIn("text/css", r.headers["Content-Type"])
+            self.assertIn(".net-seg", r.read().decode())
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        try:
+            code = urllib.request.build_opener(NoRedirect).open(url).status
+        except urllib.error.HTTPError as e:
+            code = e.code
+        self.assertIn(code, (302, 401, 403))  # not served without a session
 
     def test_network_script_renders_state_and_collects_payloads(self):
         js = panel.NETWORK_SCRIPT.replace("<script>", "").replace("</script>", "")

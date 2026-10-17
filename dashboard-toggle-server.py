@@ -1866,11 +1866,11 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <div class="card-title" style="margin-bottom:0">{icon_network} Jalur Jaringan Gateway</div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <span class="badge badge-muted" id="net-health-badge">Memuat…</span>
-        <button type="button" class="btn-action-sm" onclick="netLoad(true)">Muat ulang</button>
+        <button type="button" class="btn-action-sm" id="net-reload-btn" onclick="netLoad(true)" title="Muat ulang status dan pengaturan">{icon_refresh}Muat ulang</button>
       </div>
     </div>
     <div class="aux-desc">
-      Rute koneksi tiap platform gateway (relay IPv4 lewat Cloudflare WARP, WARP langsung, tanpa proxy, atau custom) dan <strong>DNS Hermes</strong> untuk relay: resolver, IP per host, dan jeda fallback.
+      Atur jalur koneksi tiap platform gateway dan <strong>DNS Hermes</strong> yang dipakai relay IPv4 → Cloudflare WARP.
     </div>
     <div id="gateway-network-slot"><div class="aux-desc">Memuat pengaturan jaringan…</div></div>
   </div>
@@ -7428,38 +7428,146 @@ SSE_SCRIPT = """<script>
 # overlay would just stay stuck on screen with nothing to dismiss it. No
 # placeholders to fill, so this is inserted as a literal — no render_*()
 # wrapper needed.
-NETWORK_STYLE = """<style>
-.net-row{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.6rem 0;border-top:1px solid rgba(255,255,255,.06)}
-.net-row:first-child{border-top:0}
-.net-name{flex:1 1 150px;min-width:130px;font-weight:600;font-size:.85rem;display:flex;flex-wrap:wrap;gap:.35rem;align-items:center}
-.net-sub{flex-basis:100%;font-size:.72rem;color:var(--text-muted);font-weight:400;word-break:break-all}
-.net-ctl{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;flex:2 1 280px;min-width:0}
-.net-select,.net-input{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);color:var(--text);border-radius:6px;padding:.38rem .5rem;font-size:.78rem;min-width:0;max-width:100%}
-.net-input{flex:1 1 170px}
-.net-input.narrow{flex:0 0 5.5rem}
-.net-note{flex-basis:100%;font-size:.72rem;color:var(--warning);line-height:1.35}
-.net-result{flex-basis:100%;font-size:.74rem;color:var(--text-muted);line-height:1.35}
-.net-result:empty{display:none}
-.net-section{margin-top:1.1rem}
-.net-section-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.4rem}
-.net-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.5rem}
-.net-kv>div{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05);border-radius:8px;padding:.5rem .6rem;font-size:.8rem;min-width:0;word-break:break-word}
-.net-kv b{display:block;font-size:.68rem;color:var(--text-muted);font-weight:500;margin-bottom:.15rem;text-transform:uppercase;letter-spacing:.03em}
-.net-list{font-size:.74rem;color:var(--text-muted);margin-top:.5rem;line-height:1.5;word-break:break-word}
-.net-msg{font-size:.78rem;margin-top:.5rem;line-height:1.4}
-.net-msg:empty{display:none}
-.net-ok{color:var(--success)}.net-bad{color:var(--danger)}.net-warn{color:var(--warning)}
-.net-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.6rem}
-.net-actions .btn-action-sm{margin:0;align-self:auto}
-@media (max-width:640px){.net-ctl{flex-basis:100%}.net-input.narrow{flex:1 1 5.5rem}}
-</style>"""
+def _svg_inner(svg: str) -> str:
+    m = re.search(r"<svg[^>]*>(.*)</svg>", svg, re.S)
+    return m.group(1) if m else ""
 
-NETWORK_SCRIPT = r"""<script>
-var NET = {state: null, timer: null};
-var NET_ROUTE_LABELS = {relay: 'Relay IPv4 (:40001)', warp: 'WARP langsung (:40000)', direct: 'Tanpa proxy', custom: 'Custom'};
-var NET_RESOLVER_LABELS = {system: 'DNS sistem server', cloudflare: 'Cloudflare (1.1.1.1)', google: 'Google (8.8.8.8)',
-  pihole: 'Pi-hole lokal (127.0.0.1)', custom: 'Custom'};
+
+# Feather-style paths for the network card (built into <svg class="icon"> client-side by netIcon()).
+NETWORK_ICON_PATHS = {
+    "shield": _svg_inner(ICON_SHIELD), "globe": _svg_inner(ICON_GLOBE), "bot": _svg_inner(ICON_BOT),
+    "activity": _svg_inner(ICON_ACTIVITY), "refresh": _svg_inner(ICON_REFRESH), "clock": _svg_inner(ICON_CLOCK),
+    "check": _svg_inner(ICON_CHECK), "alert": _svg_inner(ICON_ALERT_TRIANGLE), "trash": _svg_inner(ICON_TRASH),
+    "layers": _svg_inner(ICON_LAYERS), "network": _svg_inner(ICON_NETWORK), "power": _svg_inner(ICON_POWER),
+    "cloud": '<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>',
+    "arrow": '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
+    "sliders": '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/>'
+               '<line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>'
+               '<line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+    "zap": '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+    "save": '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+    "plus": '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+    "search": '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    "server": '<rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>'
+              '<line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>',
+    "route": '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
+    "file": '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+    "x": '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>',
+    "info": '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
+    "hash": '<line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>',
+    "list": '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>'
+            '<line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+    "lock": '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    "chevron": '<polyline points="9 18 15 12 9 6"/>',
+    **{f"p_{p}": _svg_inner(_platform_icon(p)) for p in ("telegram", "discord", "matrix", "slack", "whatsapp")},
+    "p_mattermost": '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+    "p_sms": '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+}
+
+NETWORK_CSS = """.net-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:.5rem}
+.net-tile{display:flex;align-items:flex-start;gap:.6rem;padding:.65rem .7rem;background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:var(--radius-sm);min-width:0}
+.net-tile .cc-icon-box{width:34px;height:34px;min-width:34px}
+.net-tile-body{min-width:0;flex:1}
+.net-tile-label{font-size:.66rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-dim)}
+.net-tile-value{font-size:.9rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.35rem;margin-top:.1rem;white-space:nowrap}
+.net-tile-sub{font-size:.7rem;color:var(--text-muted);margin-top:.12rem;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.net-dot{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--text-dim);flex-shrink:0}
+.net-dot.ok{background:var(--success);box-shadow:0 0 0 3px var(--success-dim)}
+.net-dot.bad{background:var(--danger);box-shadow:0 0 0 3px var(--danger-dim)}
+.net-dot.warn{background:var(--warning);box-shadow:0 0 0 3px var(--warning-dim)}
+.cc-icon-red{background:linear-gradient(135deg,#dc2626,#ef4444);box-shadow:0 2px 10px rgba(239,68,68,0.35)}
+.net-chips{display:flex;flex-wrap:wrap;gap:.35rem;align-items:center;margin-top:.6rem}
+.net-chips-label{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;color:var(--text-dim);margin-right:.15rem}
+.net-chip{display:inline-flex;align-items:center;gap:.35rem;font-family:var(--font-mono);font-size:.7rem;padding:.2rem .5rem;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text-muted);white-space:nowrap}
+.net-chip i{font-style:normal;color:var(--text-dim)}
+.net-chip .ok{color:var(--success)}.net-chip .bad{color:var(--danger)}
+.net-callout{display:flex;gap:.5rem;align-items:flex-start;font-size:.75rem;line-height:1.45;padding:.55rem .7rem;border-radius:var(--radius-sm);margin-top:.55rem}
+.net-callout .icon{flex-shrink:0;margin-top:.1rem}
+.net-callout.warn{background:var(--warning-dim);color:#fcd34d;border:1px solid rgba(245,158,11,.3)}
+.net-callout.bad{background:var(--danger-dim);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
+.net-callout.ok{background:var(--success-dim);color:#6ee7b7;border:1px solid rgba(16,185,129,.3)}
+.net-callout.info{background:var(--accent-dim);color:var(--accent-light);border:1px solid rgba(59,130,246,.3)}
+.net-callout:empty{display:none}
+.net-callout .btn-action-sm{margin-top:.45rem}
+.net-sec-head{display:flex;align-items:center;gap:.5rem;margin:1.35rem 0 .6rem;font-size:.78rem;font-weight:700;color:var(--text)}
+.net-sec-head .icon{color:var(--accent-light)}
+.net-sec-hint{font-size:.7rem;font-weight:500;color:var(--text-dim);margin-left:auto;text-align:right}
+.net-dirty-flag{display:none;font-size:.68rem;font-weight:600;color:var(--warning);align-items:center;gap:.3rem}
+.net-dirty-flag.on{display:inline-flex}
+.net-seg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.3rem;padding:.25rem;background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:10px}
+.net-seg.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.net-seg.cols-5{grid-template-columns:repeat(5,minmax(0,1fr))}
+.net-seg-btn{display:flex;align-items:center;justify-content:center;gap:.35rem;min-height:32px;padding:.3rem .45rem;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--text-muted);font-size:.74rem;font-weight:500;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s,color .15s}
+.net-seg-btn span{overflow:hidden;text-overflow:ellipsis}
+.net-seg-btn:hover{background:rgba(255,255,255,.06);color:var(--text)}
+.net-seg-btn.active{background:var(--accent-dim);border-color:rgba(59,130,246,.45);color:#fff;font-weight:600}
+.net-seg-btn.active .icon{color:var(--accent-light)}
+.net-field{position:relative;flex:1 1 200px;min-width:0}
+.net-route-body>.net-field,.net-stack>.net-field{flex:0 0 auto}
+.net-field>.icon{position:absolute;left:.6rem;top:50%;transform:translateY(-50%);color:var(--text-dim);pointer-events:none}
+.net-input{width:100%;box-sizing:border-box;background:rgba(0,0,0,.2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:.45rem .6rem;font-size:.78rem;font-family:var(--font-mono);min-height:34px;transition:border-color .15s}
+.net-field .net-input{padding-left:2rem}
+.net-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+.net-input-suffix{display:flex;align-items:center;gap:.4rem;font-size:.75rem;color:var(--text-muted)}
+.net-input-suffix .net-input{width:5.5rem}
+.net-stack{display:flex;flex-direction:column;gap:.55rem;width:100%}
+.net-inline{display:flex;flex-wrap:wrap;gap:.45rem;align-items:center;width:100%}
+.net-result{display:inline-flex;align-items:center;gap:.35rem;font-size:.72rem;color:var(--text-muted);margin-right:auto;min-width:0;flex-wrap:wrap;line-height:1.4}
+.net-result.ok{color:var(--success)}.net-result.bad{color:var(--danger)}.net-result.warn{color:var(--warning)}
+.net-row-bottom{justify-content:space-between !important}
+.net-note{display:flex;gap:.4rem;align-items:flex-start;font-size:.72rem;color:#fcd34d;line-height:1.4}
+.net-note .icon{flex-shrink:0;margin-top:.1rem}
+.net-label{font-size:.78rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+.net-label small{font-weight:400;color:var(--text-dim);font-size:.7rem}
+.net-actions{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:flex-end;margin-top:.2rem}
+.net-actions .btn-action-sm{margin:0}
+.btn-action-sm.net-dirty{box-shadow:0 0 0 3px var(--accent-dim)}
+.net-file{display:flex;align-items:center;gap:.4rem;font-size:.7rem;color:var(--text-dim);margin-top:.6rem;flex-wrap:wrap}
+.net-file code{font-size:.68rem}
+.net-muted-row{opacity:.92}
+.net-collapsed .net-route-body{display:none}
+.net-route-body{display:flex;flex-direction:column;gap:.6rem}
+.net-toggle .icon{transition:transform .15s}
+.net-toggle.open .icon{transform:rotate(90deg)}
+.net-head-right{display:flex;align-items:center;gap:.4rem;flex-shrink:0}
+.net-spin{animation:spin .8s linear infinite}
+@media (max-width:640px){
+  .net-seg{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .net-seg.cols-5{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .net-sec-hint{display:none}
+  .net-label small{flex-basis:100%;margin-left:1.4rem}
+  .net-toggle span{display:none}
+  .net-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .net-tile{padding:.6rem}
+  .net-tile .cc-icon-box{width:30px;height:30px;min-width:30px}
+}
+@media (max-width:380px){.net-tiles{grid-template-columns:1fr}}
+"""
+
+NETWORK_SCRIPT = r"""var NET = {state: null, timer: null, dirty: {routes: false, dns: false}};
+var NET_ICONS = __NET_ICONS__;
+var NET_ROUTES = [
+  {v: 'relay', label: 'Relay IPv4', icon: 'shield', hint: 'lewat relay :40001 → WARP, selalu IPv4'},
+  {v: 'warp', label: 'WARP', icon: 'cloud', hint: 'langsung ke WARP :40000 (bisa memilih IPv6)'},
+  {v: 'direct', label: 'Langsung', icon: 'arrow', hint: 'tanpa proxy, lewat ISP'},
+  {v: 'custom', label: 'Custom', icon: 'sliders', hint: 'proxy lain'}
+];
+var NET_ROUTE_LABELS = {relay: 'Relay IPv4', warp: 'WARP langsung', direct: 'Langsung', custom: 'Custom'};
+var NET_ROUTE_BADGE = {relay: 'badge-up', warp: 'badge-warn', direct: 'badge-muted', custom: 'badge-muted'};
+var NET_RESOLVERS = [
+  {v: 'system', label: 'Sistem', icon: 'server'},
+  {v: 'cloudflare', label: 'Cloudflare', icon: 'cloud'},
+  {v: 'google', label: 'Google', icon: 'globe'},
+  {v: 'pihole', label: 'Pi-hole', icon: 'shield'},
+  {v: 'custom', label: 'Custom', icon: 'sliders'}
+];
+var NET_RESOLVER_LABELS = {system: 'DNS sistem server', cloudflare: 'Cloudflare 1.1.1.1', google: 'Google 8.8.8.8',
+  pihole: 'Pi-hole lokal', custom: 'Custom'};
+var NET_MODES = [{v: 'extra', label: 'DNS + IP ini', icon: 'layers'}, {v: 'only', label: 'Hanya IP ini', icon: 'lock'}];
 var NET_EVENT_LABELS = {fail: 'IP gagal', fallback: 'pindah IP', all_failed: 'semua IP gagal'};
+var NET_BOX = {telegram: 'cc-icon-blue', discord: 'cc-icon-purple', matrix: 'cc-icon-green', mattermost: 'cc-icon-blue',
+  slack: 'cc-icon-purple', sms: 'cc-icon-orange', whatsapp: 'cc-icon-green'};
+var NET_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
 function netEsc(s) {
   return String(s === null || s === undefined ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -7468,15 +7576,54 @@ function netEsc(s) {
 function netParseIps(text) {
   return String(text || '').split(/[\s,;]+/).filter(function (x) { return x; });
 }
+function netIcon(name, size) {
+  size = size || 14;
+  return '<svg class="icon" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+    + ' stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
+    + (NET_ICONS[name] || '') + '</svg>';
+}
 function netEl(id) { return document.getElementById(id); }
 function netBadge(cls, text) { return '<span class="badge ' + cls + '">' + netEsc(text) + '</span>'; }
+function netPad(n) { return (n < 10 ? '0' : '') + n; }
 function netTime(ts) {
   if (!ts) return '-';
   var d = new Date(ts * 1000);
-  function p(n) { return (n < 10 ? '0' : '') + n; }
-  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  return netPad(d.getHours()) + ':' + netPad(d.getMinutes()) + ':' + netPad(d.getSeconds());
 }
-function netSetMsg(id, cls, html) { var el = netEl(id); if (el) { el.className = 'net-msg ' + cls; el.innerHTML = html; } }
+function netShortDate(s) {
+  var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(s || '');
+  return m ? (parseInt(m[3], 10) + ' ' + NET_MONTHS[parseInt(m[2], 10) - 1] + ' ' + m[4] + ':' + m[5]) : (s || '-');
+}
+function netSeg(options, value, handler, extraCls, dataAttr) {
+  return '<div class="net-seg ' + (extraCls || '') + '" role="radiogroup"' + (dataAttr || '') + '>' + options.map(function (o) {
+    var on = o.v === value;
+    return '<button type="button" role="radio" aria-checked="' + on + '" class="net-seg-btn' + (on ? ' active' : '') + '"'
+      + ' data-v="' + o.v + '" title="' + netEsc(o.hint || o.label) + '" onclick="' + handler + '(this)">'
+      + netIcon(o.icon, 14) + '<span>' + netEsc(o.label) + '</span></button>';
+  }).join('') + '</div>';
+}
+function netSegPick(btn) {
+  var group = btn.parentNode, btns = group.querySelectorAll('.net-seg-btn');
+  for (var i = 0; i < btns.length; i++) {
+    var on = btns[i] === btn;
+    btns[i].classList.toggle('active', on);
+    btns[i].setAttribute('aria-checked', on ? 'true' : 'false');
+  }
+  return btn.getAttribute('data-v');
+}
+function netCallout(id, kind, html) {
+  var el = netEl(id);
+  if (!el) return;
+  var icon = {ok: 'check', bad: 'x', warn: 'alert', info: 'info'}[kind] || 'info';
+  el.className = 'net-callout ' + kind;
+  el.innerHTML = html ? netIcon(icon, 15) + '<div>' + html + '</div>' : '';
+}
+function netDirty(section, on) {
+  NET.dirty[section] = on !== false;
+  var flag = netEl('net-dirty-' + section), btn = netEl('net-save-' + section);
+  if (flag) flag.classList.toggle('on', NET.dirty[section]);
+  if (btn) btn.classList.toggle('net-dirty', NET.dirty[section]);
+}
 function netPost(path, payload) {
   return fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
     body: JSON.stringify(payload)}).then(function (r) {
@@ -7494,117 +7641,155 @@ function netHealth(st) {
   return ['badge-up', 'Sehat'];
 }
 
+function netTile(box, icon, label, dot, value, sub, title) {
+  return '<div class="net-tile"' + (title ? ' title="' + netEsc(title) + '"' : '') + '><div class="cc-icon-box ' + box + '">' + netIcon(icon, 16) + '</div>'
+    + '<div class="net-tile-body"><div class="net-tile-label">' + netEsc(label) + '</div>'
+    + '<div class="net-tile-value"><span class="net-dot ' + dot + '"></span>' + value + '</div>'
+    + '<div class="net-tile-sub">' + sub + '</div></div></div>';
+}
+
 function netRenderStatus(st) {
   var r = st.relay || {}, g = st.gateway || {}, s = r.stats || {}, t = s.totals || {};
-  var h = '<div class="net-kv">';
-  h += '<div><b>Relay IPv4</b>' + (r.service === 'active' ? '<span class="net-ok">aktif</span>' : '<span class="net-bad">' + netEsc(r.service || '?') + '</span>')
-    + (r.enabled && r.enabled !== 'enabled' ? ' <span class="net-warn">(tidak otomatis saat boot)</span>' : '') + '</div>';
-  h += '<div><b>Cloudflare WARP</b>' + (r.warp_service === 'active' ? '<span class="net-ok">aktif</span>' : '<span class="net-bad">' + netEsc(r.warp_service || '?') + '</span>')
-    + (r.warp ? ' · ' + netEsc(r.warp) : '') + '</div>';
-  h += '<div><b>Gateway</b>' + (g.active ? '<span class="net-ok">aktif</span>' : '<span class="net-bad">mati</span>')
-    + (g.since ? ' · sejak ' + netEsc(g.since) : '') + '</div>';
-  h += '<div><b>Error sejak gateway start</b>' + '<span class="' + ((g.proxy_errors || 0) ? 'net-warn' : 'net-ok') + '">' + (g.proxy_errors || 0) + ' proxy</span> · '
-    + (g.network_errors || 0) + ' jaringan · ' + '<span class="' + ((g.failed_deliveries || 0) ? 'net-bad' : '') + '">' + (g.failed_deliveries || 0) + ' gagal kirim</span></div>';
+  var relayOn = r.service === 'active', warpOn = r.warp_service === 'active';
+  var errs = g.proxy_errors || 0, fails = g.failed_deliveries || 0;
+  var h = '<div class="net-tiles">';
+  h += netTile(relayOn ? 'cc-icon-green' : 'cc-icon-red', 'shield', 'Relay IPv4', relayOn ? 'ok' : 'bad',
+    relayOn ? 'Aktif' : netEsc(r.service || 'mati'), ':' + ((st.ports || {}).relay || 40001) + (r.enabled === 'enabled' ? ' · auto saat boot' : ' · <span style="color:var(--warning)">tidak auto saat boot</span>'));
+  h += netTile(warpOn ? 'cc-icon-orange' : 'cc-icon-red', 'cloud', 'WARP', warpOn ? 'ok' : 'bad',
+    warpOn ? 'Aktif' : netEsc(r.warp_service || 'mati'), netEsc(r.warp || ':' + ((st.ports || {}).warp || 40000)), r.warp);
+  h += netTile(g.active ? 'cc-icon-blue' : 'cc-icon-red', 'bot', 'Gateway', g.active ? 'ok' : 'bad',
+    g.active ? 'Aktif' : 'Mati', g.since ? 'sejak ' + netEsc(netShortDate(g.since)) : '-', g.since);
+  h += netTile(errs || fails ? 'cc-icon-orange' : 'cc-icon-green', errs || fails ? 'alert' : 'check', 'Error',
+    errs ? 'warn' : 'ok', errs + ' proxy', (g.network_errors || 0) + ' jaringan · ' + fails + ' gagal kirim', 'Sejak gateway start' + (g.last_error ? ' · terakhir: ' + g.last_error : ''));
   if (r.stats) {
-    h += '<div><b>Relay sejak start (' + netTime(s.started_at) + ')</b>' + (t.ok || 0) + ' sukses · ' + (t.fallback || 0) + ' pindah IP · '
-      + '<span class="' + ((t.failed || 0) ? 'net-bad' : '') + '">' + (t.failed || 0) + ' gagal</span></div>';
+    h += netTile('cc-icon-purple', 'activity', 'Lalu lintas', (t.failed || 0) ? 'warn' : 'ok', (t.ok || 0) + ' sukses',
+      (t.fallback || 0) + ' pindah IP · ' + (t.failed || 0) + ' gagal', 'Sejak relay start ' + netTime(s.started_at));
   }
   h += '</div>';
-  var ips = Object.keys(s.per_ip || {}).sort(function (a, b) { return (s.per_ip[b].ok + s.per_ip[b].fail) - (s.per_ip[a].ok + s.per_ip[a].fail); }).slice(0, 8);
+  var ips = Object.keys(s.per_ip || {}).sort(function (a, b) {
+    return (s.per_ip[b].ok + s.per_ip[b].fail) - (s.per_ip[a].ok + s.per_ip[a].fail);
+  }).slice(0, 6);
   if (ips.length) {
-    h += '<div class="net-list"><b>IP tujuan:</b> ' + ips.map(function (ip) {
+    h += '<div class="net-chips"><span class="net-chips-label">' + netIcon('globe', 13) + 'IP tujuan</span>' + ips.map(function (ip) {
       var row = s.per_ip[ip];
-      return netEsc(ip) + ' <span style="opacity:.7">(' + netEsc(row.host) + ')</span> <span class="net-ok">✓' + row.ok + '</span>'
-        + (row.fail ? ' <span class="net-bad">✗' + row.fail + '</span>' : '');
-    }).join(' · ') + '</div>';
+      return '<span class="net-chip" title="' + netEsc(row.host) + '">' + netEsc(ip) + ' <i>' + netEsc(row.host) + '</i>'
+        + ' <span class="ok">✓' + row.ok + '</span>' + (row.fail ? ' <span class="bad">✗' + row.fail + '</span>' : '') + '</span>';
+    }).join('') + '</div>';
   }
-  var ev = (s.events || []).slice(-5).reverse();
+  var ev = (s.events || []).slice(-4).reverse();
   if (ev.length) {
-    h += '<div class="net-list"><b>Kejadian terakhir:</b> ' + ev.map(function (e) {
-      return netTime(e.t) + ' ' + netEsc(NET_EVENT_LABELS[e.event] || e.event) + ' ' + netEsc(e.host) + (e.ip ? ' → ' + netEsc(e.ip) : '');
-    }).join(' · ') + '</div>';
+    h += '<div class="net-chips"><span class="net-chips-label">' + netIcon('clock', 13) + 'Kejadian</span>' + ev.map(function (e) {
+      return '<span class="net-chip">' + netTime(e.t) + ' <i>' + netEsc(NET_EVENT_LABELS[e.event] || e.event) + '</i> '
+        + netEsc(e.ip || e.host) + '</span>';
+    }).join('') + '</div>';
   }
-  if (g.last_error) h += '<div class="net-list"><b>Error terakhir:</b> ' + netEsc(g.last_error) + '</div>';
-  (st.warnings || []).forEach(function (w) { h += '<div class="net-note" style="margin-top:.4rem">⚠ ' + netEsc(w) + '</div>'; });
+  (st.warnings || []).forEach(function (w) {
+    h += '<div class="net-callout warn">' + netIcon('alert', 15) + '<div>' + netEsc(w) + '</div></div>';
+  });
   return h;
 }
 
 function netRenderRoutes(st) {
-  var h = '<div class="net-section"><div class="net-section-title">Rute per platform</div>';
+  var h = '<div class="net-sec-head">' + netIcon('route', 16) + '<span>Rute per platform</span>'
+    + '<span class="net-dirty-flag" id="net-dirty-routes">' + netIcon('alert', 12) + 'belum disimpan</span>'
+    + '<span class="net-sec-hint">disimpan ke .env · berlaku setelah gateway restart</span></div>';
   (st.platforms || []).forEach(function (p) {
     var id = netEsc(p.id);
+    var box = p.enabled ? (NET_BOX[p.id] || 'cc-icon-blue') : 'cc-icon-gray';
     var en = p.enabled ? netBadge('badge-up', 'Aktif') : netBadge('badge-muted', p.configured ? 'Nonaktif' : 'Belum diatur');
-    var opts = ['relay', 'warp', 'direct', 'custom'].map(function (r) {
-      return '<option value="' + r + '"' + (p.route === r ? ' selected' : '') + '>' + netEsc(NET_ROUTE_LABELS[r]) + '</option>';
-    }).join('');
-    var ph = p.scheme === 'http' ? 'http://host:port' : 'socks5://host:port atau http://host:port';
-    h += '<div class="net-row" id="net-row-' + id + '">'
-      + '<div class="net-name">' + netEsc(p.label) + ' ' + en
-      + '<div class="net-sub">' + netEsc(p.env) + ' = ' + (p.url ? netEsc(p.url) : '<i>(kosong, tersambung langsung)</i>') + (p.source ? ' · dari ' + netEsc(p.source) : '') + '</div></div>'
-      + '<div class="net-ctl"><select class="net-select" id="net-route-' + id + '" onchange="netRouteChanged(\'' + id + '\')">' + opts + '</select>'
+    var meta = netEsc(p.env) + ' = ' + (p.url ? netEsc(p.url) : 'kosong');
+    var ph = p.scheme === 'http' ? 'http://host:port' : 'socks5://host:port';
+    var collapsed = !p.enabled && !(p.notes || []).length;
+    h += '<div class="gw-card-row' + (p.enabled ? '' : ' net-muted-row') + (collapsed ? ' net-collapsed' : '') + '" id="net-row-' + id + '" data-saved="' + netEsc(p.route) + '">'
+      + '<div class="gw-card-top"><div class="gw-card-left">'
+      + '<div class="cc-icon-box ' + box + '" style="width:34px;height:34px;min-width:34px">' + netIcon('p_' + p.id, 16) + '</div>'
+      + '<div class="gw-card-info"><div class="gw-card-title-wrap"><span class="gw-card-title">' + netEsc(p.label) + '</span>' + en + '</div>'
+      + '<div class="gw-card-meta" title="' + meta + (p.source ? ' (dari ' + netEsc(p.source) + ')' : '') + '">' + meta + '</div></div></div>'
+      + '<div class="net-head-right">' + netBadge(NET_ROUTE_BADGE[p.route] || 'badge-muted', NET_ROUTE_LABELS[p.route] || p.route)
+      + (collapsed ? '<button type="button" class="btn-action-sm net-toggle" onclick="netToggleRow(\'' + id + '\', this)" title="Ubah rute">'
+        + netIcon('chevron', 14) + '<span>Ubah rute</span></button>' : '') + '</div></div>'
+      + '<div class="net-route-body">'
+      + netSeg(NET_ROUTES, p.route, 'netPickRoute')
+      + '<input type="hidden" id="net-route-' + id + '" value="' + netEsc(p.route) + '">'
+      + '<div class="net-field" id="net-url-wrap-' + id + '" style="display:' + (p.route === 'custom' ? '' : 'none') + '">' + netIcon('sliders', 14)
       + '<input class="net-input" id="net-url-' + id + '" placeholder="' + ph + '" value="' + netEsc(p.route === 'custom' ? p.url : '') + '"'
-      + ' style="display:' + (p.route === 'custom' ? '' : 'none') + '" autocomplete="off" spellcheck="false">'
-      + '<button type="button" class="btn-action-sm" style="margin:0;align-self:auto" onclick="netTest(\'' + id + '\')">Tes</button></div>'
-      + '<div class="net-result" id="net-test-' + id + '"></div>'
-      + (p.notes || []).map(function (n) { return '<div class="net-note">' + netEsc(n) + '</div>'; }).join('')
-      + '</div>';
+      + ' autocomplete="off" spellcheck="false" oninput="netDirty(\'routes\')"></div>'
+      + (p.notes || []).map(function (n) { return '<div class="net-note">' + netIcon('alert', 13) + '<span>' + netEsc(n) + '</span></div>'; }).join('')
+      + '<div class="gw-card-bottom net-row-bottom"><span class="net-result" id="net-test-' + id + '"></span>'
+      + '<button type="button" class="btn-action-sm" onclick="netTest(\'' + id + '\')">' + netIcon('zap', 14) + 'Tes koneksi</button></div>'
+      + '</div></div>';
   });
-  h += '<div class="net-actions"><button type="button" class="btn-action-sm" onclick="netSaveRoutes()">Simpan rute</button></div>'
-    + '<div class="net-msg" id="net-routes-msg"></div></div>';
+  h += '<div class="net-callout" id="net-routes-msg"></div>'
+    + '<div class="net-actions"><button type="button" class="btn-action-sm btn-action-primary" id="net-save-routes" onclick="netSaveRoutes()">'
+    + netIcon('save', 14) + 'Simpan rute</button></div>';
   return h;
 }
 
 function netRenderInfo(st) {
-  var generic = st.generic_proxy || {};
-  var gkeys = Object.keys(generic);
-  var h = '<div class="net-section"><div class="net-section-title">Platform lain</div>';
+  var generic = st.generic_proxy || {}, gkeys = Object.keys(generic);
+  var h = '<div class="net-sec-head">' + netIcon('layers', 16) + '<span>Platform lain</span>'
+    + '<span class="net-sec-hint">tidak diatur dari panel</span></div>';
   (st.info_platforms || []).forEach(function (p) {
+    var none = p.support === 'none';
     var en = p.enabled ? netBadge('badge-up', 'Aktif') : netBadge('badge-muted', p.configured ? 'Nonaktif' : 'Belum diatur');
-    var text = p.support === 'none'
-      ? 'Bridge WhatsApp (Baileys) tidak mendukung proxy, selalu tersambung langsung.'
-      : 'Hanya lewat proxy umum (HTTPS_PROXY / ALL_PROXY). Tidak diubah dari panel karena proxy umum ikut membelokkan koneksi Hermes ke model AI (9router, bynara). '
-        + (gkeys.length ? 'Saat ini: ' + gkeys.map(function (k) { return netEsc(k) + '=' + netEsc(generic[k]); }).join(', ') : 'Saat ini: tidak ada proxy umum.');
-    h += '<div class="net-row"><div class="net-name">' + netEsc(p.label) + ' ' + en + '<div class="net-sub">' + text + '</div></div></div>';
+    var meta = none ? 'Bridge WhatsApp tidak mendukung proxy' :
+      'Proxy umum: ' + (gkeys.length ? gkeys.map(function (k) { return netEsc(k) + '=' + netEsc(generic[k]); }).join(', ') : 'tidak ada');
+    h += '<div class="gw-card-row net-muted-row" style="padding:.6rem .9rem"><div class="gw-card-top"><div class="gw-card-left">'
+      + '<div class="cc-icon-box ' + (p.enabled ? (NET_BOX[p.id] || 'cc-icon-blue') : 'cc-icon-gray') + '" style="width:30px;height:30px;min-width:30px">' + netIcon('p_' + p.id, 15) + '</div>'
+      + '<div class="gw-card-info"><div class="gw-card-title-wrap"><span class="gw-card-title">' + netEsc(p.label) + '</span>' + en + '</div>'
+      + '<div class="gw-card-meta" title="' + meta + '">' + meta + '</div></div></div>'
+      + '<div class="gw-card-badge-wrap">' + netBadge('badge-muted', none ? 'Tanpa proxy' : 'Proxy umum') + '</div></div></div>';
   });
-  return h + '</div>';
+  h += '<div class="net-callout info">' + netIcon('info', 15) + '<div>Slack &amp; SMS hanya membaca proxy umum (HTTPS_PROXY / ALL_PROXY). '
+    + 'Panel sengaja tidak mengubahnya karena proxy umum ikut membelokkan koneksi Hermes ke model AI (9router, bynara).</div></div>';
+  return h;
 }
 
 function netHostRow(hst) {
   hst = hst || {host: '', ips: [], mode: 'extra'};
-  return '<div class="net-row net-host-row">'
-    + '<div class="net-ctl" style="flex:1 1 100%">'
-    + '<input class="net-input net-h-host" placeholder="nama host, mis. api.telegram.org" value="' + netEsc(hst.host) + '" autocomplete="off" spellcheck="false">'
-    + '<input class="net-input net-h-ips" placeholder="IPv4, pisahkan dengan koma" value="' + netEsc((hst.ips || []).join(', ')) + '" autocomplete="off" spellcheck="false">'
-    + '<select class="net-select net-h-mode"><option value="extra"' + (hst.mode !== 'only' ? ' selected' : '') + '>Hasil DNS + IP ini</option>'
-    + '<option value="only"' + (hst.mode === 'only' ? ' selected' : '') + '>Hanya IP ini</option></select>'
-    + '<button type="button" class="btn-action-sm" style="margin:0;align-self:auto" onclick="netRemoveHost(this)">Hapus</button>'
+  var mode = hst.mode === 'only' ? 'only' : 'extra';
+  return '<div class="gw-card-row net-host-row">'
+    + '<div class="net-inline">'
+    + '<div class="net-field" style="flex:1 1 210px">' + netIcon('globe', 14)
+    + '<input class="net-input net-h-host" placeholder="nama host, mis. api.telegram.org" value="' + netEsc(hst.host) + '" autocomplete="off" spellcheck="false" oninput="netDirty(\'dns\')"></div>'
+    + '<div class="net-field" style="flex:2 1 260px">' + netIcon('hash', 14)
+    + '<input class="net-input net-h-ips" placeholder="IPv4, pisahkan dengan koma" value="' + netEsc((hst.ips || []).join(', ')) + '" autocomplete="off" spellcheck="false" oninput="netDirty(\'dns\')"></div>'
+    + '</div>'
+    + '<div class="gw-card-bottom net-row-bottom" style="padding-top:.5rem">'
+    + '<div style="flex:1 1 240px;max-width:340px">' + netSeg(NET_MODES, mode, 'netPickMode', 'cols-2') + '</div>'
+    + '<input type="hidden" class="net-h-mode" value="' + mode + '">'
+    + '<button type="button" class="btn-action-sm btn-action-danger" style="margin-left:auto" onclick="netRemoveHost(this)" title="Hapus host">' + netIcon('trash', 14) + 'Hapus</button>'
     + '</div></div>';
 }
 
 function netRenderDns(st) {
   var d = st.dns || {};
-  var res = ['system', 'cloudflare', 'google', 'pihole', 'custom'].map(function (r) {
-    return '<option value="' + r + '"' + (d.resolver === r ? ' selected' : '') + '>' + netEsc(NET_RESOLVER_LABELS[r]) + '</option>';
-  }).join('');
-  var h = '<div class="net-section"><div class="net-section-title">DNS Hermes (dipakai relay)</div>'
-    + '<div class="aux-desc" style="margin-bottom:.4rem">Relay mencari IPv4 tiap host lewat resolver ini, lalu mencoba IP satu per satu. Kalau satu IP gagal atau tidak menjawab dalam jeda fallback, relay pindah ke IP berikutnya. '
-    + 'Disimpan ke <code>' + netEsc(st.dns_path) + '</code> (' + (st.dns_source === 'file' ? 'tersimpan' : 'masih pengaturan bawaan') + '). Relay membacanya otomatis, tanpa restart gateway.</div>'
-    + '<div class="net-row"><div class="net-name">Resolver</div><div class="net-ctl">'
-    + '<select class="net-select" id="net-resolver" onchange="netResolverChanged()">' + res + '</select>'
-    + '<input class="net-input" id="net-resolver-servers" placeholder="IP DNS, mis. 9.9.9.9, 149.112.112.112" value="' + netEsc((d.resolver_servers || []).join(', ')) + '"'
-    + ' style="display:' + (d.resolver === 'custom' ? '' : 'none') + '" autocomplete="off" spellcheck="false"></div></div>'
-    + '<div class="net-row"><div class="net-name">Jeda fallback<div class="net-sub">detik sebelum mencoba IP berikutnya (0.5–10)</div></div><div class="net-ctl">'
-    + '<input class="net-input narrow" id="net-stagger" type="number" min="0.5" max="10" step="0.5" value="' + netEsc(d.stagger_seconds) + '"></div></div>'
-    + '<div class="net-sub" style="margin:.5rem 0 .1rem">IP tetap per host (seperti /etc/hosts khusus Hermes):</div>'
+  var h = '<div class="net-sec-head">' + netIcon('server', 16) + '<span>DNS Hermes</span>'
+    + '<span class="net-dirty-flag" id="net-dirty-dns">' + netIcon('alert', 12) + 'belum disimpan</span>'
+    + '<span class="net-sec-hint">dipakai relay · berlaku tanpa restart</span></div>';
+  h += '<div class="gw-card-row"><div class="net-stack">'
+    + '<div class="net-label">' + netIcon('search', 14) + 'Resolver <small>tempat relay mencari IPv4 tiap host</small></div>'
+    + netSeg(NET_RESOLVERS, d.resolver, 'netPickResolver', 'cols-5')
+    + '<input type="hidden" id="net-resolver" value="' + netEsc(d.resolver) + '">'
+    + '<div class="net-field" id="net-resolver-servers-wrap" style="display:' + (d.resolver === 'custom' ? '' : 'none') + '">' + netIcon('server', 14)
+    + '<input class="net-input" id="net-resolver-servers" placeholder="IP server DNS, mis. 9.9.9.9, 149.112.112.112" value="' + netEsc((d.resolver_servers || []).join(', ')) + '" autocomplete="off" spellcheck="false" oninput="netDirty(\'dns\')"></div>'
+    + '</div>'
+    + '<div class="gw-card-bottom net-row-bottom">'
+    + '<div class="net-label">' + netIcon('clock', 14) + 'Jeda fallback <small>sebelum mencoba IP berikutnya</small></div>'
+    + '<div class="net-input-suffix"><input class="net-input" id="net-stagger" type="number" min="0.5" max="10" step="0.5" value="' + netEsc(d.stagger_seconds) + '" oninput="netDirty(\'dns\')">detik</div>'
+    + '</div></div>';
+  h += '<div class="net-label" style="margin:.9rem 0 .45rem">' + netIcon('list', 14) + 'IP tetap per host <small>seperti /etc/hosts khusus Hermes</small></div>'
     + '<div id="net-hosts">' + (d.hosts || []).map(netHostRow).join('') + '</div>'
-    + '<div class="net-actions"><button type="button" class="btn-action-sm" onclick="netAddHost()">+ Tambah host</button>'
-    + '<button type="button" class="btn-action-sm" onclick="netSaveDns()">Simpan DNS</button></div>'
-    + '<div class="net-msg" id="net-dns-msg"></div>'
-    + '<div class="net-row" style="margin-top:.4rem"><div class="net-name">Tes DNS<div class="net-sub">IP yang akan dicoba relay (memakai pengaturan tersimpan)</div></div><div class="net-ctl">'
-    + '<input class="net-input" id="net-resolve-host" value="api.telegram.org" autocomplete="off" spellcheck="false">'
-    + '<button type="button" class="btn-action-sm" style="margin:0;align-self:auto" onclick="netResolve()">Tes</button></div>'
-    + '<div class="net-result" id="net-resolve-result"></div></div>'
-    + '</div>';
+    + '<div class="net-callout" id="net-dns-msg"></div>'
+    + '<div class="net-actions"><button type="button" class="btn-action-sm" onclick="netAddHost()">' + netIcon('plus', 14) + 'Tambah host</button>'
+    + '<button type="button" class="btn-action-sm btn-action-primary" id="net-save-dns" onclick="netSaveDns()">' + netIcon('save', 14) + 'Simpan DNS</button></div>';
+  h += '<div class="gw-card-row" style="margin-top:.8rem"><div class="net-label">' + netIcon('search', 14) + 'Tes DNS <small>IP yang akan dicoba relay (pengaturan tersimpan)</small></div>'
+    + '<div class="net-inline"><div class="net-field">' + netIcon('globe', 14)
+    + '<input class="net-input" id="net-resolve-host" value="api.telegram.org" autocomplete="off" spellcheck="false" onkeydown="if(event.key===\'Enter\')netResolve()"></div>'
+    + '<button type="button" class="btn-action-sm" onclick="netResolve()">' + netIcon('zap', 14) + 'Tes</button></div>'
+    + '<div class="net-chips" id="net-resolve-result" style="margin-top:0"></div></div>';
+  h += '<div class="net-file">' + netIcon('file', 13) + '<code>' + netEsc(st.dns_path) + '</code> · '
+    + (st.dns_source === 'file' ? 'tersimpan' : 'masih pengaturan bawaan') + '</div>';
   return h;
 }
 
@@ -7623,25 +7808,57 @@ function netApplyBadge(st) {
 function netLoad(full) {
   var slot = netEl('gateway-network-slot');
   if (!slot) return;
+  var btn = netEl('net-reload-btn');
+  if (btn) btn.classList.add('loading');
   fetch('/api/network', {headers: {'Accept': 'application/json'}}).then(function (r) { return r.json(); }).then(function (st) {
     if (!st || !st.ok) throw new Error((st && st.error) || 'gagal memuat');
     NET.state = st;
     var statusSlot = netEl('net-status-slot');
-    if (full || !statusSlot) slot.innerHTML = netRenderCard(st);
-    else statusSlot.innerHTML = netRenderStatus(st);
+    if (full || !statusSlot) {
+      slot.innerHTML = netRenderCard(st);
+      NET.dirty = {routes: false, dns: false};
+    } else {
+      statusSlot.innerHTML = netRenderStatus(st);
+    }
     netApplyBadge(st);
   }).catch(function (e) {
-    if (full || !netEl('net-status-slot')) slot.innerHTML = '<div class="net-msg net-bad">Gagal memuat pengaturan jaringan: ' + netEsc(e.message || e) + '</div>';
-  });
+    if (full || !netEl('net-status-slot')) {
+      slot.innerHTML = '<div class="net-callout bad">' + netIcon('x', 15) + '<div>Gagal memuat pengaturan jaringan: ' + netEsc(e.message || e) + '</div></div>';
+    }
+  }).then(function () { if (btn) btn.classList.remove('loading'); });
 }
 
-function netRouteChanged(pid) {
-  var sel = netEl('net-route-' + pid), inp = netEl('net-url-' + pid);
-  if (sel && inp) inp.style.display = sel.value === 'custom' ? '' : 'none';
+function netPickRoute(btn) {
+  var v = netSegPick(btn);
+  var row = btn.closest('.gw-card-row'), pid = row.id.replace('net-row-', '');
+  netEl('net-route-' + pid).value = v;
+  var wrap = netEl('net-url-wrap-' + pid);
+  if (wrap) wrap.style.display = v === 'custom' ? '' : 'none';
+  var changed = false;
+  ((NET.state && NET.state.platforms) || []).forEach(function (p) {
+    var el = netEl('net-route-' + p.id);
+    if (el && el.value !== p.route) changed = true;
+  });
+  netDirty('routes', changed || v === 'custom');
+  if (v === 'custom') { var inp = netEl('net-url-' + pid); if (inp) inp.focus(); }
 }
-function netResolverChanged() {
-  var sel = netEl('net-resolver'), inp = netEl('net-resolver-servers');
-  if (sel && inp) inp.style.display = sel.value === 'custom' ? '' : 'none';
+function netToggleRow(pid, btn) {
+  var row = netEl('net-row-' + pid);
+  if (!row) return;
+  var open = row.classList.toggle('net-collapsed') === false;
+  if (btn) btn.classList.toggle('open', open);
+}
+function netPickResolver(btn) {
+  var v = netSegPick(btn);
+  netEl('net-resolver').value = v;
+  var wrap = netEl('net-resolver-servers-wrap');
+  if (wrap) wrap.style.display = v === 'custom' ? '' : 'none';
+  netDirty('dns');
+}
+function netPickMode(btn) {
+  var v = netSegPick(btn);
+  btn.closest('.net-host-row').querySelector('.net-h-mode').value = v;
+  netDirty('dns');
 }
 
 function netCollectRoutes() {
@@ -7654,51 +7871,61 @@ function netCollectRoutes() {
 }
 
 function netSaveRoutes() {
-  netSetMsg('net-routes-msg', '', 'Menyimpan…');
+  netCallout('net-routes-msg', 'info', 'Menyimpan…');
   netPost('/api/network/routes', {routes: netCollectRoutes()}).then(function (d) {
-    if (!d.ok) { netSetMsg('net-routes-msg', 'net-bad', netEsc(d.error || 'Gagal menyimpan')); return; }
-    if (!d.changed || !d.changed.length) { netSetMsg('net-routes-msg', 'net-ok', 'Tidak ada perubahan.'); return; }
-    var msg = 'Tersimpan ke .env: ' + netEsc(d.changed.join(', ')) + '.';
+    if (!d.ok) { netCallout('net-routes-msg', 'bad', netEsc(d.error || 'Gagal menyimpan')); return; }
+    netDirty('routes', false);
+    if (!d.changed || !d.changed.length) { netCallout('net-routes-msg', 'ok', 'Tidak ada perubahan.'); return; }
+    var msg = '<b>Tersimpan ke .env:</b> ' + netEsc(d.changed.join(', ')) + '.';
     if (d.needs_restart) {
-      msg += ' Rute baru berlaku setelah gateway di-restart (bot offline ±1 menit). '
-        + '<button type="button" class="btn-action-sm" style="margin:.35rem 0 0" onclick="netRestartGateway()">Restart gateway sekarang</button>';
+      netCallout('net-routes-msg', 'warn', msg + ' Rute baru berlaku setelah gateway di-restart (bot offline ±1 menit).<br>'
+        + '<button type="button" class="btn-action-sm btn-action-primary" onclick="netRestartGateway()">' + netIcon('power', 14) + 'Restart gateway sekarang</button>');
+    } else {
+      netCallout('net-routes-msg', 'ok', msg);
     }
-    netSetMsg('net-routes-msg', 'net-ok', msg);
     setTimeout(function () { netLoad(false); }, 500);
-  }).catch(function (e) { netSetMsg('net-routes-msg', 'net-bad', netEsc(e.message || e)); });
+  }).catch(function (e) { netCallout('net-routes-msg', 'bad', netEsc(e.message || e)); });
 }
 
 function netRestartGateway() {
   if (!window.confirm('Restart gateway Hermes sekarang? Semua chat (Telegram, dll.) offline sekitar 1 menit.')) return;
-  netSetMsg('net-routes-msg', '', 'Me-restart gateway…');
+  netCallout('net-routes-msg', 'info', 'Me-restart gateway…');
   netPost('/api/network/restart-gateway', {confirm: true}).then(function (d) {
-    if (!d.ok) { netSetMsg('net-routes-msg', 'net-bad', netEsc(d.error || 'Gagal restart')); return; }
-    netSetMsg('net-routes-msg', 'net-ok', 'Gateway sedang di-restart. Status diperbarui otomatis dalam ±1 menit.');
+    if (!d.ok) { netCallout('net-routes-msg', 'bad', netEsc(d.error || 'Gagal restart')); return; }
+    netCallout('net-routes-msg', 'ok', 'Gateway sedang di-restart. Status diperbarui otomatis dalam ±1 menit.');
     setTimeout(function () { netLoad(true); }, 45000);
   });
 }
 
 function netTest(pid) {
   var sel = netEl('net-route-' + pid), inp = netEl('net-url-' + pid), out = netEl('net-test-' + pid);
-  if (out) { out.className = 'net-result'; out.textContent = 'Menguji 3× …'; }
+  if (out) { out.className = 'net-result'; out.innerHTML = '<span class="net-spin" style="display:inline-flex">' + netIcon('refresh', 13) + '</span>Menguji 3× …'; }
   netPost('/api/network/test', {platform: pid, route: sel ? sel.value : '', url: inp ? inp.value.trim() : ''}).then(function (d) {
     if (!out) return;
-    if (!d.ok) { out.className = 'net-result net-bad'; out.textContent = d.error || 'Tes gagal'; return; }
+    if (!d.ok) { out.className = 'net-result bad'; out.innerHTML = netIcon('x', 13) + netEsc(d.error || 'Tes gagal'); return; }
     var bad = (d.results || []).filter(function (r) { return !r.ok; });
-    out.className = 'net-result ' + (d.passed === d.total ? 'net-ok' : (d.passed ? 'net-warn' : 'net-bad'));
-    out.innerHTML = d.passed + '/' + d.total + ' berhasil' + (d.avg_seconds !== null && d.avg_seconds !== undefined ? ' · rata-rata ' + d.avg_seconds + ' dtk' : '')
-      + ' · ' + netEsc(NET_ROUTE_LABELS[d.route] || d.route) + (d.proxy ? ' (' + netEsc(d.proxy) + ')' : '') + ' → ' + netEsc(d.url)
-      + (bad.length ? ' · error: ' + netEsc(bad[0].error) : '');
-  }).catch(function (e) { if (out) { out.className = 'net-result net-bad'; out.textContent = String(e.message || e); } });
+    var kind = d.passed === d.total ? 'ok' : (d.passed ? 'warn' : 'bad');
+    out.className = 'net-result ' + kind;
+    out.innerHTML = netIcon(kind === 'ok' ? 'check' : (kind === 'warn' ? 'alert' : 'x'), 13)
+      + '<b>' + d.passed + '/' + d.total + ' berhasil</b>'
+      + (d.avg_seconds !== null && d.avg_seconds !== undefined ? ' · ' + d.avg_seconds + ' dtk' : '')
+      + ' · ' + netEsc(NET_ROUTE_LABELS[d.route] || d.route)
+      + (bad.length ? ' · ' + netEsc(bad[0].error) : '');
+    out.title = (d.proxy || 'tanpa proxy') + ' → ' + (d.url || '');
+  }).catch(function (e) { if (out) { out.className = 'net-result bad'; out.textContent = String(e.message || e); } });
 }
 
 function netAddHost() {
   var box = netEl('net-hosts');
-  if (box) box.insertAdjacentHTML('beforeend', netHostRow(null));
+  if (!box) return;
+  box.insertAdjacentHTML('beforeend', netHostRow(null));
+  var rows = box.querySelectorAll('.net-h-host');
+  if (rows.length) rows[rows.length - 1].focus();
+  netDirty('dns');
 }
 function netRemoveHost(btn) {
   var row = btn && btn.closest ? btn.closest('.net-host-row') : null;
-  if (row) row.parentNode.removeChild(row);
+  if (row) { row.parentNode.removeChild(row); netDirty('dns'); }
 }
 
 function netCollectDns() {
@@ -7715,25 +7942,31 @@ function netCollectDns() {
 }
 
 function netSaveDns() {
-  netSetMsg('net-dns-msg', '', 'Menyimpan…');
+  netCallout('net-dns-msg', 'info', 'Menyimpan…');
   netPost('/api/network/dns', {dns: netCollectDns()}).then(function (d) {
-    if (!d.ok) { netSetMsg('net-dns-msg', 'net-bad', netEsc(d.error || 'Gagal menyimpan')); return; }
-    netSetMsg('net-dns-msg', 'net-ok', 'Tersimpan. Relay memakai pengaturan baru dalam hitungan detik, tanpa restart gateway.');
-    setTimeout(function () { netLoad(true); netSetMsg('net-dns-msg', 'net-ok', 'Tersimpan.'); }, 1200);
-  }).catch(function (e) { netSetMsg('net-dns-msg', 'net-bad', netEsc(e.message || e)); });
+    if (!d.ok) { netCallout('net-dns-msg', 'bad', netEsc(d.error || 'Gagal menyimpan')); return; }
+    netDirty('dns', false);
+    netCallout('net-dns-msg', 'ok', 'Tersimpan. Relay memakai pengaturan baru dalam hitungan detik, tanpa restart gateway.');
+    setTimeout(function () {
+      netLoad(true);
+      setTimeout(function () { netCallout('net-dns-msg', 'ok', 'DNS tersimpan dan aktif.'); }, 400);
+    }, 1200);
+  }).catch(function (e) { netCallout('net-dns-msg', 'bad', netEsc(e.message || e)); });
 }
 
 function netResolve() {
   var host = (netEl('net-resolve-host') || {}).value || '';
   var out = netEl('net-resolve-result');
-  if (out) { out.className = 'net-result'; out.textContent = 'Mencari…'; }
+  if (out) { out.style.marginTop = '.55rem'; out.innerHTML = '<span class="net-chips-label"><span class="net-spin" style="display:inline-flex">' + netIcon('refresh', 13) + '</span>Mencari…</span>'; }
   netPost('/api/network/resolve', {host: host.trim()}).then(function (d) {
     if (!out) return;
-    if (!d.ok) { out.className = 'net-result net-bad'; out.textContent = d.error || 'Gagal'; return; }
-    out.className = 'net-result ' + ((d.ips || []).length ? 'net-ok' : 'net-bad');
-    out.innerHTML = netEsc(d.host) + ' → ' + ((d.ips || []).length ? netEsc(d.ips.join(', ')) : 'tidak ada IPv4')
-      + ' · resolver ' + netEsc(NET_RESOLVER_LABELS[d.resolver] || d.resolver) + ' · ' + netEsc(d.ms) + ' ms'
-      + (d.config_error ? ' · <span class="net-warn">config relay error: ' + netEsc(d.config_error) + '</span>' : '');
+    if (!d.ok) { out.innerHTML = '<span class="net-result bad">' + netIcon('x', 13) + netEsc(d.error || 'Gagal') + '</span>'; return; }
+    var ips = d.ips || [];
+    out.innerHTML = '<span class="net-chips-label">' + netIcon(ips.length ? 'check' : 'x', 13) + netEsc(NET_RESOLVER_LABELS[d.resolver] || d.resolver)
+      + ' · ' + netEsc(d.ms) + ' ms</span>'
+      + (ips.length ? ips.map(function (ip, i) { return '<span class="net-chip">' + (i + 1) + '. ' + netEsc(ip) + '</span>'; }).join('')
+        : '<span class="net-result bad">tidak ada IPv4</span>')
+      + (d.config_error ? '<span class="net-result warn">' + netIcon('alert', 13) + 'config relay error: ' + netEsc(d.config_error) + '</span>' : '');
   });
 }
 
@@ -7751,7 +7984,16 @@ function netResolve() {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { setTimeout(start, 600); });
   else setTimeout(start, 600);
 })();
-</script>"""
+""".replace("__NET_ICONS__", json.dumps(NETWORK_ICON_PATHS))
+
+# Served as cacheable assets (versioned URLs) instead of inline: keeps /status light on the STB.
+NETWORK_ASSET_VERSION = hashlib.sha1((NETWORK_CSS + NETWORK_SCRIPT).encode("utf-8")).hexdigest()[:10]
+NETWORK_ASSETS = {
+    "/assets/network-card.css": (NETWORK_CSS, "text/css; charset=utf-8"),
+    "/assets/network-card.js": (NETWORK_SCRIPT, "application/javascript; charset=utf-8"),
+}
+NETWORK_STYLE_TAG = f'<link rel="stylesheet" href="/assets/network-card.css?v={NETWORK_ASSET_VERSION}">'
+NETWORK_SCRIPT_TAG = f'<script src="/assets/network-card.js?v={NETWORK_ASSET_VERSION}" defer></script>'
 
 
 NAV_SCRIPT = """<script>
@@ -13807,8 +14049,8 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         bot_toggle_label="Matikan Gateway" if gw_active else "Nyalakan Gateway",
         bot_toggle_class="btn-off" if gw_active else "btn-on",
         nav_script=NAV_SCRIPT,
-        network_style=NETWORK_STYLE,
-        network_script=NETWORK_SCRIPT,
+        network_style=NETWORK_STYLE_TAG,
+        network_script=NETWORK_SCRIPT_TAG,
         script=render_poll_script(),
         icon_monitor=ICON_MONITOR,
         icon_layers=ICON_LAYERS,
@@ -14270,6 +14512,21 @@ class Handler(BaseHTTPRequestHandler):
             pass
         return data, None
 
+    def _send_asset(self, body: str, content_type: str):
+        """Static UI asset behind a versioned URL (?v=<hash>): cache it for good in this browser."""
+        data, encoding = self._compress_payload(body.encode("utf-8"))
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+            self.send_header("Vary", "Accept-Encoding")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "private, max-age=31536000, immutable")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(data)
+
     def _send_html(self, body: str, code: int = 200):
         data = body.encode("utf-8")
         data, encoding = self._compress_payload(data)
@@ -14534,6 +14791,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/network":
             self._send_json(get_gateway_network_state())
+            return
+
+        if parsed.path in NETWORK_ASSETS:
+            body, ctype = NETWORK_ASSETS[parsed.path]
+            self._send_asset(body, ctype)
             return
 
         # Mutation over plain GET is not allowed (CasaOS shortcuts excepted:
