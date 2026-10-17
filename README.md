@@ -18,6 +18,10 @@ Control panel web ultra-ringan (RAM <20MB, zero external frameworks, Python stan
 |:---:|:---:|
 | ![Layanan & Fallback](assets/screenshots/panel-desktop-control.png) | ![Mobile View](assets/screenshots/panel-mobile.png) |
 
+| Jalur Jaringan Gateway & DNS Hermes | Jalur Jaringan — Mobile |
+|:---:|:---:|
+| ![Jalur Jaringan Gateway](assets/screenshots/panel-network-desktop.png) | ![Jalur Jaringan Mobile](assets/screenshots/panel-network-mobile.png) |
+
 ---
 
 ## 🚀 Fitur Utama
