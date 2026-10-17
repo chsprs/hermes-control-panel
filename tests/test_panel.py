@@ -3712,6 +3712,33 @@ class TestGatewayNetwork(unittest.TestCase):
         self.assertEqual(code, 200)
         rb.assert_called_once()
 
+    def test_passwordless_mode_still_rejects_cross_site_posts(self):
+        """Passwordless LAN mode must not disable CSRF checks (any web page could drive the panel)."""
+        for name in ("PASSWORD", "TOKEN"):
+            p = mock.patch.object(panel, name, "")
+            p.start()
+            self.addCleanup(p.stop)
+        url = f"http://127.0.0.1:{self.port}/api/network/routes"
+        body = json.dumps({"routes": {"telegram": {"route": "direct"}}}).encode()
+
+        def post(extra):
+            req = urllib.request.Request(url, data=body, method="POST")
+            req.add_header("Content-Type", "application/json")
+            for k, v in extra.items():
+                req.add_header(k, v)
+            try:
+                with urllib.request.urlopen(req) as r:
+                    return r.status
+            except urllib.error.HTTPError as e:
+                return e.code
+
+        self.assertEqual(post({"Origin": "http://evil.example"}), 403)
+        self.assertEqual(post({"Sec-Fetch-Site": "cross-site"}), 403)
+        self.assertEqual(post({"Referer": "http://evil.example/x"}), 403)
+        self.assertIn("TELEGRAM_PROXY=socks5://127.0.0.1:40001", self._env())
+        self.assertEqual(post({"Origin": f"http://127.0.0.1:{self.port}"}), 200)
+        self.assertNotIn("TELEGRAM_PROXY", self._env())
+
     def test_page_has_network_card_and_valid_script(self):
         page = panel.build_status_page()
         self.assertIn('id="gateway-network-slot"', page)

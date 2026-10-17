@@ -14418,7 +14418,10 @@ class Handler(BaseHTTPRequestHandler):
                     qs.setdefault(k, v)
 
         query_token = (qs.get("token") or [""])[0]
-        has_explicit_token = self._token_matches(query_token)
+        # Only a configured token that was actually presented may skip the CSRF checks below.
+        # _token_matches() is True for anything in passwordless mode, which used to disable CSRF
+        # protection entirely there: any web page open on the LAN could drive the panel.
+        has_explicit_token = bool(TOKEN) and bool(query_token) and hmac.compare_digest(query_token, TOKEN)
         is_json_client = parsed.path.startswith("/api/") or "application/json" in self.headers.get("Accept", "")
 
         if not has_explicit_token:
