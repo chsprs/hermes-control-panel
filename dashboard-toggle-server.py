@@ -42,6 +42,7 @@ import gc
 import hashlib
 import hmac
 import html
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -159,6 +160,8 @@ MUTATING_PATHS = frozenset({
     "/api/kanban/task/status", "/api/kanban/task/delete",
     "/api/kanban/task/reclaim", "/api/kanban/task/comment",
     "/api/kanban/config",
+    "/api/network/routes", "/api/network/dns", "/api/network/test", "/api/network/resolve",
+    "/api/network/restart-gateway",
 })
 MAX_BODY_SIZE = 5 * 1024 * 1024  # 5 MB max POST body (SEC-DOS-01)
 LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off"})
@@ -1858,6 +1861,19 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <button type="button" class="btn btn-action-sm" onclick="toggleLog('gatewayLogDismissed','gateway-log-show')">Tampilkan Log Gateway</button>
     </div>
   </div>
+  <div class="card card-info" id="gateway-network-card" style="margin-bottom:1.25rem">
+    <div class="aux-header">
+      <div class="card-title" style="margin-bottom:0">{icon_network} Jalur Jaringan Gateway</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <span class="badge badge-muted" id="net-health-badge">Memuat…</span>
+        <button type="button" class="btn-action-sm" onclick="netLoad(true)">Muat ulang</button>
+      </div>
+    </div>
+    <div class="aux-desc">
+      Rute koneksi tiap platform gateway (relay IPv4 lewat Cloudflare WARP, WARP langsung, tanpa proxy, atau custom) dan <strong>DNS Hermes</strong> untuk relay: resolver, IP per host, dan jeda fallback.
+    </div>
+    <div id="gateway-network-slot"><div class="aux-desc">Memuat pengaturan jaringan…</div></div>
+  </div>
   <div class="card card-info" style="margin-bottom:1.25rem">
     <div class="aux-header">
       <div class="card-title" style="margin-bottom:0">{icon_shield} Model Cadangan</div>
@@ -2005,6 +2021,8 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 </div> <!-- .content-wrapper -->
 
 {nav_script}
+{network_style}
+{network_script}
 {script}
 <script>
 var AVAILABLE_MODELS = {available_models_json};
@@ -4562,8 +4580,8 @@ var GW_PLATFORM_GUIDES = {{
     {{ key: "typing_indicator: true / false", desc: "Tampilkan indikator 'sedang mengetik...' di Telegram saat AI memproses respons." }},
     {{ key: "gateway_restart_notification: true", desc: "Kirim pesan notifikasi otomatis saat bot/gateway berhasil restart." }},
     {{ key: "home_channel:", desc: "Kanal default notifikasi & interaksi (chat_id, name, platform, thread_id)." }},
-    {{ key: "proxy_url: 'http://...'", desc: "URL proxy HTTP atau SOCKS5 jika akses Telegram diblokir ISP." }},
-    {{ key: "fallback_ips: 'IP1, IP2'", desc: "Daftar IP direct failover jika DNS ISP gagal meresolusi api.telegram.org." }}
+    {{ key: "proxy_url: 'http://...'", desc: "Proxy Telegram. Diabaikan bila TELEGRAM_PROXY ada di .env (selalu lebih diutamakan). Lebih baik atur lewat kartu Jalur Jaringan Gateway di tab Layanan." }},
+    {{ key: "fallback_ips: 'IP1, IP2'", desc: "IP cadangan api.telegram.org, hanya dipakai saat TIDAK ada proxy. Dengan relay, atur IP lewat DNS Hermes di kartu Jalur Jaringan Gateway." }}
   ],
   discord: [
     {{ key: "enabled: true / false", desc: "Status aktif bot Discord." }},
@@ -7410,6 +7428,332 @@ SSE_SCRIPT = """<script>
 # overlay would just stay stuck on screen with nothing to dismiss it. No
 # placeholders to fill, so this is inserted as a literal — no render_*()
 # wrapper needed.
+NETWORK_STYLE = """<style>
+.net-row{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.6rem 0;border-top:1px solid rgba(255,255,255,.06)}
+.net-row:first-child{border-top:0}
+.net-name{flex:1 1 150px;min-width:130px;font-weight:600;font-size:.85rem;display:flex;flex-wrap:wrap;gap:.35rem;align-items:center}
+.net-sub{flex-basis:100%;font-size:.72rem;color:var(--text-muted);font-weight:400;word-break:break-all}
+.net-ctl{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;flex:2 1 280px;min-width:0}
+.net-select,.net-input{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);color:var(--text);border-radius:6px;padding:.38rem .5rem;font-size:.78rem;min-width:0;max-width:100%}
+.net-input{flex:1 1 170px}
+.net-input.narrow{flex:0 0 5.5rem}
+.net-note{flex-basis:100%;font-size:.72rem;color:var(--warning);line-height:1.35}
+.net-result{flex-basis:100%;font-size:.74rem;color:var(--text-muted);line-height:1.35}
+.net-result:empty{display:none}
+.net-section{margin-top:1.1rem}
+.net-section-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:.4rem}
+.net-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.5rem}
+.net-kv>div{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.05);border-radius:8px;padding:.5rem .6rem;font-size:.8rem;min-width:0;word-break:break-word}
+.net-kv b{display:block;font-size:.68rem;color:var(--text-muted);font-weight:500;margin-bottom:.15rem;text-transform:uppercase;letter-spacing:.03em}
+.net-list{font-size:.74rem;color:var(--text-muted);margin-top:.5rem;line-height:1.5;word-break:break-word}
+.net-msg{font-size:.78rem;margin-top:.5rem;line-height:1.4}
+.net-msg:empty{display:none}
+.net-ok{color:var(--success)}.net-bad{color:var(--danger)}.net-warn{color:var(--warning)}
+.net-actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.6rem}
+.net-actions .btn-action-sm{margin:0;align-self:auto}
+@media (max-width:640px){.net-ctl{flex-basis:100%}.net-input.narrow{flex:1 1 5.5rem}}
+</style>"""
+
+NETWORK_SCRIPT = r"""<script>
+var NET = {state: null, timer: null};
+var NET_ROUTE_LABELS = {relay: 'Relay IPv4 (:40001)', warp: 'WARP langsung (:40000)', direct: 'Tanpa proxy', custom: 'Custom'};
+var NET_RESOLVER_LABELS = {system: 'DNS sistem server', cloudflare: 'Cloudflare (1.1.1.1)', google: 'Google (8.8.8.8)',
+  pihole: 'Pi-hole lokal (127.0.0.1)', custom: 'Custom'};
+var NET_EVENT_LABELS = {fail: 'IP gagal', fallback: 'pindah IP', all_failed: 'semua IP gagal'};
+
+function netEsc(s) {
+  return String(s === null || s === undefined ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function netParseIps(text) {
+  return String(text || '').split(/[\s,;]+/).filter(function (x) { return x; });
+}
+function netEl(id) { return document.getElementById(id); }
+function netBadge(cls, text) { return '<span class="badge ' + cls + '">' + netEsc(text) + '</span>'; }
+function netTime(ts) {
+  if (!ts) return '-';
+  var d = new Date(ts * 1000);
+  function p(n) { return (n < 10 ? '0' : '') + n; }
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+function netSetMsg(id, cls, html) { var el = netEl(id); if (el) { el.className = 'net-msg ' + cls; el.innerHTML = html; } }
+function netPost(path, payload) {
+  return fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+    body: JSON.stringify(payload)}).then(function (r) {
+    return r.json().catch(function () { return {ok: false, error: 'HTTP ' + r.status}; });
+  });
+}
+
+function netHealth(st) {
+  var r = st.relay || {}, g = st.gateway || {};
+  var usesRelay = (st.platforms || []).some(function (p) { return p.route === 'relay' && p.enabled; });
+  if (usesRelay && r.service !== 'active') return ['badge-down', 'Relay mati'];
+  if (r.warp_service && r.warp_service !== 'active') return ['badge-down', 'WARP mati'];
+  if ((g.proxy_errors || 0) >= 10) return ['badge-warn', g.proxy_errors + ' error proxy'];
+  if ((st.warnings || []).length) return ['badge-warn', 'Perlu dicek'];
+  return ['badge-up', 'Sehat'];
+}
+
+function netRenderStatus(st) {
+  var r = st.relay || {}, g = st.gateway || {}, s = r.stats || {}, t = s.totals || {};
+  var h = '<div class="net-kv">';
+  h += '<div><b>Relay IPv4</b>' + (r.service === 'active' ? '<span class="net-ok">aktif</span>' : '<span class="net-bad">' + netEsc(r.service || '?') + '</span>')
+    + (r.enabled && r.enabled !== 'enabled' ? ' <span class="net-warn">(tidak otomatis saat boot)</span>' : '') + '</div>';
+  h += '<div><b>Cloudflare WARP</b>' + (r.warp_service === 'active' ? '<span class="net-ok">aktif</span>' : '<span class="net-bad">' + netEsc(r.warp_service || '?') + '</span>')
+    + (r.warp ? ' · ' + netEsc(r.warp) : '') + '</div>';
+  h += '<div><b>Gateway</b>' + (g.active ? '<span class="net-ok">aktif</span>' : '<span class="net-bad">mati</span>')
+    + (g.since ? ' · sejak ' + netEsc(g.since) : '') + '</div>';
+  h += '<div><b>Error sejak gateway start</b>' + '<span class="' + ((g.proxy_errors || 0) ? 'net-warn' : 'net-ok') + '">' + (g.proxy_errors || 0) + ' proxy</span> · '
+    + (g.network_errors || 0) + ' jaringan · ' + '<span class="' + ((g.failed_deliveries || 0) ? 'net-bad' : '') + '">' + (g.failed_deliveries || 0) + ' gagal kirim</span></div>';
+  if (r.stats) {
+    h += '<div><b>Relay sejak start (' + netTime(s.started_at) + ')</b>' + (t.ok || 0) + ' sukses · ' + (t.fallback || 0) + ' pindah IP · '
+      + '<span class="' + ((t.failed || 0) ? 'net-bad' : '') + '">' + (t.failed || 0) + ' gagal</span></div>';
+  }
+  h += '</div>';
+  var ips = Object.keys(s.per_ip || {}).sort(function (a, b) { return (s.per_ip[b].ok + s.per_ip[b].fail) - (s.per_ip[a].ok + s.per_ip[a].fail); }).slice(0, 8);
+  if (ips.length) {
+    h += '<div class="net-list"><b>IP tujuan:</b> ' + ips.map(function (ip) {
+      var row = s.per_ip[ip];
+      return netEsc(ip) + ' <span style="opacity:.7">(' + netEsc(row.host) + ')</span> <span class="net-ok">✓' + row.ok + '</span>'
+        + (row.fail ? ' <span class="net-bad">✗' + row.fail + '</span>' : '');
+    }).join(' · ') + '</div>';
+  }
+  var ev = (s.events || []).slice(-5).reverse();
+  if (ev.length) {
+    h += '<div class="net-list"><b>Kejadian terakhir:</b> ' + ev.map(function (e) {
+      return netTime(e.t) + ' ' + netEsc(NET_EVENT_LABELS[e.event] || e.event) + ' ' + netEsc(e.host) + (e.ip ? ' → ' + netEsc(e.ip) : '');
+    }).join(' · ') + '</div>';
+  }
+  if (g.last_error) h += '<div class="net-list"><b>Error terakhir:</b> ' + netEsc(g.last_error) + '</div>';
+  (st.warnings || []).forEach(function (w) { h += '<div class="net-note" style="margin-top:.4rem">⚠ ' + netEsc(w) + '</div>'; });
+  return h;
+}
+
+function netRenderRoutes(st) {
+  var h = '<div class="net-section"><div class="net-section-title">Rute per platform</div>';
+  (st.platforms || []).forEach(function (p) {
+    var id = netEsc(p.id);
+    var en = p.enabled ? netBadge('badge-up', 'Aktif') : netBadge('badge-muted', p.configured ? 'Nonaktif' : 'Belum diatur');
+    var opts = ['relay', 'warp', 'direct', 'custom'].map(function (r) {
+      return '<option value="' + r + '"' + (p.route === r ? ' selected' : '') + '>' + netEsc(NET_ROUTE_LABELS[r]) + '</option>';
+    }).join('');
+    var ph = p.scheme === 'http' ? 'http://host:port' : 'socks5://host:port atau http://host:port';
+    h += '<div class="net-row" id="net-row-' + id + '">'
+      + '<div class="net-name">' + netEsc(p.label) + ' ' + en
+      + '<div class="net-sub">' + netEsc(p.env) + ' = ' + (p.url ? netEsc(p.url) : '<i>(kosong, tersambung langsung)</i>') + (p.source ? ' · dari ' + netEsc(p.source) : '') + '</div></div>'
+      + '<div class="net-ctl"><select class="net-select" id="net-route-' + id + '" onchange="netRouteChanged(\'' + id + '\')">' + opts + '</select>'
+      + '<input class="net-input" id="net-url-' + id + '" placeholder="' + ph + '" value="' + netEsc(p.route === 'custom' ? p.url : '') + '"'
+      + ' style="display:' + (p.route === 'custom' ? '' : 'none') + '" autocomplete="off" spellcheck="false">'
+      + '<button type="button" class="btn-action-sm" style="margin:0;align-self:auto" onclick="netTest(\'' + id + '\')">Tes</button></div>'
+      + '<div class="net-result" id="net-test-' + id + '"></div>'
+      + (p.notes || []).map(function (n) { return '<div class="net-note">' + netEsc(n) + '</div>'; }).join('')
+      + '</div>';
+  });
+  h += '<div class="net-actions"><button type="button" class="btn-action-sm" onclick="netSaveRoutes()">Simpan rute</button></div>'
+    + '<div class="net-msg" id="net-routes-msg"></div></div>';
+  return h;
+}
+
+function netRenderInfo(st) {
+  var generic = st.generic_proxy || {};
+  var gkeys = Object.keys(generic);
+  var h = '<div class="net-section"><div class="net-section-title">Platform lain</div>';
+  (st.info_platforms || []).forEach(function (p) {
+    var en = p.enabled ? netBadge('badge-up', 'Aktif') : netBadge('badge-muted', p.configured ? 'Nonaktif' : 'Belum diatur');
+    var text = p.support === 'none'
+      ? 'Bridge WhatsApp (Baileys) tidak mendukung proxy, selalu tersambung langsung.'
+      : 'Hanya lewat proxy umum (HTTPS_PROXY / ALL_PROXY). Tidak diubah dari panel karena proxy umum ikut membelokkan koneksi Hermes ke model AI (9router, bynara). '
+        + (gkeys.length ? 'Saat ini: ' + gkeys.map(function (k) { return netEsc(k) + '=' + netEsc(generic[k]); }).join(', ') : 'Saat ini: tidak ada proxy umum.');
+    h += '<div class="net-row"><div class="net-name">' + netEsc(p.label) + ' ' + en + '<div class="net-sub">' + text + '</div></div></div>';
+  });
+  return h + '</div>';
+}
+
+function netHostRow(hst) {
+  hst = hst || {host: '', ips: [], mode: 'extra'};
+  return '<div class="net-row net-host-row">'
+    + '<div class="net-ctl" style="flex:1 1 100%">'
+    + '<input class="net-input net-h-host" placeholder="nama host, mis. api.telegram.org" value="' + netEsc(hst.host) + '" autocomplete="off" spellcheck="false">'
+    + '<input class="net-input net-h-ips" placeholder="IPv4, pisahkan dengan koma" value="' + netEsc((hst.ips || []).join(', ')) + '" autocomplete="off" spellcheck="false">'
+    + '<select class="net-select net-h-mode"><option value="extra"' + (hst.mode !== 'only' ? ' selected' : '') + '>Hasil DNS + IP ini</option>'
+    + '<option value="only"' + (hst.mode === 'only' ? ' selected' : '') + '>Hanya IP ini</option></select>'
+    + '<button type="button" class="btn-action-sm" style="margin:0;align-self:auto" onclick="netRemoveHost(this)">Hapus</button>'
+    + '</div></div>';
+}
+
+function netRenderDns(st) {
+  var d = st.dns || {};
+  var res = ['system', 'cloudflare', 'google', 'pihole', 'custom'].map(function (r) {
+    return '<option value="' + r + '"' + (d.resolver === r ? ' selected' : '') + '>' + netEsc(NET_RESOLVER_LABELS[r]) + '</option>';
+  }).join('');
+  var h = '<div class="net-section"><div class="net-section-title">DNS Hermes (dipakai relay)</div>'
+    + '<div class="aux-desc" style="margin-bottom:.4rem">Relay mencari IPv4 tiap host lewat resolver ini, lalu mencoba IP satu per satu. Kalau satu IP gagal atau tidak menjawab dalam jeda fallback, relay pindah ke IP berikutnya. '
+    + 'Disimpan ke <code>' + netEsc(st.dns_path) + '</code> (' + (st.dns_source === 'file' ? 'tersimpan' : 'masih pengaturan bawaan') + '). Relay membacanya otomatis, tanpa restart gateway.</div>'
+    + '<div class="net-row"><div class="net-name">Resolver</div><div class="net-ctl">'
+    + '<select class="net-select" id="net-resolver" onchange="netResolverChanged()">' + res + '</select>'
+    + '<input class="net-input" id="net-resolver-servers" placeholder="IP DNS, mis. 9.9.9.9, 149.112.112.112" value="' + netEsc((d.resolver_servers || []).join(', ')) + '"'
+    + ' style="display:' + (d.resolver === 'custom' ? '' : 'none') + '" autocomplete="off" spellcheck="false"></div></div>'
+    + '<div class="net-row"><div class="net-name">Jeda fallback<div class="net-sub">detik sebelum mencoba IP berikutnya (0.5–10)</div></div><div class="net-ctl">'
+    + '<input class="net-input narrow" id="net-stagger" type="number" min="0.5" max="10" step="0.5" value="' + netEsc(d.stagger_seconds) + '"></div></div>'
+    + '<div class="net-sub" style="margin:.5rem 0 .1rem">IP tetap per host (seperti /etc/hosts khusus Hermes):</div>'
+    + '<div id="net-hosts">' + (d.hosts || []).map(netHostRow).join('') + '</div>'
+    + '<div class="net-actions"><button type="button" class="btn-action-sm" onclick="netAddHost()">+ Tambah host</button>'
+    + '<button type="button" class="btn-action-sm" onclick="netSaveDns()">Simpan DNS</button></div>'
+    + '<div class="net-msg" id="net-dns-msg"></div>'
+    + '<div class="net-row" style="margin-top:.4rem"><div class="net-name">Tes DNS<div class="net-sub">IP yang akan dicoba relay (memakai pengaturan tersimpan)</div></div><div class="net-ctl">'
+    + '<input class="net-input" id="net-resolve-host" value="api.telegram.org" autocomplete="off" spellcheck="false">'
+    + '<button type="button" class="btn-action-sm" style="margin:0;align-self:auto" onclick="netResolve()">Tes</button></div>'
+    + '<div class="net-result" id="net-resolve-result"></div></div>'
+    + '</div>';
+  return h;
+}
+
+function netRenderCard(st) {
+  return '<div id="net-status-slot">' + netRenderStatus(st) + '</div>' + netRenderRoutes(st) + netRenderInfo(st) + netRenderDns(st);
+}
+
+function netApplyBadge(st) {
+  var b = netEl('net-health-badge');
+  if (!b) return;
+  var hb = netHealth(st);
+  b.className = 'badge ' + hb[0];
+  b.textContent = hb[1];
+}
+
+function netLoad(full) {
+  var slot = netEl('gateway-network-slot');
+  if (!slot) return;
+  fetch('/api/network', {headers: {'Accept': 'application/json'}}).then(function (r) { return r.json(); }).then(function (st) {
+    if (!st || !st.ok) throw new Error((st && st.error) || 'gagal memuat');
+    NET.state = st;
+    var statusSlot = netEl('net-status-slot');
+    if (full || !statusSlot) slot.innerHTML = netRenderCard(st);
+    else statusSlot.innerHTML = netRenderStatus(st);
+    netApplyBadge(st);
+  }).catch(function (e) {
+    if (full || !netEl('net-status-slot')) slot.innerHTML = '<div class="net-msg net-bad">Gagal memuat pengaturan jaringan: ' + netEsc(e.message || e) + '</div>';
+  });
+}
+
+function netRouteChanged(pid) {
+  var sel = netEl('net-route-' + pid), inp = netEl('net-url-' + pid);
+  if (sel && inp) inp.style.display = sel.value === 'custom' ? '' : 'none';
+}
+function netResolverChanged() {
+  var sel = netEl('net-resolver'), inp = netEl('net-resolver-servers');
+  if (sel && inp) inp.style.display = sel.value === 'custom' ? '' : 'none';
+}
+
+function netCollectRoutes() {
+  var routes = {};
+  ((NET.state && NET.state.platforms) || []).forEach(function (p) {
+    var sel = netEl('net-route-' + p.id), inp = netEl('net-url-' + p.id);
+    if (sel) routes[p.id] = {route: sel.value, url: inp ? inp.value.trim() : ''};
+  });
+  return routes;
+}
+
+function netSaveRoutes() {
+  netSetMsg('net-routes-msg', '', 'Menyimpan…');
+  netPost('/api/network/routes', {routes: netCollectRoutes()}).then(function (d) {
+    if (!d.ok) { netSetMsg('net-routes-msg', 'net-bad', netEsc(d.error || 'Gagal menyimpan')); return; }
+    if (!d.changed || !d.changed.length) { netSetMsg('net-routes-msg', 'net-ok', 'Tidak ada perubahan.'); return; }
+    var msg = 'Tersimpan ke .env: ' + netEsc(d.changed.join(', ')) + '.';
+    if (d.needs_restart) {
+      msg += ' Rute baru berlaku setelah gateway di-restart (bot offline ±1 menit). '
+        + '<button type="button" class="btn-action-sm" style="margin:.35rem 0 0" onclick="netRestartGateway()">Restart gateway sekarang</button>';
+    }
+    netSetMsg('net-routes-msg', 'net-ok', msg);
+    setTimeout(function () { netLoad(false); }, 500);
+  }).catch(function (e) { netSetMsg('net-routes-msg', 'net-bad', netEsc(e.message || e)); });
+}
+
+function netRestartGateway() {
+  if (!window.confirm('Restart gateway Hermes sekarang? Semua chat (Telegram, dll.) offline sekitar 1 menit.')) return;
+  netSetMsg('net-routes-msg', '', 'Me-restart gateway…');
+  netPost('/api/network/restart-gateway', {confirm: true}).then(function (d) {
+    if (!d.ok) { netSetMsg('net-routes-msg', 'net-bad', netEsc(d.error || 'Gagal restart')); return; }
+    netSetMsg('net-routes-msg', 'net-ok', 'Gateway sedang di-restart. Status diperbarui otomatis dalam ±1 menit.');
+    setTimeout(function () { netLoad(true); }, 45000);
+  });
+}
+
+function netTest(pid) {
+  var sel = netEl('net-route-' + pid), inp = netEl('net-url-' + pid), out = netEl('net-test-' + pid);
+  if (out) { out.className = 'net-result'; out.textContent = 'Menguji 3× …'; }
+  netPost('/api/network/test', {platform: pid, route: sel ? sel.value : '', url: inp ? inp.value.trim() : ''}).then(function (d) {
+    if (!out) return;
+    if (!d.ok) { out.className = 'net-result net-bad'; out.textContent = d.error || 'Tes gagal'; return; }
+    var bad = (d.results || []).filter(function (r) { return !r.ok; });
+    out.className = 'net-result ' + (d.passed === d.total ? 'net-ok' : (d.passed ? 'net-warn' : 'net-bad'));
+    out.innerHTML = d.passed + '/' + d.total + ' berhasil' + (d.avg_seconds !== null && d.avg_seconds !== undefined ? ' · rata-rata ' + d.avg_seconds + ' dtk' : '')
+      + ' · ' + netEsc(NET_ROUTE_LABELS[d.route] || d.route) + (d.proxy ? ' (' + netEsc(d.proxy) + ')' : '') + ' → ' + netEsc(d.url)
+      + (bad.length ? ' · error: ' + netEsc(bad[0].error) : '');
+  }).catch(function (e) { if (out) { out.className = 'net-result net-bad'; out.textContent = String(e.message || e); } });
+}
+
+function netAddHost() {
+  var box = netEl('net-hosts');
+  if (box) box.insertAdjacentHTML('beforeend', netHostRow(null));
+}
+function netRemoveHost(btn) {
+  var row = btn && btn.closest ? btn.closest('.net-host-row') : null;
+  if (row) row.parentNode.removeChild(row);
+}
+
+function netCollectDns() {
+  var hosts = [];
+  var rows = document.querySelectorAll('#net-hosts .net-host-row');
+  for (var i = 0; i < rows.length; i++) {
+    var host = rows[i].querySelector('.net-h-host').value.trim();
+    var ips = netParseIps(rows[i].querySelector('.net-h-ips').value);
+    if (!host && !ips.length) continue;
+    hosts.push({host: host, ips: ips, mode: rows[i].querySelector('.net-h-mode').value});
+  }
+  return {resolver: netEl('net-resolver').value, resolver_servers: netParseIps(netEl('net-resolver-servers').value),
+    stagger_seconds: parseFloat(netEl('net-stagger').value), hosts: hosts};
+}
+
+function netSaveDns() {
+  netSetMsg('net-dns-msg', '', 'Menyimpan…');
+  netPost('/api/network/dns', {dns: netCollectDns()}).then(function (d) {
+    if (!d.ok) { netSetMsg('net-dns-msg', 'net-bad', netEsc(d.error || 'Gagal menyimpan')); return; }
+    netSetMsg('net-dns-msg', 'net-ok', 'Tersimpan. Relay memakai pengaturan baru dalam hitungan detik, tanpa restart gateway.');
+    setTimeout(function () { netLoad(true); netSetMsg('net-dns-msg', 'net-ok', 'Tersimpan.'); }, 1200);
+  }).catch(function (e) { netSetMsg('net-dns-msg', 'net-bad', netEsc(e.message || e)); });
+}
+
+function netResolve() {
+  var host = (netEl('net-resolve-host') || {}).value || '';
+  var out = netEl('net-resolve-result');
+  if (out) { out.className = 'net-result'; out.textContent = 'Mencari…'; }
+  netPost('/api/network/resolve', {host: host.trim()}).then(function (d) {
+    if (!out) return;
+    if (!d.ok) { out.className = 'net-result net-bad'; out.textContent = d.error || 'Gagal'; return; }
+    out.className = 'net-result ' + ((d.ips || []).length ? 'net-ok' : 'net-bad');
+    out.innerHTML = netEsc(d.host) + ' → ' + ((d.ips || []).length ? netEsc(d.ips.join(', ')) : 'tidak ada IPv4')
+      + ' · resolver ' + netEsc(NET_RESOLVER_LABELS[d.resolver] || d.resolver) + ' · ' + netEsc(d.ms) + ' ms'
+      + (d.config_error ? ' · <span class="net-warn">config relay error: ' + netEsc(d.config_error) + '</span>' : '');
+  });
+}
+
+(function () {
+  if (typeof document.addEventListener !== 'function') return;
+  function start() {
+    if (!netEl('gateway-network-slot')) return;
+    netLoad(true);
+    NET.timer = setInterval(function () {
+      var tab = netEl('tab-control');
+      if (document.hidden || !tab || !tab.classList.contains('active')) return;
+      netLoad(false);
+    }, 30000);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { setTimeout(start, 600); });
+  else setTimeout(start, 600);
+})();
+</script>"""
+
+
 NAV_SCRIPT = """<script>
 var MUTATING_PREFIXES = [
   '/toggle', '/on', '/off', '/restart-bot', '/bot-toggle',
@@ -10587,6 +10931,538 @@ def bot_action(action: str) -> None:
         threading.Thread(target=p.wait, daemon=True).start()
 
 
+# --- Jalur Jaringan Gateway (per-platform proxy routes + "DNS Hermes") ----------------------
+# Hermes reads each platform's proxy from its own .env var; an .env value always wins over a
+# config.yaml ``proxy_url`` (gateway/platforms/_shared.py::yaml_env_setter only fills unset vars).
+# The IPv4 relay in front of Cloudflare WARP (Hermes skill devops/hermes-telegram-warp-relay)
+# listens on 127.0.0.1:40001 and speaks SOCKS5 + HTTP CONNECT; its DNS settings live in
+# gateway-network.json next to config.yaml and are re-read by the relay without a restart.
+RELAY_PORT = 40001
+WARP_PORT = 40000
+RELAY_SERVICE = "telegram-warp4-relay"
+RELAY_SCRIPT_PATH = os.environ.get(
+    "RELAY_SCRIPT_PATH", "/opt/AppData/hermes-native/hermes-data/scripts/telegram-warp4-relay.py")
+RELAY_STATUS_PATH = os.environ.get("RELAY_STATUS_PATH", "/run/telegram-warp4-relay/status.json")
+
+# scheme = what Hermes can actually use for that platform. aiohttp platforms need http://:
+# aiohttp_socks is not installed in Hermes' venv, so a socks5:// value is silently ignored there.
+NETWORK_PLATFORMS = (
+    {"id": "telegram", "label": "Telegram", "env": "TELEGRAM_PROXY", "scheme": "socks5",
+     "test_url": "https://api.telegram.org/"},
+    {"id": "discord", "label": "Discord", "env": "DISCORD_PROXY", "scheme": "http",
+     "test_url": "https://discord.com/api/v10/gateway"},
+    {"id": "matrix", "label": "Matrix", "env": "MATRIX_PROXY", "scheme": "http",
+     "test_url": "https://matrix.org/_matrix/client/versions", "base_env": "MATRIX_HOMESERVER",
+     "test_path": "/_matrix/client/versions"},
+    {"id": "mattermost", "label": "Mattermost", "env": "MATTERMOST_PROXY", "scheme": "http",
+     "test_url": "", "base_env": "MATTERMOST_URL", "test_path": "/api/v4/system/ping"},
+)
+NETWORK_INFO_PLATFORMS = (
+    {"id": "slack", "label": "Slack", "support": "generic"},
+    {"id": "sms", "label": "SMS", "support": "generic"},
+    {"id": "whatsapp", "label": "WhatsApp", "support": "none"},
+)
+GENERIC_PROXY_VARS = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy")
+NETWORK_ROUTES = ("relay", "warp", "direct", "custom")
+DNS_RESOLVER_PRESETS = {
+    "system": [],
+    "cloudflare": ["1.1.1.1", "1.0.0.1"],
+    "google": ["8.8.8.8", "8.8.4.4"],
+    "pihole": ["127.0.0.1"],
+}
+DEFAULT_GATEWAY_DNS = {
+    "version": 1, "resolver": "system", "resolver_servers": [], "stagger_seconds": 3.0,
+    "hosts": [{"host": "api.telegram.org", "ips": ["149.154.167.220", "149.154.166.110"], "mode": "extra"}],
+}
+_DNS_HOST_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+_CURL_EXIT_HINTS = {
+    5: "proxy tidak bisa di-resolve", 6: "nama host tidak bisa di-resolve", 7: "tidak bisa terhubung (proxy/server mati?)",
+    28: "timeout", 35: "TLS handshake gagal", 52: "server tidak membalas", 56: "koneksi terputus",
+    60: "sertifikat TLS tidak valid", 97: "proxy menolak koneksi (handshake SOCKS gagal)",
+}
+_network_cache: dict = {}
+_network_cache_lock = threading.Lock()
+
+
+def _gateway_network_config_path() -> Path:
+    return Path(CONFIG_PATH).parent / "gateway-network.json"
+
+
+def _network_spec(platform: str) -> dict | None:
+    return next((s for s in NETWORK_PLATFORMS if s["id"] == platform), None)
+
+
+def _mask_proxy_url(value: str) -> str:
+    """Hide the password of ``scheme://user:pass@host:port`` for display."""
+    value = (value or "").strip()
+    try:
+        u = urlsplit(value)
+    except ValueError:
+        return value
+    if u.password is None:
+        return value
+    netloc = f"{u.username}:***@{u.hostname}" + (f":{u.port}" if u.port else "")
+    return u._replace(netloc=netloc).geturl()
+
+
+def _route_from_proxy_url(value: str) -> str:
+    value = (value or "").strip()
+    if not value:
+        return "direct"
+    try:
+        u = urlsplit(value)
+        host, port = (u.hostname or "").lower(), u.port
+    except ValueError:
+        return "custom"
+    if host in ("127.0.0.1", "localhost"):
+        if port == RELAY_PORT:
+            return "relay"
+        if port == WARP_PORT:
+            return "warp"
+    return "custom"
+
+
+def _validate_custom_proxy_url(spec: dict, url: str) -> str:
+    url = (url or "").strip()
+    if not url or any(c in url for c in "\r\n\t ") or len(url) > 300:
+        raise ValueError("URL proxy kosong atau mengandung spasi/baris baru")
+    try:
+        u = urlsplit(url)
+        port = u.port
+    except ValueError:
+        raise ValueError("URL proxy tidak valid") from None
+    scheme = (u.scheme or "").lower()
+    if scheme not in ("http", "https", "socks5", "socks5h", "socks4"):
+        raise ValueError("Skema proxy harus http://, https://, socks5:// atau socks5h://")
+    if not u.hostname or not port:
+        raise ValueError("URL proxy harus berisi host dan port, contoh http://127.0.0.1:8080")
+    if spec["scheme"] == "http" and scheme.startswith("socks"):
+        raise ValueError(f"{spec['label']} di Hermes memakai aiohttp tanpa aiohttp_socks, jadi proxy SOCKS "
+                         f"akan diabaikan diam-diam. Pakai proxy http://.")
+    return url
+
+
+def _proxy_url_for_route(spec: dict, route: str, custom_url: str = "") -> str:
+    """The .env value for *route* ('' means: remove the var, i.e. connect directly)."""
+    if route == "relay":
+        return f"{spec['scheme']}://127.0.0.1:{RELAY_PORT}"
+    if route == "warp":
+        return f"{spec['scheme']}://127.0.0.1:{WARP_PORT}"
+    if route == "direct":
+        return ""
+    if route == "custom":
+        return _validate_custom_proxy_url(spec, custom_url)
+    raise ValueError(f"Rute tidak dikenal: {route!r}")
+
+
+def _yaml_proxy_url(block: dict) -> str:
+    extra = block.get("extra") if isinstance(block.get("extra"), dict) else {}
+    return str(block.get("proxy_url") or extra.get("proxy_url") or "").strip()
+
+
+def _write_env_file(env_file: Path, lines: list) -> None:
+    """Atomically replace *env_file* keeping its mode (0600 for a new file)."""
+    try:
+        mode = os.stat(env_file).st_mode & 0o777
+    except OSError:
+        mode = 0o600
+    fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(env_file)), prefix=".env.tmp.")
+    try:
+        os.chmod(tmp_path, mode)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        os.replace(tmp_path, env_file)
+    except BaseException:
+        with suppress(OSError):
+            os.close(fd)
+        with suppress(OSError):
+            os.unlink(tmp_path)
+        raise
+
+
+def _update_hermes_env(set_vars: dict, remove_vars: list) -> None:
+    """Set/remove plain KEY=value lines in Hermes' .env (keeps comments, order and ``export``)."""
+    with _env_write_lock:
+        env_file = Path(CONFIG_PATH).parent / ".env"
+        lines = env_file.read_text(encoding="utf-8").splitlines() if env_file.exists() else []
+
+        def key_of(line: str) -> str:
+            st = line.strip()
+            if st.startswith("export "):
+                st = st[7:].lstrip()
+            return st.split("=", 1)[0].strip() if "=" in st and not st.startswith("#") else ""
+
+        drop = set(remove_vars)
+        out, done = [], set()
+        for line in lines:
+            k = key_of(line)
+            if k in drop:
+                continue
+            if k in set_vars:
+                if k in done:
+                    continue  # collapse duplicates: the first line wins, now with the new value
+                exp = "export " if line.strip().startswith("export ") else ""
+                out.append(f"{exp}{k}={set_vars[k]}")
+                done.add(k)
+            else:
+                out.append(line)
+        for k, v in set_vars.items():
+            if k not in done:
+                out.append(f"{k}={v}")
+        _write_env_file(env_file, out)
+
+
+def _validate_gateway_dns(raw) -> dict:
+    """Same rules as the relay's validate_config(), with messages for the panel UI."""
+    if not isinstance(raw, dict):
+        raise ValueError("Pengaturan DNS harus berupa objek JSON")
+    resolver = str(raw.get("resolver", "system")).strip().lower()
+    if resolver not in (*DNS_RESOLVER_PRESETS, "custom"):
+        raise ValueError(f"Resolver tidak dikenal: {resolver}")
+    servers = []
+    for s in raw.get("resolver_servers") or []:
+        s = str(s).strip()
+        if not s:
+            continue
+        try:
+            ip = ipaddress.ip_address(s)
+        except ValueError:
+            raise ValueError(f"Server DNS {s!r} bukan alamat IP") from None
+        if ip.version != 4:
+            raise ValueError(f"Server DNS {s} harus IPv4")
+        if str(ip) not in servers:
+            servers.append(str(ip))
+    if resolver == "custom" and not servers:
+        raise ValueError("Resolver custom butuh minimal satu IP server DNS")
+    if len(servers) > 3:
+        raise ValueError("Maksimal 3 server DNS")
+    if resolver != "custom":
+        servers = []
+    try:
+        stagger = float(raw.get("stagger_seconds", 3))
+    except (TypeError, ValueError):
+        raise ValueError("Jeda fallback harus angka") from None
+    if not 0.5 <= stagger <= 10:
+        raise ValueError("Jeda fallback harus antara 0.5 dan 10 detik")
+    hosts, seen = [], set()
+    for entry in raw.get("hosts") or []:
+        if not isinstance(entry, dict):
+            raise ValueError("Setiap baris host harus berupa objek")
+        host = str(entry.get("host", "")).strip().lower().rstrip(".")
+        if not _DNS_HOST_RE.match(host) or host.replace(".", "").isdigit():
+            raise ValueError(f"Nama host tidak valid: {host or '(kosong)'}")
+        if host in seen:
+            raise ValueError(f"Host {host} tercantum dua kali")
+        seen.add(host)
+        mode = str(entry.get("mode", "extra")).strip().lower()
+        if mode not in ("extra", "only"):
+            raise ValueError(f"{host}: mode harus 'extra' atau 'only'")
+        raw_ips = entry.get("ips") or []
+        if isinstance(raw_ips, str):
+            raw_ips = re.split(r"[\s,]+", raw_ips)
+        ips = []
+        for s in raw_ips:
+            s = str(s).strip()
+            if not s:
+                continue
+            try:
+                ip = ipaddress.ip_address(s)
+            except ValueError:
+                raise ValueError(f"{host}: {s!r} bukan alamat IP") from None
+            if ip.version != 4:
+                raise ValueError(f"{host}: {s} harus IPv4 (relay ada untuk menghindari IPv6)")
+            if str(ip) not in ips:
+                ips.append(str(ip))
+        if not ips:
+            raise ValueError(f"{host}: isi minimal satu IP")
+        if len(ips) > 16:
+            raise ValueError(f"{host}: maksimal 16 IP")
+        hosts.append({"host": host, "ips": ips, "mode": mode})
+    if len(hosts) > 64:
+        raise ValueError("Maksimal 64 host")
+    return {"version": 1, "resolver": resolver, "resolver_servers": servers,
+            "stagger_seconds": stagger, "hosts": hosts}
+
+
+def read_gateway_dns() -> tuple[dict, str, str]:
+    """(effective config, source 'file'|'default', error) — invalid files fall back to defaults."""
+    path = _gateway_network_config_path()
+    if not path.exists():
+        return copy.deepcopy(DEFAULT_GATEWAY_DNS), "default", ""
+    try:
+        return _validate_gateway_dns(json.loads(path.read_text(encoding="utf-8"))), "file", ""
+    except (OSError, ValueError) as exc:
+        return copy.deepcopy(DEFAULT_GATEWAY_DNS), "default", str(exc)
+
+
+def save_gateway_dns(raw) -> tuple[bool, str, dict]:
+    try:
+        cfg = _validate_gateway_dns(raw)
+    except ValueError as exc:
+        return False, str(exc), {}
+    path = _gateway_network_config_path()
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".gateway-network.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+            f.write("\n")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except OSError as exc:
+        with suppress(OSError):
+            os.unlink(tmp)
+        return False, f"Gagal menulis {path}: {exc}", {}
+    _invalidate_network_cache()
+    return True, "", cfg
+
+
+def _invalidate_network_cache() -> None:
+    with _network_cache_lock:
+        _network_cache.clear()
+
+
+def _network_cached(key: str, ttl: float, fn):
+    now = time.monotonic()
+    with _network_cache_lock:
+        hit = _network_cache.get(key)
+        if hit and now - hit[0] < ttl:
+            return hit[1]
+    val = fn()
+    with _network_cache_lock:
+        _network_cache[key] = (now, val)
+    return val
+
+
+def _run_quiet(argv: list, timeout: float = 3.0, env: dict | None = None) -> str:
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env=env).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _user_systemd_env() -> dict:
+    env = {**os.environ, "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", "/run/user/0")}
+    return env
+
+
+def _gateway_start_time() -> str:
+    """'YYYY-MM-DD HH:MM:SS' (local) of the running gateway, '' if unknown."""
+    out = _run_quiet(["systemctl", "--user", "show", "-p", "ActiveEnterTimestamp", "--value", "hermes-gateway"],
+                     env=_user_systemd_env())
+    m = re.search(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", out)
+    return m.group(1) if m else ""
+
+
+def _gateway_log_counts(since: str) -> dict:
+    """Count network trouble in gateway.log since the gateway started (reads at most the last 4 MB)."""
+    counts = {"proxy_errors": 0, "network_errors": 0, "failed_deliveries": 0, "last_error": ""}
+    if not since:
+        return counts
+    path = Path(CONFIG_PATH).parent / "logs" / "gateway.log"
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 4 * 1024 * 1024))
+            data = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return counts
+    for line in data.splitlines():
+        if len(line) < 19 or line[:19] < since or not line[:4].isdigit():
+            continue
+        if "network error, scheduling reconnect" in line:
+            counts["network_errors"] += 1
+            if "ProxyError" in line:
+                counts["proxy_errors"] += 1
+            counts["last_error"] = line[:19] + " " + line.split("reconnect:", 1)[-1].strip()[:140]
+        elif "Failed to deliver response" in line:
+            counts["failed_deliveries"] += 1
+    return counts
+
+
+def _relay_status() -> dict:
+    status = {"service": "unknown", "enabled": "unknown", "warp_service": "unknown", "warp": "", "stats": None,
+              "stats_age": None}
+    out = _run_quiet(["systemctl", "is-active", RELAY_SERVICE, "warp-svc"]).split()
+    if len(out) == 2:
+        status["service"], status["warp_service"] = out
+    status["enabled"] = (_run_quiet(["systemctl", "is-enabled", RELAY_SERVICE]).strip() or "unknown")
+    warp = _run_quiet(["warp-cli", "--accept-tos", "status"], timeout=4)
+    status["warp"] = " · ".join(l.split(":", 1)[-1].strip() for l in warp.splitlines()[:2] if ":" in l)
+    try:
+        with open(RELAY_STATUS_PATH, encoding="utf-8") as f:
+            stats = json.load(f)
+        status["stats"] = stats
+        status["stats_age"] = round(time.time() - float(stats.get("updated_at", 0)), 1)
+    except (OSError, ValueError, TypeError):
+        pass
+    return status
+
+
+def get_gateway_network_state() -> dict:
+    env = _read_hermes_env()
+    cfg = get_parsed_config()
+    warnings = []
+    platforms = []
+    for spec in NETWORK_PLATFORMS:
+        block = _effective_platform_block(cfg, spec["id"])
+        value = env.get(spec["env"], "").strip()
+        yaml_proxy = _yaml_proxy_url(block) if block else ""
+        effective = value or yaml_proxy
+        notes = []
+        if yaml_proxy and value:
+            notes.append(f"proxy_url di config.yaml ({_mask_proxy_url(yaml_proxy)}) diabaikan: {spec['env']} di .env lebih diutamakan.")
+        elif yaml_proxy:
+            notes.append(f"Rute saat ini datang dari proxy_url di config.yaml. Menyimpan dari sini menulis {spec['env']} ke .env (lebih diutamakan).")
+        if effective and spec["scheme"] == "http" and effective.lower().startswith("socks"):
+            notes.append(f"{spec['label']} tidak bisa memakai proxy SOCKS (aiohttp_socks tidak terpasang): rute ini diabaikan Hermes dan platform tersambung langsung.")
+        platforms.append({
+            "id": spec["id"], "label": spec["label"], "env": spec["env"], "scheme": spec["scheme"],
+            "configured": bool(block), "enabled": _to_bool(block.get("enabled")) if block else False,
+            "route": _route_from_proxy_url(effective), "url": _mask_proxy_url(effective),
+            "source": ".env" if value else ("config.yaml" if yaml_proxy else ""), "notes": notes,
+        })
+    info = []
+    generic = {k: _mask_proxy_url(env[k]) for k in GENERIC_PROXY_VARS if env.get(k)}
+    for spec in NETWORK_INFO_PLATFORMS:
+        block = _effective_platform_block(cfg, spec["id"])
+        info.append({"id": spec["id"], "label": spec["label"], "support": spec["support"],
+                     "configured": bool(block), "enabled": _to_bool(block.get("enabled")) if block else False})
+    user_env = _network_cached("user_env", 30, lambda: _run_quiet(
+        ["systemctl", "--user", "show-environment"], env=_user_systemd_env()))
+    for line in user_env.splitlines():
+        k = line.split("=", 1)[0]
+        if k.endswith("_PROXY") or k.lower() in {v.lower() for v in GENERIC_PROXY_VARS}:
+            warnings.append(f"systemd --user menyimpan {k} tersembunyi (dari 'systemctl --user set-environment'). "
+                            f"Hapus dengan: systemctl --user unset-environment {k}")
+    dns, dns_source, dns_error = read_gateway_dns()
+    if dns_error:
+        warnings.append(f"gateway-network.json tidak valid, relay memakai pengaturan terakhir yang benar: {dns_error}")
+    relay = _network_cached("relay", 5, _relay_status)
+    since = _network_cached("gw_since", 10, _gateway_start_time)
+    counts = _network_cached(f"gw_counts:{since}", 10, lambda: _gateway_log_counts(since))
+    if relay["service"] != "active" and any(p["route"] == "relay" for p in platforms):
+        warnings.append("Relay IPv4 tidak aktif, padahal ada platform yang memakainya.")
+    return {
+        "ok": True, "platforms": platforms, "info_platforms": info, "generic_proxy": generic,
+        "dns": dns, "dns_source": dns_source, "dns_path": str(_gateway_network_config_path()),
+        "resolver_presets": DNS_RESOLVER_PRESETS, "relay": relay,
+        "gateway": {"active": service_active("hermes-gateway", user=True), "since": since, **counts},
+        "ports": {"relay": RELAY_PORT, "warp": WARP_PORT}, "warnings": warnings,
+    }
+
+
+def save_gateway_routes(routes) -> tuple[bool, str, dict]:
+    if not isinstance(routes, dict) or not routes:
+        return False, "Tidak ada rute yang dikirim", {}
+    env = _read_hermes_env()
+    cfg = get_parsed_config()
+    set_vars, remove_vars, changed = {}, [], []
+    for pid, choice in routes.items():
+        spec = _network_spec(str(pid))
+        if spec is None:
+            return False, f"Platform {pid!r} tidak mendukung pengaturan rute dari panel", {}
+        if not isinstance(choice, dict):
+            return False, f"Format rute {pid} tidak valid", {}
+        route = str(choice.get("route", "")).strip().lower()
+        if route not in NETWORK_ROUTES:
+            return False, f"{spec['label']}: rute tidak dikenal ({route or 'kosong'})", {}
+        current = env.get(spec["env"], "").strip()
+        url = str(choice.get("url", "")).strip()
+        try:
+            if route == "custom" and current and url == _mask_proxy_url(current):
+                new = current  # unchanged masked value: keep the stored credentials
+            else:
+                new = _proxy_url_for_route(spec, route, url)
+        except ValueError as exc:
+            return False, f"{spec['label']}: {exc}", {}
+        block = _effective_platform_block(cfg, spec["id"])
+        if not new and block and _yaml_proxy_url(block):
+            return False, (f"{spec['label']}: proxy_url masih diatur di config.yaml, jadi 'Tanpa proxy' tidak akan berlaku. "
+                           f"Hapus proxy_url lewat tombol Atur platform dulu."), {}
+        if new != current:
+            changed.append(spec["id"])
+            if new:
+                set_vars[spec["env"]] = new
+            else:
+                remove_vars.append(spec["env"])
+    if changed:
+        try:
+            _update_hermes_env(set_vars, remove_vars)
+        except OSError as exc:
+            return False, f"Gagal menulis .env: {exc}", {}
+        _invalidate_network_cache()
+    gw_active = service_active("hermes-gateway", user=True, fresh=True)
+    return True, "", {"changed": changed, "needs_restart": bool(changed) and gw_active}
+
+
+def test_gateway_route(platform: str, route: str = "", url: str = "", attempts: int = 3) -> dict:
+    """curl the platform's API through *route* (or the saved route when empty)."""
+    spec = _network_spec(platform)
+    if spec is None:
+        return {"ok": False, "error": f"Platform {platform!r} tidak dikenal"}
+    env = _read_hermes_env()
+    current = env.get(spec["env"], "").strip()
+    try:
+        if not route:
+            proxy = current
+        elif route == "custom" and current and url == _mask_proxy_url(current):
+            proxy = current
+        else:
+            proxy = _proxy_url_for_route(spec, route, url)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    test_url = spec["test_url"]
+    base = env.get(spec.get("base_env", ""), "").strip().rstrip("/") if spec.get("base_env") else ""
+    if base.startswith(("http://", "https://")):
+        test_url = base + spec.get("test_path", "")
+    if not test_url:
+        return {"ok": False, "error": f"Alamat server {spec['label']} belum diatur ({spec.get('base_env')})"}
+    curl_proxy = proxy
+    if curl_proxy.lower().startswith("socks5://"):
+        curl_proxy = "socks5h://" + curl_proxy[len("socks5://"):]  # like Hermes/httpx: the proxy resolves the name
+    argv = ["curl", "-sS", "-o", "/dev/null", "-w", "%{http_code} %{time_total}", "--max-time", "10"]
+    argv += ["-x", curl_proxy] if curl_proxy else ["--noproxy", "*"]
+    argv.append(test_url)
+    clean_env = {k: v for k, v in os.environ.items() if k not in GENERIC_PROXY_VARS and k.lower() != "no_proxy"}
+    results = []
+    for _ in range(max(1, min(int(attempts), 5))):
+        try:
+            p = subprocess.run(argv, capture_output=True, text=True, timeout=15, env=clean_env)
+            parts = (p.stdout or "").split()
+            code = parts[0] if parts else "000"
+            secs = float(parts[1]) if len(parts) > 1 else 0.0
+            ok = code != "000"
+            err = "" if ok else _CURL_EXIT_HINTS.get(p.returncode, (p.stderr or "").strip()[:120] or f"curl exit {p.returncode}")
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            code, secs, ok, err = "000", 0.0, False, str(exc)[:120]
+        results.append({"ok": ok, "http": code, "seconds": round(secs, 2), "error": err})
+    good = [r for r in results if r["ok"]]
+    return {
+        "ok": True, "platform": platform, "route": _route_from_proxy_url(proxy), "proxy": _mask_proxy_url(proxy),
+        "url": test_url, "passed": len(good), "total": len(results),
+        "avg_seconds": round(sum(r["seconds"] for r in good) / len(good), 2) if good else None,
+        "results": results,
+    }
+
+
+def resolve_gateway_host(host: str) -> dict:
+    """Ask the relay script which IPv4 candidates it would use for *host* (current saved config)."""
+    host = (host or "").strip().lower().rstrip(".")
+    if not _DNS_HOST_RE.match(host):
+        return {"ok": False, "error": "Nama host tidak valid"}
+    if not os.path.isfile(RELAY_SCRIPT_PATH):
+        return {"ok": False, "error": f"Script relay tidak ditemukan: {RELAY_SCRIPT_PATH}"}
+    env = {**os.environ, "RELAY_CONFIG": str(_gateway_network_config_path())}
+    try:
+        p = subprocess.run(["/usr/bin/python3", "-I", RELAY_SCRIPT_PATH, "--resolve", host],
+                           capture_output=True, text=True, timeout=20, env=env)
+        data = json.loads((p.stdout or "").strip().splitlines()[-1])
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError) as exc:
+        return {"ok": False, "error": f"Tes DNS gagal: {exc}"}
+    return {"ok": True, **data}
+
+
 def _router_ssh_argv(command: str) -> list[str]:
     """Build remote command; never silently fall back to local Docker."""
     host = get_9router_host()
@@ -12931,6 +13807,8 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         bot_toggle_label="Matikan Gateway" if gw_active else "Nyalakan Gateway",
         bot_toggle_class="btn-off" if gw_active else "btn-on",
         nav_script=NAV_SCRIPT,
+        network_style=NETWORK_STYLE,
+        network_script=NETWORK_SCRIPT,
         script=render_poll_script(),
         icon_monitor=ICON_MONITOR,
         icon_layers=ICON_LAYERS,
@@ -13651,6 +14529,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": True, "config": get_kanban_config()})
             return
 
+        if parsed.path == "/api/network":
+            self._send_json(get_gateway_network_state())
+            return
+
         # Mutation over plain GET is not allowed (CasaOS shortcuts excepted:
         # /toggle, /on, /off with an explicit valid token keep working).
         if parsed.path in MUTATING_PATHS:
@@ -13856,6 +14738,36 @@ class Handler(BaseHTTPRequestHandler):
                 return
             just = "password-set" if new_pwd else "password-cleared"
             self._redirect_to_status(just=just, tab="control")
+            return
+
+        if parsed.path == "/api/network/routes":
+            ok, err, res = save_gateway_routes(json_data.get("routes"))
+            self._send_json({"ok": ok, "error": err, **res}, code=200 if ok else 400)
+            return
+
+        if parsed.path == "/api/network/dns":
+            ok, err, cfg = save_gateway_dns(json_data.get("dns"))
+            self._send_json({"ok": ok, "error": err, "dns": cfg}, code=200 if ok else 400)
+            return
+
+        if parsed.path == "/api/network/test":
+            res = test_gateway_route(str(json_data.get("platform") or ""), str(json_data.get("route") or ""),
+                                     str(json_data.get("url") or ""))
+            self._send_json(res, code=200 if res.get("ok") else 400)
+            return
+
+        if parsed.path == "/api/network/resolve":
+            res = resolve_gateway_host(str(json_data.get("host") or ""))
+            self._send_json(res, code=200 if res.get("ok") else 400)
+            return
+
+        if parsed.path == "/api/network/restart-gateway":
+            if json_data.get("confirm") is not True:
+                self._send_json({"ok": False, "error": "Konfirmasi restart dibutuhkan"}, code=400)
+                return
+            restart_bot()
+            _invalidate_network_cache()
+            self._send_json({"ok": True})
             return
 
         if parsed.path == "/api/gateway-config-preview":

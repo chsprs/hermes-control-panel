@@ -3500,5 +3500,244 @@ class TestSubprocessCachingAndOptimization(unittest.TestCase):
             self.assertIn("Start", html)
 
 
+
+class TestGatewayNetwork(unittest.TestCase):
+    """Jalur Jaringan Gateway: per-platform proxy routes in .env + the relay's DNS settings."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = panel.TimeoutThreadingHTTPServer(("127.0.0.1", 0), panel.Handler)
+        cls.port = cls.server.server_address[1]
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def setUp(self):
+        import tempfile
+        self.tmpdir = tempfile.mkdtemp(prefix="panel-net-")
+        self.cfg_path = os.path.join(self.tmpdir, "config.yaml")
+        self.env_path = os.path.join(self.tmpdir, ".env")
+        with open(self.cfg_path, "w", encoding="utf-8") as f:
+            panel.yaml.safe_dump({"platforms": {"telegram": {"enabled": True}, "discord": {"enabled": False}}}, f)
+        with open(self.env_path, "w", encoding="utf-8") as f:
+            f.write("# Hermes env\nTELEGRAM_BOT_TOKEN=x\nexport FOO=bar\nTELEGRAM_PROXY=socks5://127.0.0.1:40001\n")
+        os.chmod(self.env_path, 0o600)
+        for name, value in (("CONFIG_PATH", self.cfg_path),
+                            ("RELAY_STATUS_PATH", os.path.join(self.tmpdir, "status.json"))):
+            p = mock.patch.object(panel, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        for name, value in (("_run_quiet", ""), ("service_active", True)):
+            p = mock.patch.object(panel, name, return_value=value)
+            p.start()
+            self.addCleanup(p.stop)
+        panel.invalidate_config_cache()
+        panel._invalidate_network_cache()
+        panel._last_action_at = 0.0
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+        panel.invalidate_config_cache()
+
+    def _env(self) -> str:
+        with open(self.env_path, encoding="utf-8") as f:
+            return f.read()
+
+    def _post(self, path: str, payload: dict):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", data=json.dumps(payload).encode(),
+                                     method="POST")
+        req.add_header("Cookie", cookie)
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Accept", "application/json")
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+
+    def test_route_detection(self):
+        f = panel._route_from_proxy_url
+        self.assertEqual(f("socks5://127.0.0.1:40001"), "relay")
+        self.assertEqual(f("http://localhost:40001"), "relay")
+        self.assertEqual(f("socks5h://127.0.0.1:40000"), "warp")
+        self.assertEqual(f(""), "direct")
+        self.assertEqual(f("http://10.0.0.5:8080"), "custom")
+
+    def test_state_lists_platforms_routes_and_defaults(self):
+        st = panel.get_gateway_network_state()
+        by_id = {p["id"]: p for p in st["platforms"]}
+        self.assertEqual(by_id["telegram"]["route"], "relay")
+        self.assertTrue(by_id["telegram"]["enabled"])
+        self.assertEqual(by_id["discord"]["route"], "direct")
+        self.assertFalse(by_id["discord"]["enabled"])
+        self.assertEqual({p["id"]: p["support"] for p in st["info_platforms"]}["whatsapp"], "none")
+        self.assertEqual(st["dns_source"], "default")
+        self.assertEqual(st["dns"]["hosts"][0]["host"], "api.telegram.org")
+
+    def test_save_routes_writes_env_preserving_other_lines_and_mode(self):
+        ok, err, res = panel.save_gateway_routes({"telegram": {"route": "warp"}, "discord": {"route": "relay"}})
+        self.assertTrue(ok, err)
+        self.assertEqual(sorted(res["changed"]), ["discord", "telegram"])
+        self.assertTrue(res["needs_restart"])
+        text = self._env()
+        self.assertIn("TELEGRAM_PROXY=socks5://127.0.0.1:40000\n", text)
+        self.assertIn("DISCORD_PROXY=http://127.0.0.1:40001\n", text)
+        self.assertTrue(text.startswith("# Hermes env\nTELEGRAM_BOT_TOKEN=x\nexport FOO=bar\n"))
+        self.assertEqual(os.stat(self.env_path).st_mode & 0o777, 0o600)
+
+    def test_unchanged_route_needs_no_restart(self):
+        ok, _, res = panel.save_gateway_routes({"telegram": {"route": "relay"}})
+        self.assertTrue(ok)
+        self.assertEqual(res, {"changed": [], "needs_restart": False})
+
+    def test_direct_removes_var(self):
+        ok, err, _ = panel.save_gateway_routes({"telegram": {"route": "direct"}})
+        self.assertTrue(ok, err)
+        self.assertNotIn("TELEGRAM_PROXY", self._env())
+
+    def test_custom_socks_rejected_for_aiohttp_platform(self):
+        ok, err, _ = panel.save_gateway_routes({"discord": {"route": "custom", "url": "socks5://10.0.0.2:1080"}})
+        self.assertFalse(ok)
+        self.assertIn("http://", err)
+        self.assertNotIn("DISCORD_PROXY", self._env())
+
+    def test_custom_url_validation_and_masked_credentials_kept(self):
+        for bad in ("ftp://x:1", "http://nohost", "http://1.2.3.4:80 x", ""):
+            ok, _, _ = panel.save_gateway_routes({"telegram": {"route": "custom", "url": bad}})
+            self.assertFalse(ok, bad)
+        ok, err, _ = panel.save_gateway_routes(
+            {"telegram": {"route": "custom", "url": "socks5://user:s3cret@10.0.0.2:1080"}})
+        self.assertTrue(ok, err)
+        st = panel.get_gateway_network_state()
+        shown = {p["id"]: p for p in st["platforms"]}["telegram"]["url"]
+        self.assertEqual(shown, "socks5://user:***@10.0.0.2:1080")
+        ok, _, res = panel.save_gateway_routes({"telegram": {"route": "custom", "url": shown}})
+        self.assertTrue(ok)
+        self.assertEqual(res["changed"], [])
+        self.assertIn("TELEGRAM_PROXY=socks5://user:s3cret@10.0.0.2:1080", self._env())
+
+    def test_direct_refused_while_yaml_proxy_url_set(self):
+        with open(self.cfg_path, "w", encoding="utf-8") as f:
+            panel.yaml.safe_dump({"platforms": {"telegram": {"enabled": True, "extra": {"proxy_url": "http://1.2.3.4:8"}}}}, f)
+        panel.invalidate_config_cache()
+        ok, err, _ = panel.save_gateway_routes({"telegram": {"route": "direct"}})
+        self.assertFalse(ok)
+        self.assertIn("proxy_url", err)
+        notes = {p["id"]: p for p in panel.get_gateway_network_state()["platforms"]}["telegram"]["notes"]
+        self.assertTrue(any("diabaikan" in n for n in notes))
+
+    def test_unknown_or_unsupported_platform_rejected(self):
+        for pid in ("whatsapp", "nope"):
+            ok, err, _ = panel.save_gateway_routes({pid: {"route": "relay"}})
+            self.assertFalse(ok, pid)
+
+    def test_dns_validation(self):
+        bad = [
+            {"resolver": "x"}, {"resolver": "custom"}, {"resolver": "custom", "resolver_servers": ["::1"]},
+            {"stagger_seconds": 20}, {"hosts": [{"host": "bad host", "ips": ["1.1.1.1"]}]},
+            {"hosts": [{"host": "a.org", "ips": ["2001:db8::1"]}]}, {"hosts": [{"host": "a.org", "ips": []}]},
+            {"hosts": [{"host": "a.org", "ips": ["1.1.1.1"], "mode": "x"}]},
+        ]
+        for raw in bad:
+            ok, err, _ = panel.save_gateway_dns(raw)
+            self.assertFalse(ok, raw)
+            self.assertTrue(err)
+        self.assertFalse(os.path.exists(os.path.join(self.tmpdir, "gateway-network.json")))
+
+    def test_dns_save_normalizes_and_is_read_back(self):
+        ok, err, cfg = panel.save_gateway_dns({
+            "resolver": "custom", "resolver_servers": ["9.9.9.9", ""], "stagger_seconds": "2.5",
+            "hosts": [{"host": "Discord.com.", "ips": "162.159.135.232, 162.159.136.232", "mode": "only"}]})
+        self.assertTrue(ok, err)
+        path = os.path.join(self.tmpdir, "gateway-network.json")
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o644)
+        dns, source, error = panel.read_gateway_dns()
+        self.assertEqual((source, error), ("file", ""))
+        self.assertEqual(dns["hosts"], [{"host": "discord.com", "ips": ["162.159.135.232", "162.159.136.232"], "mode": "only"}])
+        self.assertEqual(dns["stagger_seconds"], 2.5)
+        ok, _, cfg = panel.save_gateway_dns({"resolver": "cloudflare", "resolver_servers": ["9.9.9.9"]})
+        self.assertEqual(cfg["resolver_servers"], [])
+
+    def test_route_test_uses_curl_through_selected_proxy(self):
+        fake = mock.Mock(returncode=0, stdout="302 0.50", stderr="")
+        with mock.patch.object(panel.subprocess, "run", return_value=fake) as run:
+            res = panel.test_gateway_route("telegram")
+            argv = run.call_args[0][0]
+            self.assertEqual(argv[argv.index("-x") + 1], "socks5h://127.0.0.1:40001")
+            self.assertEqual(argv[-1], "https://api.telegram.org/")
+            self.assertEqual((res["passed"], res["total"], res["avg_seconds"]), (3, 3, 0.5))
+            panel.test_gateway_route("discord", route="direct")
+            self.assertIn("--noproxy", run.call_args[0][0])
+            panel.test_gateway_route("discord", route="relay")
+            argv = run.call_args[0][0]
+            self.assertEqual(argv[argv.index("-x") + 1], "http://127.0.0.1:40001")
+        fail = mock.Mock(returncode=97, stdout="000 0", stderr="")
+        with mock.patch.object(panel.subprocess, "run", return_value=fail):
+            res = panel.test_gateway_route("telegram", attempts=1)
+        self.assertEqual(res["passed"], 0)
+        self.assertIn("SOCKS", res["results"][0]["error"])
+
+    def test_http_api_auth_methods_and_save(self):
+        url = f"http://127.0.0.1:{self.port}/api/network"
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(url)
+        self.assertEqual(cm.exception.code, 401)
+        req = urllib.request.Request(url)
+        req.add_header("Cookie", f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}")
+        with urllib.request.urlopen(req) as r:
+            data = json.loads(r.read())
+        self.assertTrue(data["ok"])
+        self.assertIn("platforms", data)
+        req = urllib.request.Request(url + "/routes")
+        req.add_header("Cookie", f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}")
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(req)
+        self.assertEqual(cm.exception.code, 405)
+        code, body = self._post("/api/network/routes", {"routes": {"discord": {"route": "warp"}}})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["changed"], ["discord"])
+        self.assertIn("DISCORD_PROXY=http://127.0.0.1:40000", self._env())
+        code, body = self._post("/api/network/routes", {"routes": {"discord": {"route": "bogus"}}})
+        self.assertEqual(code, 400)
+        code, body = self._post("/api/network/dns", {"dns": {"resolver": "pihole"}})
+        self.assertEqual(code, 200, body)
+        self.assertEqual(body["dns"]["resolver"], "pihole")
+        with mock.patch.object(panel, "restart_bot") as rb:
+            code, body = self._post("/api/network/restart-gateway", {"confirm": True})
+        self.assertEqual(code, 200)
+        rb.assert_called_once()
+
+    def test_page_has_network_card_and_valid_script(self):
+        page = panel.build_status_page()
+        self.assertIn('id="gateway-network-slot"', page)
+        self.assertIn("Jalur Jaringan Gateway", page)
+        r = subprocess.run(["node", "--check", "-"], input=panel.NETWORK_SCRIPT.replace("<script>", "").replace("</script>", ""),
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_network_script_renders_state_and_collects_payloads(self):
+        js = panel.NETWORK_SCRIPT.replace("<script>", "").replace("</script>", "")
+        state = panel.get_gateway_network_state()
+        script = "var document={getElementById:function(){return null}};var window={};\n" + js + r"""
+var st = """ + json.dumps(state) + r""";
+var html = netRenderCard(st);
+if (html.indexOf('Telegram') < 0 || html.indexOf('net-route-telegram') < 0) throw new Error('missing telegram row');
+if (html.indexOf('api.telegram.org') < 0) throw new Error('missing dns host');
+if (html.indexOf('<script') >= 0) throw new Error('unescaped');
+var ips = netParseIps(' 1.2.3.4,5.6.7.8\n9.9.9.9 ');
+if (ips.join('|') !== '1.2.3.4|5.6.7.8|9.9.9.9') throw new Error('ips ' + ips.join('|'));
+if (netEsc('<b>"x"</b>') !== '&lt;b&gt;&quot;x&quot;&lt;/b&gt;') throw new Error('esc');
+process.stdout.write('ok');
+"""
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "ok")
+
+
 if __name__ == "__main__":
     unittest.main()
