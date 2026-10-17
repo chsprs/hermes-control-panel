@@ -8151,34 +8151,38 @@ def render_log_card(log_text: str, result: dict | None = None) -> str:
 
 
 HERMES_LIB_DIR = "/opt/AppData/hermes-native/hermes-lib"
-_hermes_update_cache = {"status": "unknown", "local": "?", "remote": "?", "behind": 0, "at": 0}
+_hermes_update_cache = {"status": "checking", "local": "?", "remote": "?", "behind": 0, "at": 0}
 _hermes_update_lock = threading.Lock()
 _hermes_update_running = False
 _hermes_update_result = {"status": "idle", "exit_code": None, "summary": "", "finished_at": 0.0}
+_hermes_check_running = False
+_HERMES_UPDATE_READONLY_FLAGS = frozenset({"--check", "--plan", "--list-venv-holders", "-h", "--help", "--install-id"})
+HERMES_CHECK_TIMEOUT = 180  # `hermes update --check` takes ~15 s on the STB (git fetch + release lookup)
 
 
 def _pid_is_hermes_update(pid: int) -> bool:
-    """True only if pid is an active hermes update command (not gateway run)."""
+    """True only for a running ``hermes update`` that installs (not --check/--plan, not
+    ``hermes skills update``, not the gateway)."""
     if pid <= 0 or pid == os.getpid():
         return False
     try:
         raw = Path(f"/proc/{pid}/cmdline").read_bytes()
-        if not raw:
-            return False
-        args = [a.decode("utf-8", "replace") for a in raw.split(b"\x00") if a]
-        if not args:
-            return False
-        # Ignore gateway run / background runners
-        if any("gateway" in a for a in args) and any("run" in a for a in args):
-            return False
-        # Must have 'update' as a distinct argument
-        if "update" not in args:
-            return False
-        first_few = " ".join(args[:3]).lower()
-        return "hermes" in first_few
     except (OSError, ProcessLookupError):
         return False
-
+    args = [a.decode("utf-8", "replace") for a in raw.split(b"\x00") if a]
+    if "update" not in args:
+        return False
+    idx = args.index("update")
+    prev = args[idx - 1] if idx > 0 else ""
+    # The subcommand must follow the hermes entry point itself: a path ending in "hermes", the
+    # launcher's ``python3 -I -c <bootstrap script>``, or hermes_cli/main.py.
+    entry = (prev.rstrip("/").endswith("hermes") or "hermes_bootstrap" in prev or "hermes_cli" in prev
+             or prev.endswith("main.py"))
+    if not entry:
+        return False
+    if any(a in _HERMES_UPDATE_READONLY_FLAGS for a in args[idx + 1:]):
+        return False
+    return True
 
 def _clear_stale_hermes_git_lock() -> None:
     """Remove abandoned git locks and stale update markers, never an active updater's lock."""
@@ -8214,60 +8218,91 @@ def _clear_stale_hermes_git_lock() -> None:
             pass
 
 
+def _parse_hermes_update_check(output: str, returncode: int) -> dict:
+    """Interpret ``hermes update --check`` (channel aware: stable releases or a branch).
+
+    status: current | available | ahead (checkout newer than the channel's release, where
+    ``hermes update`` would move it BACK) | unknown.
+    """
+    info = {"status": "unknown", "channel": "", "remote": "", "target": "", "behind": 0, "error": ""}
+    m = re.search(r"Update channel:\s*(\S+)", output)
+    if m:
+        info["channel"] = m.group(1)
+
+    def label_target(label: str) -> None:
+        info["remote"] = label.strip()
+        sha = re.search(r"\(([0-9a-f]{7,40})\)", label)
+        if sha:
+            info["target"] = sha.group(1)
+
+    if m := re.search(r"Selected release available:\s*(.+?)\s*$", output, re.M):
+        info["status"] = "available"
+        info["behind"] = 1
+        label_target(m.group(1))
+    elif m := re.search(r"This checkout is newer than the selected release:\s*(.+?)\.?\s*$", output, re.M):
+        info["status"] = "ahead"
+        label_target(m.group(1))
+    elif m := (re.search(r"Up to date with the latest release \((.+)\)\.", output)
+               or re.search(r"No newer release:\s*(.+?)\.?\s*$", output, re.M)):
+        info["status"] = "current"
+        label_target(m.group(1))
+    elif m := re.search(r"Update available: (\d+) commits? behind (\S+?)\.?\s*$", output, re.M):
+        info.update(status="available", behind=int(m.group(1)), target=m.group(2).split("/", 1)[-1])
+    elif m := re.search(r"Update available \(behind (\S+?)\)", output):
+        info.update(status="available", behind=1, target=m.group(1).split("/", 1)[-1])
+    elif "Already up to date" in output:
+        info["status"] = "current"
+    if info["status"] == "unknown" or returncode != 0:
+        err = next((ln.strip() for ln in output.splitlines() if ln.strip().startswith("✗")), "")
+        if info["status"] == "unknown":
+            info["error"] = err or (f"hermes update --check exit {returncode}" if returncode else "hasil cek tidak dikenali")
+    return info
+
+
 def _refresh_hermes_update() -> None:
-    """Background: check latest commit on GitHub API & git rev-parse HEAD."""
-    global _hermes_update_cache
+    """Background: ask the official updater what `hermes update` would do on this install's channel."""
+    global _hermes_update_cache, _hermes_check_running
+    with _hermes_update_lock:
+        if _hermes_check_running:
+            return
+        _hermes_check_running = True
     try:
         _clear_stale_hermes_git_lock()
-
-        # Get local HEAD SHA and tag
         local_r = subprocess.run(["git", "-C", HERMES_LIB_DIR, "rev-parse", "HEAD"],
-                                  capture_output=True, text=True, timeout=5)
+                                 capture_output=True, text=True, timeout=5)
         local_sha = local_r.stdout.strip()
-        
         tag_r = subprocess.run(["git", "-C", HERMES_LIB_DIR, "describe", "--tags", "--abbrev=0", "HEAD"],
-                                capture_output=True, text=True, timeout=5)
+                               capture_output=True, text=True, timeout=5)
         local_tag = tag_r.stdout.strip() or (local_sha[:8] if local_sha else "?")
 
-        # Try GitHub API compare endpoint first (fast, works on shallow git checkouts without un-shallowing)
-        behind = 0
-        status = "current"
-        remote_tag = local_tag
-        cmp_data = None
-
+        env = os.environ.copy()
+        env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
+        env["COLUMNS"] = "200"
         try:
-            req = urllib.request.Request(
-                f"https://api.github.com/repos/NousResearch/hermes-agent/compare/{local_sha}...main",
-                headers={"User-Agent": "Hermes-Panel"}
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                cmp_data = json.loads(resp.read().decode("utf-8"))
-                behind = int(cmp_data.get("ahead_by", 0) or cmp_data.get("total_commits", 0) or 0)
-                status = "available" if behind > 0 else "current"
-        except Exception:
-            # Fallback to git fetch + rev-parse if GitHub API fails
-            try:
-                subprocess.run(["git", "-C", HERMES_LIB_DIR, "fetch", "--depth", "1", "--quiet", "origin", "main"],
-                               capture_output=True, timeout=30)
-                target_r = subprocess.run(["git", "-C", HERMES_LIB_DIR, "rev-parse", "FETCH_HEAD"],
-                                          capture_output=True, text=True, timeout=5)
-                target_sha = target_r.stdout.strip()
-                if target_sha and local_sha:
-                    behind = 0 if target_sha == local_sha else 1
-                    status = "available" if behind > 0 else "current"
-                else:
-                    status = "unknown"
-            except Exception:
-                status = "unknown"
+            p = subprocess.run([HERMES_BIN, "update", "--check"], capture_output=True, text=True,
+                               timeout=HERMES_CHECK_TIMEOUT, env=env)
+            info = _parse_hermes_update_check((p.stdout or "") + (p.stderr or ""), p.returncode)
+        except (OSError, subprocess.SubprocessError) as exc:
+            info = _parse_hermes_update_check("", 1)
+            info["error"] = f"hermes update --check gagal: {type(exc).__name__}"
 
-        if behind == 0 and status != "unknown":
-            status = "current"
-
+        # Patch notes = what `hermes update` would install (GitHub compare to the channel target).
         patch_notes = []
-        if cmp_data and cmp_data.get("commits"):
-            raw_msgs = [c.get("commit", {}).get("message", "").strip().split("\n")[0] for c in cmp_data.get("commits", []) if c.get("commit")]
-            if raw_msgs:
-                patch_notes = list(reversed(raw_msgs[-25:]))
+        if info["status"] == "available" and local_sha and info.get("target"):
+            try:
+                req = urllib.request.Request(
+                    f"https://api.github.com/repos/NousResearch/hermes-agent/compare/{local_sha}...{quote(info['target'], safe='')}",
+                    headers={"User-Agent": "Hermes-Panel"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    cmp_data = json.loads(resp.read().decode("utf-8"))
+                ahead = int(cmp_data.get("ahead_by") or 0)
+                if ahead:
+                    info["behind"] = ahead
+                msgs = [c.get("commit", {}).get("message", "").strip().split("\n")[0]
+                        for c in cmp_data.get("commits", []) if c.get("commit")]
+                patch_notes = list(reversed(msgs[-25:]))
+            except Exception:
+                pass
         if not patch_notes:
             try:
                 gl = subprocess.run(["git", "-C", HERMES_LIB_DIR, "log", "-n", "25", "--pretty=format:%s"],
@@ -8281,17 +8316,17 @@ def _refresh_hermes_update() -> None:
 
         with _hermes_update_lock:
             _hermes_update_cache = {
-                "status": status,
-                "local": local_tag,
-                "remote": remote_tag,
-                "behind": behind,
-                "patch_notes": patch_notes,
-                "at": time.time(),
+                "status": info["status"], "local": local_tag, "remote": info["remote"] or local_tag,
+                "behind": info["behind"], "channel": info["channel"], "error": info["error"],
+                "patch_notes": patch_notes, "at": time.time(),
             }
-    except Exception:
+    except Exception as exc:
         with _hermes_update_lock:
-            _hermes_update_cache = {"status": "unknown", "local": "?", "remote": "?", "behind": 0, "patch_notes": [], "at": time.time()}
-
+            _hermes_update_cache = {"status": "unknown", "local": "?", "remote": "?", "behind": 0, "patch_notes": [],
+                                    "error": f"{type(exc).__name__}: {exc}"[:200], "at": time.time()}
+    finally:
+        with _hermes_update_lock:
+            _hermes_check_running = False
 
 def translate_to_id(text: str) -> str:
     """Pass-through default raw text without translation."""
@@ -8348,8 +8383,9 @@ def get_hermes_update() -> dict:
     with _hermes_update_lock:
         now = time.time()
         age = now - _hermes_update_cache.get("at", 0)
-        stale_threshold = 60 if _hermes_update_cache.get("status") == "unknown" else 1800
-        if age > stale_threshold and not is_hermes_updating():
+        # A check spawns `hermes update --check` (~15 s CPU on the STB): retry failures every 5 min.
+        stale_threshold = 300 if _hermes_update_cache.get("status") == "unknown" else 1800
+        if age > stale_threshold and not _hermes_check_running and not is_hermes_updating():
             _hermes_update_cache["at"] = now  # debounce
             threading.Thread(target=_refresh_hermes_update, daemon=True).start()
     with _hermes_update_lock:
@@ -8402,6 +8438,56 @@ def tail_hermes_update_log(n: int = 100) -> str:
         return ""
 
 
+# Runs inside a transient systemd unit (systemd-run), so restarting/stopping the panel cannot kill a
+# half-done update (hermes-panel.service uses KillMode=control-group). The gateway restart happens
+# in the same unit, only when the code actually changed (or an interrupted update was completed).
+HERMES_UPDATE_WRAPPER = r"""
+LIB="$1"; LOG="$2"; HERMES="$3"
+pre=$(git -C "$LIB" rev-parse HEAD 2>/dev/null)
+"$HERMES" update --yes --no-backup --no-gateway-restart
+rc=$?
+post=$(git -C "$LIB" rev-parse HEAD 2>/dev/null)
+if [ "$rc" -eq 0 ]; then
+  if [ "$pre" != "$post" ] || grep -q "interrupted before it finished" "$LOG"; then
+    echo "[panel] Kode berubah (${pre%"${pre#????????}"} -> ${post%"${post#????????}"}). Memulai ulang hermes-gateway..."
+    XDG_RUNTIME_DIR=/run/user/0 systemctl --user restart --no-block hermes-gateway \
+      && echo "[panel] Perintah restart gateway terkirim." || echo "[panel] PERINGATAN: restart gateway gagal."
+  else
+    echo "[panel] Tidak ada perubahan kode: Hermes sudah versi terbaru, gateway tidak di-restart."
+  fi
+fi
+echo "[panel] selesai, exit=$rc"
+exit "$rc"
+"""
+
+
+def _hermes_update_argv() -> list[str]:
+    """systemd-run command for the update (falls back to a direct call without systemd)."""
+    wrapper = ["/bin/sh", "-c", HERMES_UPDATE_WRAPPER, "hermes-panel-update",
+               HERMES_LIB_DIR, HERMES_UPDATE_LOG_PATH, HERMES_BIN]
+    if not shutil.which("systemd-run"):
+        return wrapper
+    setenv = {"HOME": os.environ.get("HOME", "/root"), "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+              "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", "/run/user/0"), "PYTHONUNBUFFERED": "1",
+              "LANG": os.environ.get("LANG", "C.UTF-8")}
+    if os.environ.get("HERMES_HOME"):
+        setenv["HERMES_HOME"] = os.environ["HERMES_HOME"]
+    return (["systemd-run", f"--unit=hermes-panel-update-{int(time.time())}", "--collect", "--wait", "--quiet",
+             "--description=Hermes update (control panel)",
+             f"--property=RuntimeMaxSec={HERMES_UPDATE_TIMEOUT}",
+             f"--property=StandardOutput=append:{HERMES_UPDATE_LOG_PATH}",
+             f"--property=StandardError=append:{HERMES_UPDATE_LOG_PATH}"]
+            + [f"--setenv={k}={v}" for k, v in setenv.items()] + wrapper)
+
+
+def _hermes_update_summary(rc: int, log_text: str) -> str:
+    if rc != 0:
+        return f"Hermes update gagal (exit {rc}); cek log lengkap"
+    if "Tidak ada perubahan kode" in log_text:
+        return "Hermes sudah versi terbaru — tidak ada yang berubah, gateway tidak di-restart"
+    return "Hermes sukses diperbarui; gateway dimulai ulang"
+
+
 def run_hermes_update() -> None:
     """Use official updater: pull, validate/rollback, deps, migrate, restart."""
     global _hermes_update_running, _hermes_update_result, _hermes_update_cache
@@ -8417,43 +8503,38 @@ def run_hermes_update() -> None:
         try:
             _clear_stale_hermes_git_lock()
             os.makedirs(os.path.dirname(HERMES_UPDATE_LOG_PATH), exist_ok=True)
+            argv = _hermes_update_argv()
             with open(HERMES_UPDATE_LOG_PATH, "w", encoding="utf-8") as log:
-                log.write("[panel] official command: hermes update --yes --no-backup --no-gateway-restart\n")
-                log.flush()
-                env = os.environ.copy()
-                env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
-                env.setdefault("PYTHONUNBUFFERED", "1")
-                proc = subprocess.Popen(
-                    [HERMES_BIN, "update", "--yes", "--no-backup", "--no-gateway-restart"],
-                    stdout=log, stderr=subprocess.STDOUT, text=True,
-                    start_new_session=True, env=env,
-                )
-                try:
-                    rc = proc.wait(timeout=HERMES_UPDATE_TIMEOUT)
-                except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(proc.pid, signal.SIGTERM)
-                        proc.wait(timeout=5)
-                    except Exception:
-                        try:
-                            os.killpg(proc.pid, signal.SIGKILL)
-                            proc.wait(timeout=2)
-                        except Exception:
-                            pass
-                    log.write(f"\n[panel] ERROR: timeout {HERMES_UPDATE_TIMEOUT} detik\n")
-                    rc = 124
-            if rc == 0:
-                with open(HERMES_UPDATE_LOG_PATH, "a", encoding="utf-8") as log:
-                    log.write("\n[panel] Pembaruan kode selesai. Memulai ulang hermes-gateway via systemd...\n")
-                restart_bot()
-                summary = "Hermes sukses diperbarui: dependency, validasi, dan mulai ulang selesai"
+                log.write("[panel] official command: hermes update --yes --no-backup --no-gateway-restart"
+                          + (" (unit systemd terpisah, aman bila panel di-restart)" if argv[0] == "systemd-run" else "")
+                          + "\n")
+            env = os.environ.copy()
+            env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
+            env.setdefault("PYTHONUNBUFFERED", "1")
+            if argv[0] == "systemd-run":
+                proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
             else:
-                summary = f"Hermes update gagal (exit {rc}); cek log lengkap"
+                log = open(HERMES_UPDATE_LOG_PATH, "a", encoding="utf-8")
+                proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, text=True,
+                                        start_new_session=True, env=env)
+                log.close()
+            try:
+                # systemd enforces RuntimeMaxSec itself; this is only a backstop for the panel thread.
+                rc = proc.wait(timeout=HERMES_UPDATE_TIMEOUT + 120)
+            except subprocess.TimeoutExpired:
+                if argv[0] != "systemd-run":
+                    with suppress(Exception):
+                        os.killpg(proc.pid, signal.SIGTERM)
+                with open(HERMES_UPDATE_LOG_PATH, "a", encoding="utf-8") as log:
+                    log.write(f"\n[panel] ERROR: timeout {HERMES_UPDATE_TIMEOUT} detik\n")
+                rc = 124
+            _invalidate_status_cache("gateway_platforms")
+            summary = _hermes_update_summary(rc, tail_hermes_update_log(400))
             with _hermes_update_lock:
                 _hermes_update_result = {"status": "success" if rc == 0 else "failed",
                                          "exit_code": rc, "summary": summary,
                                          "finished_at": time.time()}
-                _hermes_update_cache = {"status": "unknown", "local": "?", "remote": "?", "behind": 0, "at": 0}
+                _hermes_update_cache = {"status": "checking", "local": "?", "remote": "?", "behind": 0, "at": 0}
         except Exception as exc:
             with open(HERMES_UPDATE_LOG_PATH, "a", encoding="utf-8") as log:
                 log.write(f"\n[panel] ERROR: {type(exc).__name__}: {exc}\n")
@@ -13736,6 +13817,9 @@ def build_fragments() -> dict:
     hermes_notes = get_hermes_patch_notes()
     hermes_patch_notes_html = render_patch_notes_block("Hermes Agent", hermes_notes)
     hermes_cek_btn = f'<a class="toggle restart" href="/check-hermes-update">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
+    hermes_channel = hermes_upd.get("channel") or ""
+    hermes_remote = hermes_upd.get("remote") or ""
+    hermes_chan_txt = f" · channel {html.escape(hermes_channel)}" if hermes_channel else ""
 
     if hermes_result.get("running"):
         cells["hermes"] = f'<span class="value warn">Update berjalan…</span>'
@@ -13744,24 +13828,38 @@ def build_fragments() -> dict:
             + hermes_patch_notes_html
         )
     elif hermes_status == "available":
-        cells["hermes"] = f'<span class="value warn">{html.escape(hermes_local)} ({hermes_behind} pembaruan tersedia)</span>'
+        target_txt = (html.escape(hermes_remote) if hermes_remote and hermes_remote != hermes_local
+                      else f"{hermes_behind} komit")
+        cells["hermes"] = f'<span class="value warn">{html.escape(hermes_local)} (pembaruan tersedia)</span>'
         hermes_update_block = (
+            f'<div class="update-hint">{ICON_ARROW_UP_CIRCLE}Pembaruan tersedia: {target_txt}{hermes_chan_txt}</div>'
             f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);color:#141922" href="/update-hermes">'
-            f'{ICON_ARROW_UP_CIRCLE}Perbarui Hermes ({hermes_behind} komit)</a>'
+            f'{ICON_ARROW_UP_CIRCLE}Perbarui Hermes ({target_txt})</a>'
+            + hermes_cek_btn
+            + hermes_patch_notes_html
+        )
+    elif hermes_status == "ahead":
+        cells["hermes"] = f'<span class="value up">{html.escape(hermes_local)} (lebih baru dari rilis)</span>'
+        hermes_update_block = (
+            f'<div class="update-hint">{ICON_CHECK}Versi terpasang ({html.escape(hermes_local)}) lebih baru dari rilis '
+            f'{html.escape(hermes_remote) or "channel ini"}{hermes_chan_txt}. Tombol update disembunyikan karena '
+            f'<code>hermes update</code> akan menurunkan versi ke rilis tersebut.</div>'
             + hermes_cek_btn
             + hermes_patch_notes_html
         )
     elif hermes_status == "current":
         cells["hermes"] = f'<span class="value up">{html.escape(hermes_local)} (terbaru)</span>'
         hermes_update_block = (
-            f'<div class="update-hint">{ICON_CHECK}Hermes sudah versi terbaru ({html.escape(hermes_local)})</div>'
+            f'<div class="update-hint">{ICON_CHECK}Hermes sudah versi terbaru ({html.escape(hermes_remote or hermes_local)}{hermes_chan_txt})</div>'
             + hermes_cek_btn
             + hermes_patch_notes_html
         )
     elif hermes_status == "unknown":
         cells["hermes"] = f'<span class="value">{html.escape(hermes_local)}</span>'
+        err_txt = html.escape(hermes_upd.get("error") or "")
         hermes_update_block = (
-            f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek pembaruan Hermes — periksa koneksi atau coba lagi</div>'
+            f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek pembaruan Hermes — periksa koneksi atau coba lagi'
+            + (f'<br><small>{err_txt}</small>' if err_txt else '') + '</div>'
             + hermes_cek_btn
             + hermes_patch_notes_html
         )
@@ -13989,6 +14087,11 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
     elif just == "password-cleared":
         countdown_block = (
             f'<div class="hint">{ICON_CHECK}Kata sandi berhasil dihapus. Akses bebas LAN tanpa login sekarang aktif.</div>'
+        )
+    elif just == "hermes-ahead":
+        countdown_block = (
+            f'<div class="hint">{ICON_ALERT_TRIANGLE}Update dibatalkan: versi Hermes terpasang lebih baru dari rilis channel ini, '
+            f'jadi <code>hermes update</code> justru akan menurunkan versi.</div>'
         )
     else:
         countdown_block = ""
@@ -15575,15 +15678,21 @@ class Handler(BaseHTTPRequestHandler):
                     just = "cleaned"
                     target_tab = "control"
                 elif parsed.path == "/check-hermes-update":
-                    # Force a fresh Hermes update check
+                    # Force a fresh, channel-aware check; the block shows "Mengecek…" until it finishes.
                     with _hermes_update_lock:
-                        _hermes_update_cache["at"] = 0
+                        _hermes_update_cache["at"] = time.time()
+                        if not _hermes_check_running:
+                            _hermes_update_cache["status"] = "checking"
                     threading.Thread(target=_refresh_hermes_update, daemon=True).start()
                     target_tab = "control"
                 elif parsed.path == "/update-hermes":
                     # Official updater owns backup, stash policy, validation,
                     # rollback, dependencies, migration, and gateway restart.
-                    run_hermes_update()
+                    if get_hermes_update().get("status") == "ahead":
+                        # `hermes update` would move a checkout that is newer than the release BACK.
+                        just = "hermes-ahead"
+                    else:
+                        run_hermes_update()
                     target_tab = "control"
                 elif parsed.path == "/fetch-models":
                     fetch_remote_models()

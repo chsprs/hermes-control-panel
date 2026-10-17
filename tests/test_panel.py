@@ -3537,6 +3537,8 @@ class TestGatewayNetwork(unittest.TestCase):
         panel.invalidate_config_cache()
         panel._invalidate_network_cache()
         panel._last_action_at = 0.0
+        with panel._hermes_update_lock:  # rendering /status must not spawn a real `hermes update --check`
+            panel._hermes_update_cache["at"] = time.time()
 
     def tearDown(self):
         import shutil
@@ -3790,6 +3792,200 @@ process.stdout.write('ok');
         r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout, "ok")
+
+
+
+class TestHermesUpdateFlow(unittest.TestCase):
+    """Tombol update Hermes: cek sesuai channel, deteksi proses, unit systemd terpisah, anti-downgrade."""
+
+    STABLE_CURRENT = "→ Update channel: stable\n✓ Up to date with the latest release (stable v0.22.2 (d923a5eb487a)).\n"
+    STABLE_AVAILABLE = ("→ Update channel: stable\n→ Selected release available: stable v0.22.3 (abc1234def56)\n"
+                        "  Run `hermes update` to install it.\n")
+    STABLE_AHEAD = ("→ Update channel: stable\n→ This checkout is newer than the selected release: stable v0.22.0 (1f6c02c07c69).\n"
+                    "  `hermes update` moves it back to that release (`hermes update --set-channel main` follows every commit).\n")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = panel.TimeoutThreadingHTTPServer(("127.0.0.1", 0), panel.Handler)
+        cls.port = cls.server.server_address[1]
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def setUp(self):
+        panel._last_action_at = 0.0
+        self._saved_cache = dict(panel._hermes_update_cache)
+        self.addCleanup(lambda: panel._hermes_update_cache.update(self._saved_cache))
+        with panel._hermes_update_lock:  # never spawn a real `hermes update --check` from tests
+            panel._hermes_update_cache["at"] = time.time()
+
+    def test_parse_check_variants(self):
+        f = panel._parse_hermes_update_check
+        cur = f(self.STABLE_CURRENT, 0)
+        self.assertEqual((cur["status"], cur["channel"], cur["remote"]), ("current", "stable", "stable v0.22.2 (d923a5eb487a)"))
+        self.assertEqual(f("→ Update channel: stable\n✓ No newer release: stable v0.22.2 (d923a5eb487a).\n", 0)["status"], "current")
+        av = f(self.STABLE_AVAILABLE, 0)
+        self.assertEqual((av["status"], av["target"], av["remote"]), ("available", "abc1234def56", "stable v0.22.3 (abc1234def56)"))
+        ah = f(self.STABLE_AHEAD, 0)
+        self.assertEqual((ah["status"], ah["remote"]), ("ahead", "stable v0.22.0 (1f6c02c07c69)"))
+        mn = f("☤ Update available: 12 commits behind origin/main.\n  Run 'hermes update' to install.\n", 0)
+        self.assertEqual((mn["status"], mn["behind"], mn["target"]), ("available", 12, "main"))
+        self.assertEqual(f("✓ Already up to date.\n", 0)["status"], "current")
+        err = f("→ Update channel: stable\n✗ Could not resolve the stable source channel: timed out\n", 1)
+        self.assertEqual(err["status"], "unknown")
+        self.assertIn("Could not resolve", err["error"])
+        self.assertEqual(f("", 1)["status"], "unknown")
+
+    def _fake_run(self, check_output):
+        calls = []
+
+        def run(argv, *a, **kw):
+            calls.append(list(argv))
+            if argv[:2] == [panel.HERMES_BIN, "update"]:
+                return mock.Mock(returncode=0, stdout=check_output, stderr="")
+            if "rev-parse" in argv:
+                return mock.Mock(returncode=0, stdout="d923a5eb487a17c0a68801bba9ef0f56c81040a8\n", stderr="")
+            if "describe" in argv:
+                return mock.Mock(returncode=0, stdout="v0.22.2\n", stderr="")
+            return mock.Mock(returncode=0, stdout="fix: a\nfeat: b\n", stderr="")
+        return calls, run
+
+    def test_refresh_uses_official_check_and_never_fetches_git(self):
+        calls, run = self._fake_run(self.STABLE_AHEAD)
+        with mock.patch.object(panel.subprocess, "run", side_effect=run), \
+             mock.patch.object(panel, "_clear_stale_hermes_git_lock"), \
+             mock.patch.object(panel.urllib.request, "urlopen") as urlopen:
+            panel._refresh_hermes_update()
+        self.assertIn([panel.HERMES_BIN, "update", "--check"], calls)
+        self.assertFalse(any("fetch" in c for c in calls), calls)
+        urlopen.assert_not_called()
+        cache = panel._hermes_update_cache
+        self.assertEqual((cache["status"], cache["local"], cache["channel"]), ("ahead", "v0.22.2", "stable"))
+
+    def test_available_patch_notes_come_from_release_target(self):
+        calls, run = self._fake_run(self.STABLE_AVAILABLE)
+        resp = mock.MagicMock()
+        resp.__enter__.return_value = resp
+        resp.read.return_value = json.dumps({"ahead_by": 7, "commits": [
+            {"commit": {"message": "fix(x): one\n\nbody"}}, {"commit": {"message": "feat(y): two"}}]}).encode()
+        with mock.patch.object(panel.subprocess, "run", side_effect=run), \
+             mock.patch.object(panel, "_clear_stale_hermes_git_lock"), \
+             mock.patch.object(panel.urllib.request, "urlopen", return_value=resp) as urlopen:
+            panel._refresh_hermes_update()
+        self.assertIn("...abc1234def56", urlopen.call_args[0][0].full_url)
+        cache = panel._hermes_update_cache
+        self.assertEqual((cache["status"], cache["behind"], cache["remote"]), ("available", 7, "stable v0.22.3 (abc1234def56)"))
+        self.assertEqual(cache["patch_notes"], ["feat(y): two", "fix(x): one"])
+
+    def test_pid_detection_is_precise(self):
+        boot = "import os, re, sys\nimport hermes_bootstrap\nfrom hermes_cli.main import main"
+        cases = [
+            (["/usr/local/bin/hermes", "update", "--yes", "--no-backup"], True),
+            (["/root/.hermes/tools/python3", "-I", "-c", boot, "update", "--yes", "--no-gateway-restart"], True),
+            (["python3", "/opt/hermes-lib/hermes_cli/main.py", "update", "--gateway"], True),
+            (["/root/.hermes/tools/python3", "-I", "-c", boot, "update", "--check"], False),
+            (["/usr/local/bin/hermes", "update", "--plan"], False),
+            (["/usr/local/bin/hermes", "skills", "update"], False),
+            (["/root/.hermes/tools/python3", "-I", "-c", boot, "gateway", "run"], False),
+            (["apt-get", "update"], False),
+        ]
+        for argv, expected in cases:
+            with self.subTest(argv=argv[-3:]), mock.patch("pathlib.Path.read_bytes",
+                                                          return_value=b"\x00".join(a.encode() for a in argv) + b"\x00"):
+                self.assertEqual(panel._pid_is_hermes_update(99999), expected)
+
+    def test_update_runs_in_transient_systemd_unit(self):
+        with mock.patch.object(panel.shutil, "which", return_value="/usr/bin/systemd-run"), \
+             mock.patch.dict(os.environ, {"HERMES_HOME": "/opt/hh"}):
+            argv = panel._hermes_update_argv()
+        self.assertEqual(argv[0], "systemd-run")
+        for flag in ("--collect", "--wait", f"--property=RuntimeMaxSec={panel.HERMES_UPDATE_TIMEOUT}",
+                     f"--property=StandardOutput=append:{panel.HERMES_UPDATE_LOG_PATH}", "--setenv=HERMES_HOME=/opt/hh"):
+            self.assertIn(flag, argv)
+        self.assertEqual(argv[-3:], [panel.HERMES_LIB_DIR, panel.HERMES_UPDATE_LOG_PATH, panel.HERMES_BIN])
+        self.assertIn(panel.HERMES_UPDATE_WRAPPER, argv)
+        with mock.patch.object(panel.shutil, "which", return_value=None):
+            self.assertEqual(panel._hermes_update_argv()[0], "/bin/sh")
+
+    def _run_wrapper(self, fake_hermes_body: str):
+        import tempfile
+        td = tempfile.mkdtemp(prefix="hupd-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(td, ignore_errors=True))
+        lib = os.path.join(td, "lib")
+        os.makedirs(lib)
+        g = ["git", "-C", lib, "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run(["git", "init", "-q", lib], check=True)
+        subprocess.run(g + ["commit", "-q", "--allow-empty", "-m", "base"], check=True)
+        bindir = os.path.join(td, "bin")
+        os.makedirs(bindir)
+        calls = os.path.join(td, "systemctl.calls")
+        with open(os.path.join(bindir, "systemctl"), "w") as f:
+            f.write(f'#!/bin/sh\necho "$@" >> {calls}\n')
+        hermes = os.path.join(bindir, "hermes")
+        with open(hermes, "w") as f:
+            f.write("#!/bin/sh\n" + fake_hermes_body.replace("$LIB", lib) + "\n")
+        for name in ("systemctl", "hermes"):
+            os.chmod(os.path.join(bindir, name), 0o755)
+        log = os.path.join(td, "update.log")
+        with open(log, "w") as lf:
+            rc = subprocess.run(["/bin/sh", "-c", panel.HERMES_UPDATE_WRAPPER, "w", lib, log, hermes], stdout=lf,
+                                stderr=subprocess.STDOUT, env={**os.environ, "PATH": bindir + ":" + os.environ["PATH"]},
+                                timeout=30).returncode
+        restarted = panel.Path(calls).read_text() if os.path.exists(calls) else ""
+        return rc, panel.Path(log).read_text(), restarted
+
+    def test_wrapper_skips_restart_when_nothing_changed(self):
+        rc, log, restarted = self._run_wrapper('echo "✓ Already up to date!"; exit 0')
+        self.assertEqual(rc, 0)
+        self.assertIn("Tidak ada perubahan kode", log)
+        self.assertEqual(restarted, "")
+        self.assertIn("sudah versi terbaru", panel._hermes_update_summary(rc, log))
+
+    def test_wrapper_restarts_gateway_when_code_changed(self):
+        rc, log, restarted = self._run_wrapper(
+            'git -C "$LIB" -c user.name=t -c user.email=t@t commit -q --allow-empty -m new; echo updated; exit 0')
+        self.assertEqual(rc, 0)
+        self.assertIn("Kode berubah", log)
+        self.assertEqual(restarted.strip(), "--user restart --no-block hermes-gateway")
+        self.assertIn("sukses diperbarui", panel._hermes_update_summary(rc, log))
+
+    def test_wrapper_failure_propagates_without_restart(self):
+        rc, log, restarted = self._run_wrapper('echo boom; exit 3')
+        self.assertEqual(rc, 3)
+        self.assertEqual(restarted, "")
+        self.assertIn("exit=3", log)
+        self.assertIn("gagal (exit 3)", panel._hermes_update_summary(rc, log))
+
+    def test_update_button_refused_when_checkout_is_ahead(self):
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/update-hermes", data=b"", method="POST")
+        req.add_header("Cookie", cookie)
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a, **k):
+                return None
+        with mock.patch.object(panel, "get_hermes_update", return_value={"status": "ahead"}), \
+             mock.patch.object(panel, "run_hermes_update") as run:
+            try:
+                urllib.request.build_opener(NoRedirect).open(req)
+            except urllib.error.HTTPError as e:
+                self.assertEqual(e.code, 302)
+                self.assertIn("just=hermes-ahead", e.headers.get("Location", ""))
+        run.assert_not_called()
+
+    def test_render_hides_button_when_ahead_and_shows_target_when_available(self):
+        base = {"local": "v0.22.2", "behind": 0, "channel": "stable", "patch_notes": ["a"] * 5, "at": time.time()}
+        with mock.patch.object(panel, "get_hermes_update", return_value={**base, "status": "ahead", "remote": "stable v0.22.0 (1f6c02c07c69)"}):
+            page = panel.build_status_page()
+        self.assertNotIn('href="/update-hermes"', page)
+        self.assertIn("lebih baru dari rilis", page)
+        with mock.patch.object(panel, "get_hermes_update", return_value={**base, "status": "available", "behind": 3, "remote": "stable v0.22.3 (abc1234def56)"}):
+            page = panel.build_status_page()
+        self.assertIn('href="/update-hermes"', page)
+        self.assertIn("stable v0.22.3 (abc1234def56)", page)
 
 
 if __name__ == "__main__":
