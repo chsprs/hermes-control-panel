@@ -92,7 +92,7 @@ STARTUP_COUNTDOWN_SECONDS = 15  # systemd reports "active" almost instantly,
 # but the actual web server takes ~10-15s to bind and answer.
 ROUTER_MODELS_URL = "http://{host}:20128/v1/models"
 ROUTER_VERSION_URL = "http://{host}:20128/api/version"
-MODELS_TIMEOUT = 2.0  # 9router models timeout with fast DB fallback
+MODELS_TIMEOUT = 4.0  # 9router /v1/models takes ~2.2s on this box (upstream fan-out); 2.0s always timed out and pinned the cache to the combos-only DB fallback
 
 ROUTER_HOST_OVERRIDE = os.environ.get("ROUTER_HOST", "").strip()
 HERMES_DASHBOARD_URL = os.environ.get("HERMES_DASHBOARD_URL", "").strip()
