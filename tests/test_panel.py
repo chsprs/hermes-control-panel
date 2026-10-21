@@ -3324,6 +3324,16 @@ class TestMarkdownRenderingAndKanbanAttachments(unittest.TestCase):
 class TestSubprocessCachingAndOptimization(unittest.TestCase):
     """Test subprocess TTL caching, non-blocking SSE polling, and fast /proc status checks."""
 
+    def test_ui_accessibility_and_keyboard_nav(self):
+        """Main tabs must be semantic buttons with role=tab, live-badge has role=status, toast container present."""
+        page = panel.build_status_page("")
+        self.assertIn('role="tablist"', page)
+        self.assertIn('<button type="button" class="tab active" role="tab"', page)
+        self.assertIn('id="live-badge"', page)
+        self.assertIn('role="status"', page)
+        self.assertIn('id="toast-wrap"', page)
+        self.assertIn('CLOSERS', page)
+
     def test_degraded_models_fallback_is_retried_not_cached_fresh(self):
         """A combos-only SQLite fallback must not be trusted for the full 5-minute TTL."""
         saved = dict(panel._models_cache)

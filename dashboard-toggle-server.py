@@ -609,12 +609,31 @@ radial-gradient(circle at 85% 30%, rgba(16,185,129,0.04) 0%, transparent 40%)}}
 h1{{font-size:1.22rem;font-weight:600;letter-spacing:-.025em;color:var(--text)}}
 .live-badge{{display:inline-flex;align-items:center;gap:.45rem;padding:.24rem .7rem;
 border-radius:999px;font-size:.68rem;font-weight:600;font-family:var(--font-mono);
-background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);color:var(--success);
-letter-spacing:.04em;text-transform:uppercase}}
-.live-badge .dot{{width:6px;height:6px;border-radius:50%;background:var(--success);
-box-shadow:0 0 8px var(--success)}}
+background:rgba(148,163,184,0.10);border:1px solid rgba(148,163,184,0.28);color:var(--text-muted);
+letter-spacing:.04em;text-transform:uppercase;transition:color .2s,background .2s,border-color .2s}}
+.live-badge .dot{{width:6px;height:6px;border-radius:50%;background:var(--text-dim);transition:background .2s,box-shadow .2s}}
 .live-badge.connected{{color:var(--success);background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.25)}}
-.live-badge.connected .dot{{background:var(--success)}}
+.live-badge.connected .dot{{background:var(--success);box-shadow:0 0 8px var(--success)}}
+.live-badge.reconnecting{{color:#fbbf24;background:rgba(245,158,11,0.10);border-color:rgba(245,158,11,0.30)}}
+.live-badge.reconnecting .dot{{background:#fbbf24;box-shadow:0 0 8px rgba(245,158,11,0.6);animation:kb-pulse 1.2s ease-in-out infinite}}
+.live-badge.offline{{color:var(--danger);background:rgba(239,68,68,0.10);border-color:rgba(239,68,68,0.30)}}
+.live-badge.offline .dot{{background:var(--danger);box-shadow:none}}
+
+/* Toast (aksi AJAX) */
+#toast-wrap{{position:fixed;left:50%;bottom:1.1rem;transform:translateX(-50%);z-index:400;
+display:flex;flex-direction:column;gap:.45rem;align-items:center;pointer-events:none;width:calc(100% - 2rem);max-width:420px}}
+.toast{{pointer-events:auto;width:100%;background:#161b26;border:1px solid var(--border);color:var(--text);
+border-radius:12px;padding:.6rem .85rem;font-size:.8rem;line-height:1.35;box-shadow:0 10px 30px rgba(0,0,0,.45);
+opacity:0;transform:translateY(8px);transition:opacity .2s var(--ease),transform .2s var(--ease)}}
+.toast.in{{opacity:1;transform:translateY(0)}}
+.toast.ok{{border-color:rgba(16,185,129,.45)}}
+.toast.err{{border-color:rgba(239,68,68,.5);color:#fecaca}}
+
+/* Keyboard focus */
+:focus-visible{{outline:2px solid var(--accent-light);outline-offset:2px}}
+@media (prefers-reduced-motion: reduce){{
+*{{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}}
+}}
 
 /* Apple CC Segmented Nav */
 .tabs{{display:flex;gap:.35rem;margin:0 auto 1.35rem;width:100%;max-width:760px;
@@ -623,9 +642,13 @@ padding:.3rem;border-radius:var(--radius-xl);border:1px solid var(--border);
 overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
 scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x}}
 .tabs::-webkit-scrollbar{{display:none}}
+/* Edge fade = "masih ada tab di sebelah kanan/kiri" (scrollbar sengaja disembunyikan) */
+.tabs[data-scroll="start"]{{-webkit-mask-image:linear-gradient(to right,#000 86%,transparent 100%);mask-image:linear-gradient(to right,#000 86%,transparent 100%)}}
+.tabs[data-scroll="mid"]{{-webkit-mask-image:linear-gradient(to right,transparent 0,#000 7%,#000 93%,transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 7%,#000 93%,transparent 100%)}}
+.tabs[data-scroll="end"]{{-webkit-mask-image:linear-gradient(to right,transparent 0,#000 14%);mask-image:linear-gradient(to right,transparent 0,#000 14%)}}
 .tab{{flex:1 0 auto;min-height:42px;display:flex;align-items:center;justify-content:center;
 border-radius:12px;text-align:center;gap:.35rem;padding:0 .85rem;
-font-weight:500;font-size:.82rem;cursor:pointer;border:none;white-space:nowrap;
+font-weight:500;font-size:.82rem;cursor:pointer;border:none;white-space:nowrap;font-family:inherit;
 background:transparent;color:var(--text-muted);transition:all .18s var(--ease)}}
 .tab:hover{{color:var(--text);background:rgba(255,255,255,0.04)}}
 .tab.active{{background:rgba(59,130,246,0.20);color:#fff;
@@ -1655,16 +1678,16 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <h1>Hermes Control Panel</h1>
     <span id="spin"></span>
   </div>
-  <div class="live-badge"><span class="dot"></span>Live</div>
+  <div class="live-badge" id="live-badge" role="status" aria-live="polite"><span class="dot"></span><span class="lbl">Menyambung…</span></div>
 </div>
 
-<div class="tabs">
-  <div class="tab active" onclick="switchTab('status', this)">{icon_activity} Proses</div>
-  <div class="tab" onclick="switchTab('performance', this)">{icon_cpu} Performa</div>
-  <div class="tab" onclick="switchTab('control', this)">{icon_layers} Layanan</div>
-  <div class="tab" onclick="switchTab('auxiliary', this)">{icon_bot} Tugas AI</div>
-  <div class="tab" onclick="switchTab('profiles', this)">{icon_users} Profil Agent</div>
-  <div class="tab" onclick="switchTab('kanban', this)">{icon_kanban} Kanban</div>
+<div class="tabs" role="tablist" aria-label="Navigasi panel">
+  <button type="button" class="tab active" role="tab" aria-selected="true" onclick="switchTab('status', this)">{icon_activity} Proses</button>
+  <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('performance', this)">{icon_cpu} Performa</button>
+  <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('control', this)">{icon_layers} Layanan</button>
+  <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('auxiliary', this)">{icon_bot} Tugas AI</button>
+  <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('profiles', this)">{icon_users} Profil Agent</button>
+  <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('kanban', this)">{icon_kanban} Kanban</button>
 </div>
 
 <div class="content-wrapper">
@@ -2489,12 +2512,13 @@ function selectAuxModel(provider, model){{
 }}
 
 function switchTab(name, tab){{
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>{{t.classList.remove('active');t.setAttribute('aria-selected','false');}});
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   var p = document.getElementById('tab-'+name);
   if(p) p.classList.add('active');
   if(tab){{
     tab.classList.add('active');
+    tab.setAttribute('aria-selected','true');
     try {{
       tab.scrollIntoView({{ behavior: 'smooth', block: 'nearest', inline: 'center' }});
     }} catch(e) {{}}
@@ -5710,6 +5734,7 @@ document.addEventListener('DOMContentLoaded', scrollAllLogsToBottom);
 setTimeout(scrollAllLogsToBottom, 100);
 setTimeout(scrollAllLogsToBottom, 600);
 </script>
+<div id="toast-wrap" aria-live="polite" aria-atomic="false"></div>
 </body></html>"""
 
 def get_open_block_active():
@@ -7399,22 +7424,29 @@ SSE_SCRIPT = """<script>
     syncLogUI();
     restorePatchPages();
   }
+  function setLive(cls, label){
+    var live = document.getElementById('live-badge');
+    if(!live) return;
+    live.classList.remove('connected','reconnecting','offline');
+    if(cls) live.classList.add(cls);
+    var l = live.querySelector('.lbl');
+    if(l) l.textContent = label;
+  }
   function connect(){
     if(retryTimer){ clearTimeout(retryTimer); retryTimer=null; }
     if(es) try{ es.close(); }catch(x){}
+    setLive('reconnecting', 'Menyambung...');
     es=new EventSource('/events');
     es.onopen=function(){
       if(spin) spin.classList.remove('on');
-      var live=document.querySelector('.live-badge');
-      if(live) live.classList.add('connected');
+      setLive('connected', 'Live');
     };
     es.addEventListener('update', function(e){
       try{ onUpdate(JSON.parse(e.data)); }catch(ex){}
     });
     es.onerror=function(){
       if(spin) spin.classList.add('on');
-      var live=document.querySelector('.live-badge');
-      if(live) live.classList.remove('connected');
+      setLive('offline', 'Terputus');
       es.close(); es=null;
       retryTimer=setTimeout(connect, 3000);
     };
@@ -8134,6 +8166,109 @@ function safeStore(fn, key, val){
   try{ return val===undefined ? sessionStorage[fn](key) : sessionStorage[fn](key,val); }
   catch(x){ return null; }
 }
+
+/* ---- UX: toast untuk aksi AJAX ---- */
+function toast(msg, kind){
+  var wrap = document.getElementById('toast-wrap');
+  if(!wrap || !msg) return;
+  var el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  el.textContent = String(msg);
+  wrap.appendChild(el);
+  requestAnimationFrame(function(){ el.classList.add('in'); });
+  setTimeout(function(){
+    el.classList.remove('in');
+    setTimeout(function(){ if(el.parentNode) el.remove(); }, 250);
+  }, 4200);
+}
+window.toast = toast;
+
+/* Setiap fetch non-GET yang balas JSON {ok,message,error} langsung jadi toast. */
+(function(){
+  var origFetch = window.fetch;
+  if(!origFetch) return;
+  window.fetch = function(input, init){
+    var method = ((init && init.method) || 'GET').toUpperCase();
+    var p = origFetch.apply(this, arguments);
+    if(method === 'GET') return p;
+    return p.then(function(resp){
+      try{
+        var ct = resp.headers.get('content-type') || '';
+        if(ct.indexOf('application/json') !== -1){
+          resp.clone().json().then(function(d){
+            if(d && d.ok === false) toast(d.error || d.message || 'Aksi gagal', 'err');
+            else if(d && d.ok === true && d.message) toast(d.message, 'ok');
+          }).catch(function(){});
+        }
+      }catch(e){}
+      return resp;
+    });
+  };
+})();
+
+/* ---- UX: Esc menutup modal teratas ---- */
+(function(){
+  var CLOSERS = {
+    'aux-picker-modal': 'closeAuxPicker',
+    'gw-config-modal': 'closeGwConfig',
+    'wa-pair-modal': 'closeWaPairModal',
+    'create-profile-modal': 'closeCreateProfileModal',
+    'soul-modal': 'closeProfileSoulModal',
+    'rename-profile-modal': 'closeRenameProfileModal',
+    'profile-skills-modal': 'closeProfileSkillsModal',
+    'create-kanban-task-modal': 'closeCreateTaskModal',
+    'create-kanban-board-modal': 'closeCreateBoardModal',
+    'view-kanban-task-modal': 'closeViewTaskModal',
+    'kanban-config-modal': 'closeKanbanConfigModal',
+    'view-kanban-attachment-modal': 'closeAttachmentViewerModal'
+  };
+  document.addEventListener('keydown', function(e){
+    if(e.key !== 'Escape' && e.key !== 'Esc') return;
+    var open = Array.prototype.slice.call(document.querySelectorAll('[id$="-modal"]'))
+      .filter(function(m){ return m.classList.contains('show'); });
+    if(!open.length) return;
+    var m = open[open.length - 1];
+    var fn = CLOSERS[m.id];
+    if(fn && typeof window[fn] === 'function'){
+      try{ window[fn](); }catch(err){ m.classList.remove('show'); }
+    } else {
+      m.classList.remove('show');
+    }
+    e.preventDefault();
+  });
+})();
+
+/* ---- UX: fade tepi tab saat masih bisa digeser ---- */
+(function(){
+  var tabs = document.querySelector('.tabs');
+  if(!tabs) return;
+  function update(){
+    var max = tabs.scrollWidth - tabs.clientWidth;
+    if(max <= 2){ tabs.removeAttribute('data-scroll'); return; }
+    if(tabs.scrollLeft <= 2) tabs.setAttribute('data-scroll', 'start');
+    else if(tabs.scrollLeft >= max - 2) tabs.setAttribute('data-scroll', 'end');
+    else tabs.setAttribute('data-scroll', 'mid');
+  }
+  tabs.addEventListener('scroll', update, {passive:true});
+  window.addEventListener('resize', update);
+  update();
+})();
+
+/* ---- A11y: panah kiri/kanan pindah tab ---- */
+(function(){
+  var tabs = document.querySelector('.tabs');
+  if(!tabs) return;
+  tabs.addEventListener('keydown', function(e){
+    if(e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    var list = Array.prototype.filter.call(tabs.children, function(el){ return el.classList.contains('tab'); });
+    var i = list.indexOf(document.activeElement);
+    if(i === -1) return;
+    var next = list[(i + (e.key === 'ArrowRight' ? 1 : -1) + list.length) % list.length];
+    next.focus();
+    next.click();
+    e.preventDefault();
+  });
+})();
 </script>"""
 
 
