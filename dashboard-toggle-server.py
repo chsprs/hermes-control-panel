@@ -36,6 +36,7 @@ same HTML fragments the initial page uses, so the client never re-implements it.
 from contextlib import suppress
 import copy
 import ctypes
+import ctypes.util
 import glob
 import gzip
 import gc
@@ -69,7 +70,22 @@ from urllib.parse import urlparse, parse_qs, quote, urlsplit
 
 TOKEN = os.environ.get("PANEL_TOKEN", "").strip()
 PASSWORD = os.environ.get("PANEL_PASSWORD", "").strip()
-PORT = int(os.environ.get("PANEL_PORT", 1000))
+
+
+def _env_int(name: str, default: int, lo: int = None, hi: int = None) -> int:
+    """Parse an int env var without ever crashing the service on bad input."""
+    try:
+        val = int(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        val = default
+    if lo is not None:
+        val = max(lo, val)
+    if hi is not None:
+        val = min(hi, val)
+    return val
+
+
+PORT = _env_int("PANEL_PORT", 1000, 1, 65535)
 SERVICE = os.environ.get("HERMES_DASHBOARD_SERVICE", "hermes-dashboard")
 DEBOUNCE_SECONDS = 3.0
 STARTUP_COUNTDOWN_SECONDS = 15  # systemd reports "active" almost instantly,
@@ -227,7 +243,7 @@ HERMES_BIN = "/usr/local/bin/hermes"
 HERMES_UPDATE_LOG_PATH = "/root/.hermes/logs/update.log"
 # `hermes update` waits for the gateway to drain (restart_after_turn_timeout + restart_drain_timeout,
 # ~1995s here) on top of dependency install + UI build; killing it earlier leaves a half-done update.
-HERMES_UPDATE_TIMEOUT = int(os.environ.get("HERMES_UPDATE_TIMEOUT", "3600"))
+HERMES_UPDATE_TIMEOUT = _env_int("HERMES_UPDATE_TIMEOUT", 3600, 120, 86400)
 
 _last_action_lock = threading.Lock()
 _last_action_at = 0.0
@@ -367,7 +383,8 @@ def render_markdown(text: str) -> str:
         def _lnk(m):
             t, u = m.group(1), m.group(2).strip()
             if re.match(r"^(?:https?://|mailto:|/|#)", u, re.I):
-                return f'<a href="{u}" target="_blank" rel="noopener noreferrer" class="md-link">{t}</a>'
+                safe_href = u.replace('"', "&quot;")  # text is already HTML-escaped (quote=False)
+                return f'<a href="{safe_href}" target="_blank" rel="noopener noreferrer" class="md-link">{t}</a>'
             return f"[{t}]({u})"
         s = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", _lnk, s)
 
@@ -8362,17 +8379,30 @@ def render_patch_notes_block(title: str, notes: list[str]) -> str:
     )
 
 
+_patch_notes_cache = {"at": 0.0, "val": []}
+_patch_notes_lock = threading.Lock()
+
+
 def get_hermes_patch_notes() -> list[str]:
     """Return latest commits / patch notes for Hermes Agent."""
     with _hermes_update_lock:
         notes = _hermes_update_cache.get("patch_notes")
         if notes and len(notes) >= 5:
             return list(notes)
+    now = time.monotonic()
+    with _patch_notes_lock:
+        cached = _patch_notes_cache
+        if cached["val"] and now - cached["at"] < 60.0:
+            return list(cached["val"])
     try:
         gl = subprocess.run(["git", "-C", HERMES_LIB_DIR, "log", "-n", "25", "--pretty=format:%s"],
                             capture_output=True, text=True, timeout=5)
         if gl.returncode == 0 and gl.stdout.strip():
-            return [line.strip() for line in gl.stdout.strip().split("\n") if line.strip()]
+            val = [line.strip() for line in gl.stdout.strip().split("\n") if line.strip()]
+            with _patch_notes_lock:
+                _patch_notes_cache["val"] = val
+                _patch_notes_cache["at"] = time.monotonic()
+            return val
     except Exception:
         pass
     return ["Pembaruan stabilitas dan refaktor berkala"]
@@ -8392,7 +8422,29 @@ def get_hermes_update() -> dict:
         return dict(_hermes_update_cache)
 
 
-def is_hermes_updating() -> bool:
+_HERMES_UPDATE_SCAN_TTL = 3.0
+_update_scan_cache = {"at": 0.0, "val": False}
+_update_scan_lock = threading.Lock()
+
+
+def is_hermes_updating(force: bool = False) -> bool:
+    """Cached wrapper: scanning /proc/<pid>/cmdline for ~175 PIDs costs ~30 ms,
+    and build_fragments() calls this once per SSE tick. 3 s staleness is harmless."""
+    global _hermes_update_running
+    if _hermes_update_running:
+        return True
+    now = time.monotonic()
+    with _update_scan_lock:
+        if not force and now - _update_scan_cache["at"] < _HERMES_UPDATE_SCAN_TTL:
+            return _update_scan_cache["val"]
+    val = _scan_hermes_updating()
+    with _update_scan_lock:
+        _update_scan_cache["at"] = time.monotonic()
+        _update_scan_cache["val"] = val
+    return val
+
+
+def _scan_hermes_updating() -> bool:
     global _hermes_update_running
     if _hermes_update_running:
         return True
@@ -8545,6 +8597,8 @@ def run_hermes_update() -> None:
         finally:
             with _hermes_update_lock:
                 _hermes_update_running = False
+            with _update_scan_lock:
+                _update_scan_cache["at"] = 0.0  # next check re-scans /proc immediately
     threading.Thread(target=_run, daemon=True).start()
 
 
@@ -13939,9 +13993,9 @@ def build_fragments() -> dict:
         "profiles_block": render_profiles_block(),
         "docker_apps_block": render_docker_apps_block(),
         "auth_setting_block": render_auth_setting_block(),
-        "kanban_board_options": render_kanban_board_options(),
+        "kanban_board_options": _ttl_cached("kanban_board_options", 10.0, render_kanban_board_options),
         "kanban_dispatcher_badge": render_kanban_dispatcher_badge(),
-        "kanban_board_block": render_kanban_board_block(),
+        "kanban_board_block": _ttl_cached("kanban_board_block", 5.0, render_kanban_board_block),
         "updating": updating,
         "dash_active": dash_active,
         "gw_active": gw_active,
@@ -14195,7 +14249,6 @@ def _trim_memory():
             libc.malloc_trim(0)
     except Exception:
         try:
-            import ctypes.util
             c_lib = ctypes.util.find_library("c")
             if c_lib:
                 libc = ctypes.CDLL(c_lib)
@@ -15408,7 +15461,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": ok, "message": msg, "config": get_kanban_config(), "error": "" if ok else msg}, code=200 if ok else 400)
             return
         """Execute an already-authenticated action route, then redirect."""
-        global _last_action_at, _last_model_switch_at, _last_aux_model_at
+        global _last_action_at, _last_model_switch_at, _last_aux_model_at, _update_refreshing
 
         if parsed.path == "/switch-model":
             requested = str(json_data.get("model") or (qs.get("model") or [""])[0]).strip()

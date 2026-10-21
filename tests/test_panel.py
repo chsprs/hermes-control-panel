@@ -2061,7 +2061,7 @@ class TestGatewayConfigSync(unittest.TestCase):
             with mock.patch.object(panel, "Path", side_effect=fake_path_fn), \
                  mock.patch.object(panel, "_pid_is_hermes_update", return_value=False), \
                  mock.patch.object(panel, "_hermes_update_running", False):
-                self.assertFalse(panel.is_hermes_updating())
+                self.assertFalse(panel.is_hermes_updating(force=True))
                 self.assertFalse(prog.exists(), "Stale .hermes-update-in-progress must be unlinked")
 
     def test_38_form_patch_merges_onto_editor_base_yaml(self):
@@ -3817,6 +3817,10 @@ class TestHermesUpdateFlow(unittest.TestCase):
 
     def setUp(self):
         panel._last_action_at = 0.0
+        with panel._hermes_update_lock:  # a background refresh left over from an earlier test
+            panel._hermes_check_running = False  # would make _refresh_hermes_update() return early
+        with panel._update_scan_lock:
+            panel._update_scan_cache["at"] = 0.0
         self._saved_cache = dict(panel._hermes_update_cache)
         self.addCleanup(lambda: panel._hermes_update_cache.update(self._saved_cache))
         with panel._hermes_update_lock:  # never spawn a real `hermes update --check` from tests
@@ -3879,6 +3883,41 @@ class TestHermesUpdateFlow(unittest.TestCase):
         cache = panel._hermes_update_cache
         self.assertEqual((cache["status"], cache["behind"], cache["remote"]), ("available", 7, "stable v0.22.3 (abc1234def56)"))
         self.assertEqual(cache["patch_notes"], ["feat(y): two", "fix(x): one"])
+
+    def test_check_update_route_does_not_hit_unbound_local(self):
+        """POST /check-update must set the refresh flag, not raise UnboundLocalError."""
+        import http.client, tempfile
+        with tempfile.TemporaryDirectory() as td:
+            ran = threading.Event()
+            with mock.patch.object(panel, "UPDATE_CACHE_PATH", os.path.join(td, "update-check.json")), \
+                 mock.patch.object(panel, "_refresh_update_cache", side_effect=lambda: ran.set()):
+                try:
+                    conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+                    conn.request("POST", "/check-update", headers={
+                        "Cookie": f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}",
+                        "Host": f"127.0.0.1:{self.port}",
+                    })
+                    resp = conn.getresponse()
+                    resp.read()
+                    conn.close()
+                    self.assertEqual(resp.status, 302)
+                    self.assertTrue(ran.wait(2), "refresh thread never started (flag was shadowed)")
+                    self.assertTrue(panel._update_refreshing, "refresh flag not set")
+                finally:
+                    panel._update_refreshing = False
+
+    def test_env_int_never_crashes_on_bad_values(self):
+        with mock.patch.dict(os.environ, {"PANEL_PORT": ""}):
+            self.assertEqual(panel._env_int("PANEL_PORT", 1000, 1, 65535), 1000)
+        with mock.patch.dict(os.environ, {"PANEL_PORT": "abc"}):
+            self.assertEqual(panel._env_int("PANEL_PORT", 1000, 1, 65535), 1000)
+        with mock.patch.dict(os.environ, {"PANEL_PORT": "70000"}):
+            self.assertEqual(panel._env_int("PANEL_PORT", 1000, 1, 65535), 65535)
+
+    def test_markdown_link_url_cannot_break_out_of_href(self):
+        out = panel.render_markdown('[x](https://a.com/"onmouseover="x)')
+        self.assertNotIn('href="https://a.com/"', out)
+        self.assertIn("&quot;", out)
 
     def test_pid_detection_is_precise(self):
         boot = "import os, re, sys\nimport hermes_bootstrap\nfrom hermes_cli.main import main"
