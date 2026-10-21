@@ -406,6 +406,7 @@ class TestHermesControlPanel(unittest.TestCase):
     def test_15_mutation_method_enforcement(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "restart_bot") as mock_restart, \
+             mock.patch.object(panel, "dashboard_action") as mock_dash, \
              mock.patch.object(panel.subprocess, "run") as mock_run:
             # 1. GET to mutating route without shortcut -> 405 Method Not Allowed
             code, _, _ = self._request("/restart-bot", method="GET", headers={"Cookie": cookie})
@@ -421,7 +422,7 @@ class TestHermesControlPanel(unittest.TestCase):
             panel._last_action_at = 0.0
             code, headers, _ = self._request(f"/toggle?token={panel.TOKEN}", method="GET")
             self.assertEqual(code, 302)
-            mock_run.assert_called()
+            mock_dash.assert_called()
 
     # --- PR 7: Status probe TTL cache ---
     def test_16_status_probe_ttl_caching(self):
