@@ -255,6 +255,7 @@ _update_refresh_lock = threading.Lock()
 _update_refreshing = False
 _models_cache = {"at": 0.0, "val": []}
 _models_cache_lock = threading.Lock()
+_models_fetch_ok = True  # False after a degraded (SQLite-fallback) fetch
 _router_update_lock = threading.Lock()
 _router_updating = False
 _router_update_result = {"status": "idle", "exit_code": None, "changed": None, "summary": "", "finished_at": 0.0}
@@ -9039,6 +9040,7 @@ def get_combos_from_db() -> list[str]:
 
 def get_available_models() -> dict:
     """Fetch live models from 9router /v1/models and group ALL models by provider/category."""
+    global _models_fetch_ok
     key = get_router_api_key()
     if key:
         try:
@@ -9053,11 +9055,14 @@ def get_available_models() -> dict:
 
             grouped = _group_available_models(data)
             if any(grouped.values()):
+                _models_fetch_ok = True
                 return grouped
         except Exception:
             pass
 
-    # Fast fallback: read combos directly from 9router SQLite database
+    # Fast fallback: read combos directly from 9router SQLite database.
+    # _models_fetch_ok stays False so this degraded list is not cached as a full catalog.
+    _models_fetch_ok = False
     combos = get_combos_from_db()
     if combos:
         return {"9router (Kombo)": combos}
@@ -9088,7 +9093,7 @@ def get_available_models_cached() -> dict:
                         global _models_bg_refreshing
                         try:
                             fresh_val = get_available_models()
-                            if any(fresh_val.values()):
+                            if any(fresh_val.values()) and _models_fetch_ok:
                                 with _models_cache_lock:
                                     _models_cache["val"] = fresh_val
                                     _models_cache["at"] = time.time()
@@ -9101,12 +9106,15 @@ def get_available_models_cached() -> dict:
     # Cold start: fetch with bounded timeout and SQLite fallback
     fresh_val = get_available_models()
     with _models_cache_lock:
-        if any(fresh_val.values()):
+        if any(fresh_val.values()) and _models_fetch_ok:
             _models_cache["val"] = fresh_val
             _models_cache["at"] = now
             return fresh_val
+        # Degraded (combos-only) result: serve it, but retry in 30 s instead of trusting it for 5 min
         _models_cache["at"] = now - MODELS_CACHE_TTL + 30
-        return _models_cache["val"] if isinstance(_models_cache.get("val"), dict) else {"9router (Kombo)": []}
+        if not isinstance(_models_cache.get("val"), dict) or not any(_models_cache["val"].values()):
+            return fresh_val
+        return _models_cache["val"]
 
 
 def set_current_model(model_id: str) -> bool:
@@ -15848,4 +15856,13 @@ if __name__ == "__main__":
 
     signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
     server = TimeoutThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+
+    def _warm_caches():
+        """First page after a restart otherwise pays every cold probe at once (~9 s)."""
+        try:
+            build_fragments()
+        except Exception as e:
+            sys.stderr.write(f"[panel] cache warm-up warning: {e}\n")
+
+    threading.Thread(target=_warm_caches, daemon=True).start()
     server.serve_forever()

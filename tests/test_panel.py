@@ -3324,6 +3324,27 @@ class TestMarkdownRenderingAndKanbanAttachments(unittest.TestCase):
 class TestSubprocessCachingAndOptimization(unittest.TestCase):
     """Test subprocess TTL caching, non-blocking SSE polling, and fast /proc status checks."""
 
+    def test_degraded_models_fallback_is_retried_not_cached_fresh(self):
+        """A combos-only SQLite fallback must not be trusted for the full 5-minute TTL."""
+        saved = dict(panel._models_cache)
+        saved_ok = panel._models_fetch_ok
+        try:
+            panel._models_cache.update({"at": 0.0, "val": []})
+            fake = {"9router (Kombo)": ["m1"]}
+
+            def _degraded():
+                panel._models_fetch_ok = False
+                return fake
+
+            with mock.patch.object(panel, "get_available_models", side_effect=_degraded):
+                self.assertEqual(panel.get_available_models_cached(), fake)
+            age = time.time() - panel._models_cache["at"]
+            self.assertGreaterEqual(age, panel.MODELS_CACHE_TTL - 31,
+                                    "degraded fetch must be retried within ~30 s")
+        finally:
+            panel._models_cache.update(saved)
+            panel._models_fetch_ok = saved_ok
+
     def setUp(self):
         panel.invalidate_process_list_cache()
 
