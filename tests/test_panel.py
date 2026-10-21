@@ -3387,6 +3387,44 @@ class TestSubprocessCachingAndOptimization(unittest.TestCase):
                 self.assertEqual(pid2, "99999")
                 self.assertEqual(call_count, 1, "Subprocess must not be called again within window TTL")
 
+    def test_dashboard_active_detection_user_system_and_port(self):
+        """Hermes Dashboard detection must check user service, system service, and port 9119."""
+        # Case 1: user service active
+        with mock.patch.object(panel, "service_active", side_effect=lambda name, user=False, **kw: user is True):
+            self.assertTrue(panel.is_dashboard_active(fresh=True))
+
+        # Case 2: system service active
+        with mock.patch.object(panel, "service_active", side_effect=lambda name, user=False, **kw: user is False):
+            self.assertTrue(panel.is_dashboard_active(fresh=True))
+
+        # Case 3: neither systemd unit active, but port 9119 listening
+        with mock.patch.object(panel, "service_active", return_value=False), \
+             mock.patch.object(panel, "is_dashboard_port_open", return_value=True):
+            self.assertTrue(panel.is_dashboard_active(fresh=True))
+
+        # Case 4: all dead
+        with mock.patch.object(panel, "service_active", return_value=False), \
+             mock.patch.object(panel, "is_dashboard_port_open", return_value=False):
+            self.assertFalse(panel.is_dashboard_active(fresh=True))
+
+    def test_dashboard_action_routes_to_correct_scope(self):
+        """dashboard_action must use --user when user unit is present."""
+        calls = []
+        def fake_run(cmd, *a, **kw):
+            calls.append(list(cmd))
+            return mock.MagicMock(returncode=0)
+
+        with mock.patch.object(panel, "is_dashboard_user_unit", return_value=True), \
+             mock.patch.object(panel.subprocess, "run", side_effect=fake_run):
+            panel.dashboard_action("restart")
+            self.assertIn(["systemctl", "--user", "restart", panel.SERVICE], calls)
+
+        calls.clear()
+        with mock.patch.object(panel, "is_dashboard_user_unit", return_value=False), \
+             mock.patch.object(panel.subprocess, "run", side_effect=fake_run):
+            panel.dashboard_action("stop")
+            self.assertIn(["systemctl", "stop", panel.SERVICE], calls)
+
     def test_service_active_subprocess_caching(self):
         call_count = 0
         def fake_run(cmd, *args, **kwargs):

@@ -8783,6 +8783,66 @@ def invalidate_service_cache(*names: str) -> None:
             _service_active_cache.clear()
 
 
+def is_dashboard_user_unit() -> bool:
+    """Return True if hermes-dashboard is registered or active in user systemd scope."""
+    if service_active(SERVICE, user=True):
+        return True
+    try:
+        user_candidates = [
+            Path.home() / ".config/systemd/user" / f"{SERVICE}.service",
+            Path(f"/root/.config/systemd/user/{SERVICE}.service"),
+        ]
+        if any(p.is_file() for p in user_candidates):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def is_dashboard_port_open(port: int = 9119, host: str = "127.0.0.1", timeout: float = 0.2) -> bool:
+    """Fast check whether dashboard web port (:9119) is accepting connections."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (OSError, socket.timeout):
+        return False
+
+
+def is_dashboard_active(fresh: bool = False) -> bool:
+    """Detect if Hermes Dashboard (:9119) is running via user unit, system unit, or port listening."""
+    if service_active(SERVICE, user=True, fresh=fresh):
+        return True
+    if service_active(SERVICE, user=False, fresh=fresh):
+        return True
+    return is_dashboard_port_open(9119)
+
+
+def _find_pid_by_port(port: int) -> str:
+    """Look up listening PID on port via ss command."""
+    try:
+        r = subprocess.run(["ss", "-tlpn", f"sport = :{port}"], capture_output=True, text=True, timeout=1.5)
+        m = re.search(r"pid=(\d+)", r.stdout)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return ""
+
+
+def dashboard_action(action: str) -> None:
+    """start, stop, or restart hermes-dashboard in the correct systemd scope (user first, then system)."""
+    env = os.environ.copy()
+    env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
+    is_user = is_dashboard_user_unit()
+    cmd = ["systemctl"]
+    if is_user:
+        cmd.append("--user")
+    cmd += [action, SERVICE]
+    subprocess.run(cmd, timeout=15, env=env)
+    invalidate_service_cache(SERVICE)
+    _invalidate_status_cache("services", "processes_table")
+
+
 _config_cache = {"mtime": 0.0, "val": {}}
 _config_cache_lock = threading.Lock()
 
@@ -13044,19 +13104,27 @@ def get_process_list(fresh: bool = False) -> list[dict]:
 
     # 4. Hermes Dashboard (:9119)
     try:
-        dash_active = service_active("hermes-dashboard")
+        dash_active = is_dashboard_active(fresh=fresh)
         dash_mem = 0.0
         dash_pid = "-"
         if dash_active:
-            props = get_systemd_show("hermes-dashboard", props="MainPID", fresh=fresh)
-            p = props.get("MainPID", "0")
+            p = "0"
+            if service_active(SERVICE, user=True, fresh=fresh):
+                props = get_systemd_show(SERVICE, user=True, props="MainPID", fresh=fresh)
+                p = props.get("MainPID", "0")
+            elif service_active(SERVICE, user=False, fresh=fresh):
+                props = get_systemd_show(SERVICE, user=False, props="MainPID", fresh=fresh)
+                p = props.get("MainPID", "0")
+            if (not p or p == "0") and is_dashboard_port_open(9119):
+                p = _find_pid_by_port(9119) or "0"
             if p and p != "0":
-                dash_pid = p
+                dash_pid = str(p)
                 dash_mem = _read_proc_rss_mb(p)
+        is_systemd = service_active(SERVICE, user=True) or service_active(SERVICE, user=False) or is_dashboard_user_unit()
         procs.append({
             "id": "hermes-dashboard",
             "name": "Dasbor Web Hermes (:9119)",
-            "kind": "Layanan Systemd",
+            "kind": "Layanan Systemd" if is_systemd else "Proses Port 9119",
             "status": "Berjalan" if dash_active else "Berhenti",
             "is_active": dash_active,
             "pid": dash_pid,
@@ -13785,7 +13853,7 @@ def build_fragments() -> dict:
     """Compute every dynamic HTML fragment (plus a couple of raw flags) in one
     place, so the initial full-page render and the /api/status poll can never
     drift apart. Returns a JSON-serializable dict."""
-    dash_active = service_active(SERVICE)
+    dash_active = is_dashboard_active()
     gw_active = service_active("hermes-gateway", user=True)
     router_up, router_ms, router_host = get_router_status()
     router_uptime = get_router_uptime() if router_up else ""
@@ -15785,8 +15853,8 @@ class Handler(BaseHTTPRequestHandler):
                             "casaos-message-bus.service",
                         ]
                         subprocess.run(["systemctl", action] + casaos_units, timeout=15)
-                    elif service == "hermes-dashboard" and action == "restart":
-                        subprocess.run(["systemctl", "restart", "hermes-dashboard"], timeout=15)
+                    elif service == "hermes-dashboard" and action in ("start", "stop", "restart"):
+                        dashboard_action(action)
                     elif service == "hermes-panel" and action == "restart":
                         def _delayed_restart():
                             time.sleep(0.5)
@@ -15833,16 +15901,16 @@ class Handler(BaseHTTPRequestHandler):
         if not debounced:
             try:
                 if parsed.path == "/toggle":
-                    will_start = not service_active(SERVICE)
-                    subprocess.run(["systemctl", "start" if will_start else "stop", SERVICE], timeout=15)
+                    will_start = not is_dashboard_active()
+                    dashboard_action("start" if will_start else "stop")
                     just = "start" if will_start else ""
                     target_tab = "control"
                 elif parsed.path == "/on":
-                    subprocess.run(["systemctl", "start", SERVICE], timeout=15)
+                    dashboard_action("start")
                     just = "start"
                     target_tab = "control"
                 elif parsed.path == "/off":
-                    subprocess.run(["systemctl", "stop", SERVICE], timeout=15)
+                    dashboard_action("stop")
                     target_tab = "control"
                 elif parsed.path == "/restart-bot":
                     restart_bot()
