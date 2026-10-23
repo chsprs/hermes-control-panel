@@ -6195,23 +6195,43 @@ WHATSAPP_LOG_PATHS = [
 ]
 
 
+_tail_log_cache: dict[tuple[str, int], tuple[int, int, str]] = {}
+_tail_log_lock = threading.Lock()
+
+
+def _tail_file_cached(path: str, n: int) -> str | None:
+    try:
+        st = os.stat(path)
+        if st.st_size <= 0:
+            return None
+        key = (path, n)
+        with _tail_log_lock:
+            cached = _tail_log_cache.get(key)
+            if cached and cached[0] == st.st_mtime_ns and cached[1] == st.st_size:
+                return cached[2]
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - 40000))
+            raw = f.read().decode("utf-8", errors="replace")
+            lines = raw.splitlines()
+            val = "\n".join(lines[-n:]) if lines else ""
+        with _tail_log_lock:
+            _tail_log_cache[key] = (st.st_mtime_ns, st.st_size, val)
+        return val
+    except Exception:
+        return None
+
+
 def tail_whatsapp_bridge_log(n: int = 60) -> str:
     try:
         n = max(1, min(int(n), 1000))
     except (ValueError, TypeError):
         n = 60
     for p in WHATSAPP_LOG_PATHS:
-        if os.path.exists(p) and os.path.getsize(p) > 0:
-            try:
-                with open(p, "rb") as f:
-                    f.seek(0, os.SEEK_END)
-                    size = f.tell()
-                    f.seek(max(0, size - 40000))
-                    raw = f.read().decode("utf-8", errors="replace")
-                    lines = raw.splitlines()
-                    return "\n".join(lines[-n:]) if lines else ""
-            except Exception:
-                pass
+        val = _tail_file_cached(p, n)
+        if val is not None:
+            return val
     return ""
 
 
@@ -6480,17 +6500,34 @@ def apply_wa_pair(restart_gw: bool = True) -> tuple[bool, str]:
     return True, "WhatsApp berhasil diaktifkan dan gateway direstart!"
 
 
+_REDACT_PATTERNS = (
+    (re.compile(r'\b\d{8,12}:[A-Za-z0-9_-]{25,}\b'), '[REDACTED_TOKEN]'),
+    (re.compile(r'\b[A-Za-z0-9_-]{24,32}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}\b'), '[REDACTED_DISCORD_TOKEN]'),
+    (re.compile(r'\bxox[baprs]-[A-Za-z0-9-]+\b'), '[REDACTED_SLACK_TOKEN]'),
+    (re.compile(r'(bearer\s+)[A-Za-z0-9_.-]{16,}', re.IGNORECASE), r'\1[REDACTED]'),
+    (re.compile(r'\bsk-[A-Za-z0-9_-]{20,}\b'), '[REDACTED_KEY]'),
+    (re.compile(r'\bAIza[0-9A-Za-z_-]{30,40}\b'), '[REDACTED_KEY]'),
+    (re.compile(r'\bgh[pousr]_[A-Za-z0-9_]{36,}\b'), '[REDACTED_TOKEN]'),
+)
+_redact_cache: dict[str, str] = {}
+_redact_lock = threading.Lock()
+
+
 def redact_sensitive_tokens(text: str) -> str:
     if not text:
         return ""
-    text = re.sub(r'\b\d{8,12}:[A-Za-z0-9_-]{25,}\b', '[REDACTED_TOKEN]', text)
-    text = re.sub(r'\b[A-Za-z0-9_-]{24,32}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}\b', '[REDACTED_DISCORD_TOKEN]', text)
-    text = re.sub(r'\bxox[baprs]-[A-Za-z0-9-]+\b', '[REDACTED_SLACK_TOKEN]', text)
-    text = re.sub(r'(bearer\s+)[A-Za-z0-9_.-]{16,}', r'\1[REDACTED]', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bsk-[A-Za-z0-9_-]{20,}\b', '[REDACTED_KEY]', text)
-    text = re.sub(r'\bAIza[0-9A-Za-z_-]{30,40}\b', '[REDACTED_KEY]', text)
-    text = re.sub(r'\bgh[pousr]_[A-Za-z0-9_]{36,}\b', '[REDACTED_TOKEN]', text)
-    return text
+    with _redact_lock:
+        cached = _redact_cache.get(text)
+        if cached is not None:
+            return cached
+    out = text
+    for pat, repl in _REDACT_PATTERNS:
+        out = pat.sub(repl, out)
+    with _redact_lock:
+        if len(_redact_cache) >= 32:
+            _redact_cache.clear()
+        _redact_cache[text] = out
+    return out
 
 
 def tail_gateway_log(n: int = 60) -> str:
@@ -6499,17 +6536,9 @@ def tail_gateway_log(n: int = 60) -> str:
     except (ValueError, TypeError):
         n = 60
     for p in GATEWAY_LOG_PATHS:
-        if os.path.exists(p) and os.path.getsize(p) > 0:
-            try:
-                with open(p, "rb") as f:
-                    f.seek(0, os.SEEK_END)
-                    size = f.tell()
-                    f.seek(max(0, size - 40000))
-                    raw = f.read().decode("utf-8", errors="replace")
-                    lines = raw.splitlines()
-                    return "\n".join(lines[-n:]) if lines else ""
-            except Exception:
-                pass
+        val = _tail_file_cached(p, n)
+        if val is not None:
+            return val
     try:
         r = subprocess.run(
             ["journalctl", "_SYSTEMD_USER_UNIT=hermes-gateway.service", f"-n{n}", "--no-pager"],
@@ -7451,15 +7480,23 @@ SSE_SCRIPT = """<script>
       retryTimer=setTimeout(connect, 3000);
     };
   }
+  var hideDisconnectTimer = null;
   function disconnect(){
     if(retryTimer){ clearTimeout(retryTimer); retryTimer=null; }
     if(es){ es.close(); es=null; }
   }
   document.addEventListener('visibilitychange', function(){
     if(!document.hidden){
+      if(hideDisconnectTimer){ clearTimeout(hideDisconnectTimer); hideDisconnectTimer=null; }
       if(!es || es.readyState === 2 /* CLOSED */){
         connect();
       }
+    } else {
+      if(hideDisconnectTimer) clearTimeout(hideDisconnectTimer);
+      hideDisconnectTimer = setTimeout(function(){
+        hideDisconnectTimer = null;
+        if(document.hidden) disconnect();
+      }, 30000);
     }
   });
   connect();
@@ -8618,6 +8655,9 @@ def get_hermes_update_result() -> dict:
 
 
 def tail_hermes_update_log(n: int = 100) -> str:
+    val = _tail_file_cached(HERMES_UPDATE_LOG_PATH, n)
+    if val is not None:
+        return val
     try:
         with open(HERMES_UPDATE_LOG_PATH, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
@@ -9721,13 +9761,11 @@ def list_agent_profiles() -> list[dict]:
     def_model = ""
     def_provider = ""
     try:
-        if default_cfg_path.is_file():
-            with open(default_cfg_path, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
-            m = cfg.get("model", {})
-            if isinstance(m, dict):
-                def_model = str(m.get("default") or "").strip()
-                def_provider = str(m.get("provider") or "").strip()
+        cfg = _read_profile_cfg(default_cfg_path)
+        m = cfg.get("model", {})
+        if isinstance(m, dict):
+            def_model = str(m.get("default") or "").strip()
+            def_provider = str(m.get("provider") or "").strip()
     except Exception:
         pass
 
@@ -9765,13 +9803,11 @@ def list_agent_profiles() -> list[dict]:
                 p_model = ""
                 p_provider = ""
                 try:
-                    if prof_cfg_path.is_file():
-                        with open(prof_cfg_path, encoding="utf-8") as f:
-                            cfg = yaml.safe_load(f) or {}
-                        m = cfg.get("model", {})
-                        if isinstance(m, dict):
-                            p_model = str(m.get("default") or "").strip()
-                            p_provider = str(m.get("provider") or "").strip()
+                    cfg = _read_profile_cfg(prof_cfg_path)
+                    m = cfg.get("model", {})
+                    if isinstance(m, dict):
+                        p_model = str(m.get("default") or "").strip()
+                        p_provider = str(m.get("provider") or "").strip()
                 except Exception:
                     pass
 
@@ -9917,12 +9953,24 @@ def _profile_cfg_file(name: str) -> tuple[Path | None, str]:
     return d / "config.yaml", ""
 
 
+_profile_cfg_cache: dict[str, tuple[int, dict]] = {}
+_profile_cfg_cache_lock = threading.Lock()
+
+
 def _read_profile_cfg(cfg_file: Path) -> dict:
     try:
         if cfg_file.is_file():
+            st = cfg_file.stat()
+            key = str(cfg_file)
+            with _profile_cfg_cache_lock:
+                cached = _profile_cfg_cache.get(key)
+                if cached and cached[0] == st.st_mtime_ns:
+                    return copy.deepcopy(cached[1])
             with open(cfg_file, encoding="utf-8") as f:
                 cfg = yaml.safe_load(f) or {}
             if isinstance(cfg, dict):
+                with _profile_cfg_cache_lock:
+                    _profile_cfg_cache[key] = (st.st_mtime_ns, copy.deepcopy(cfg))
                 return cfg
     except Exception:
         pass
@@ -9935,6 +9983,8 @@ def _write_profile_cfg(cfg_file: Path, cfg: dict) -> None:
         yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
     os.chmod(tmp, 0o600)
     os.replace(tmp, str(cfg_file))
+    with _profile_cfg_cache_lock:
+        _profile_cfg_cache.pop(str(cfg_file), None)
     with _config_cache_lock:
         _config_cache["mtime"] = 0.0
 
@@ -10385,7 +10435,7 @@ def get_gateway_served_profiles() -> list[str]:
     return []
 
 
-def get_gateway_profile_statuses() -> dict[str, dict]:
+def get_gateway_profile_statuses(profiles: list[dict] | None = None) -> dict[str, dict]:
     """Status gateway per profil: running/served tidaknya + PID + umur state.
 
     Sumber tunggal: gateway_state.json + cek PID hidup via os.kill(pid, 0).
@@ -10412,7 +10462,7 @@ def get_gateway_profile_statuses() -> dict[str, dict]:
     except Exception:
         state_age_s = None
     out: dict[str, dict] = {}
-    for p in list_agent_profiles():
+    for p in (profiles if profiles is not None else list_agent_profiles()):
         name = p["name"]
         out[name] = {
             "served": name in served,
@@ -10454,21 +10504,21 @@ def render_gateway_profile_badge(name: str, statuses: dict[str, dict] | None = N
         return ""
 
 
-def _profile_skill_tool_summary(name: str) -> tuple[int, object, str]:
+def _profile_skill_tool_summary(name: str, total_skills: int | None = None) -> tuple[int, object, str]:
     """Ringkasan kecil utk kartu profil: (skills_aktif, tools_aktif, ket_nonaktif)."""
     def _compute():
         try:
             nm = (name or "").strip().lower()
             root = get_hermes_root()
             home = root if nm == "default" else (root / "profiles" / nm)
-            total_skills = _count_skills_in_dir(home / "skills")
+            tot = total_skills if total_skills is not None else _count_skills_in_dir(home / "skills")
             cfg_file, _ = _profile_cfg_file(nm)
             cfg = _read_profile_cfg(cfg_file) if cfg_file else {}
             sk_cfg = cfg.get("skills") if isinstance(cfg.get("skills"), dict) else {}
             raw_dis = sk_cfg.get("disabled") if isinstance(sk_cfg, dict) else []
             items = [raw_dis] if isinstance(raw_dis, str) else (list(raw_dis) if isinstance(raw_dis, (list, tuple, set)) else [])
             dis_skills = {str(v).strip() for v in items if str(v).strip()}
-            skills_en = max(0, total_skills - len(dis_skills))
+            skills_en = max(0, tot - len(dis_skills))
         except Exception:
             skills_en = 0
         try:
@@ -10503,7 +10553,7 @@ def _render_profiles_block_uncached() -> str:
     )
 
     cards = []
-    gw_statuses = get_gateway_profile_statuses()
+    gw_statuses = get_gateway_profile_statuses(profiles=profiles)
     for p in profiles:
         name = p["name"]
         safe_name = html.escape(name.replace("\\", "\\\\").replace("'", "\\'"), quote=True)
@@ -10517,7 +10567,7 @@ def _render_profiles_block_uncached() -> str:
         has_env = p.get("has_env", False)
         has_soul = p.get("has_soul", False)
         gw_badge = render_gateway_profile_badge(name, gw_statuses)
-        skills_en, tools_en, tools_dis = _profile_skill_tool_summary(name)
+        skills_en, tools_en, tools_dis = _profile_skill_tool_summary(name, total_skills=skills_cnt)
 
         act_badge = '<span class="live-badge badge-up" style="font-size:0.65rem;padding:0.15rem 0.45rem">AKTIF</span>' if is_act else ''
         type_badge = '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">Default</span>' if is_def else '<span class="badge" style="background:rgba(59,130,246,0.12);color:var(--accent);font-size:0.65rem">Profil</span>'
@@ -12865,16 +12915,28 @@ def get_router_update_result() -> dict:
         return dict(_router_update_result)
 
 
+_router_status_cache = {"at": 0.0, "up": False, "ms": 0.0, "host": "127.0.0.1"}
+_router_status_lock = threading.Lock()
+ROUTER_STATUS_TTL = 3.0
+
+
 def get_router_status() -> tuple[bool, float, str]:
+    now = time.monotonic()
+    with _router_status_lock:
+        if now - _router_status_cache["at"] < ROUTER_STATUS_TTL:
+            return _router_status_cache["up"], _router_status_cache["ms"], _router_status_cache["host"]
     host = get_9router_host()
     port = get_9router_port()
     start = time.monotonic()
     try:
-        with socket.create_connection((host, port), timeout=INFO_TIMEOUT) as s:
+        with socket.create_connection((host, port), timeout=INFO_TIMEOUT):
             pass
-        return True, time.monotonic() - start, host
+        up, dt = True, time.monotonic() - start
     except Exception:
-        return False, time.monotonic() - start, host
+        up, dt = False, time.monotonic() - start
+    with _router_status_lock:
+        _router_status_cache.update(at=now, up=up, ms=dt, host=host)
+    return up, dt, host
 
 
 def get_ram_info() -> tuple[float, str]:
@@ -13308,6 +13370,28 @@ def render_processes_table() -> str:
     )
 
 
+_casaos_compose_cache: dict[str, tuple[int, dict]] = {}
+_casaos_compose_lock = threading.Lock()
+
+
+def _read_casaos_compose_meta(compose_file: str) -> dict:
+    try:
+        st = os.stat(compose_file)
+        with _casaos_compose_lock:
+            cached = _casaos_compose_cache.get(compose_file)
+            if cached and cached[0] == st.st_mtime_ns:
+                return cached[1]
+        with open(compose_file, "r", encoding="utf-8") as f:
+            y = yaml.safe_load(f) or {}
+        xc = y.get("x-casaos", {})
+        res = xc if isinstance(xc, dict) else {}
+        with _casaos_compose_lock:
+            _casaos_compose_cache[compose_file] = (st.st_mtime_ns, res)
+        return res
+    except Exception:
+        return {}
+
+
 def get_docker_containers_info() -> list[dict]:
     """Retrieve list of active and inactive docker containers with CasaOS metadata."""
     try:
@@ -13357,10 +13441,8 @@ def get_docker_containers_info() -> list[dict]:
 
         if compose_file and os.path.exists(compose_file):
             try:
-                with open(compose_file, "r", encoding="utf-8") as f:
-                    y = yaml.safe_load(f) or {}
-                xc = y.get("x-casaos", {})
-                if isinstance(xc, dict):
+                xc = _read_casaos_compose_meta(compose_file)
+                if isinstance(xc, dict) and xc:
                     t = xc.get("title")
                     if isinstance(t, dict):
                         title = t.get("custom") or t.get("en_us") or t.get("en_US") or title
@@ -13889,10 +13971,11 @@ def render_auth_setting_block() -> str:
     )
 
 
-def build_fragments() -> dict:
+def build_fragments(sse_only: bool = False) -> dict:
     """Compute every dynamic HTML fragment (plus a couple of raw flags) in one
     place, so the initial full-page render and the /api/status poll can never
-    drift apart. Returns a JSON-serializable dict."""
+    drift apart. When sse_only=True, skip the 17 static blocks that SSE_CLIENT_KEYS
+    never sends. Returns a JSON-serializable dict."""
     dash_active = is_dashboard_active()
     gw_active = service_active("hermes-gateway", user=True)
     router_up, router_ms, router_host = get_router_status()
@@ -13960,6 +14043,74 @@ def build_fragments() -> dict:
         ),
         "gw_platforms": cell_gw_platforms,
     }
+
+    update_result = get_router_update_result()
+    if updating:
+        log_card = render_log_card(tail_update_log(), update_result)
+    else:
+        log_card = render_log_card(tail_update_log(), update_result) if update_result.get("status") in ("success", "failed") else ""
+
+    hermes_upd = get_hermes_update()
+    hermes_behind = hermes_upd.get("behind", 0)
+    hermes_local = hermes_upd.get("local", "?")
+    hermes_status = hermes_upd.get("status", "unknown")
+    hermes_result = get_hermes_update_result()
+    hermes_log = html.escape(redact_sensitive_tokens(tail_hermes_update_log()))
+
+    if hermes_result.get("running"):
+        cells["hermes"] = f'<span class="value warn">Update berjalan…</span>'
+    elif hermes_status == "available":
+        cells["hermes"] = f'<span class="value warn">{html.escape(hermes_local)} (pembaruan tersedia)</span>'
+    elif hermes_status == "ahead":
+        cells["hermes"] = f'<span class="value up">{html.escape(hermes_local)} (lebih baru dari rilis)</span>'
+    elif hermes_status == "current":
+        cells["hermes"] = f'<span class="value up">{html.escape(hermes_local)} (terbaru)</span>'
+    else:
+        cells["hermes"] = f'<span class="value">{html.escape(hermes_local)}</span>'
+
+    # Permanently render Hermes log card whenever log file exists or update result exists
+    hermes_log_card = ""
+    if hermes_log or hermes_result.get("status") != "idle" or os.path.exists("/root/.hermes/logs/update.log"):
+        cls = "up" if hermes_result.get("status") == "success" else ("down" if hermes_result.get("status") == "failed" else "warn")
+        summary_text = html.escape(hermes_result.get("summary", "")) if hermes_result.get("summary") else ("Pembaruan sedang berjalan…" if hermes_result.get("running") else "Log Terakhir Pembaruan Hermes")
+        hermes_log_card = (
+            f'<div id="hermes-log-card" style="margin-top:0.8rem">'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:0.4rem">'
+            f'<div class="update-hint {cls}" style="margin:0;flex:1">{summary_text}</div>'
+            f'<button type="button" class="btn" style="width:auto;padding:0.2rem 0.6rem;font-size:0.72rem;margin:0" '
+            f"onclick=\"safeStore('setItem','hermesLogDismissed','1');var c=document.getElementById('hermes-log-card');if(c)c.remove();if(window.syncLogUI)syncLogUI()\">"
+            f'Sembunyikan Log</button>'
+            f'</div>'
+            f'<div class="logbox">{hermes_log or "(belum ada log)"}</div>'
+            f'</div>'
+        )
+
+    cpu_pct = get_cpu_percent()
+    try:
+        load1, load5, load15 = os.getloadavg()
+        cell_load = f"{load1:.2f}, {load5:.2f}, {load15:.2f}"
+    except Exception:
+        cell_load = "?"
+
+    if sse_only:
+        return {
+            "cells": cells,
+            "cell_load": cell_load,
+            "cpu_pct": cpu_pct,
+            "ram_pct": round(ram_pct, 1),
+            "processes_table": render_processes_table(),
+            "gateway_list_block": gateway_list_block,
+            "gw_summary_text": gw_summary_text,
+            "gw_summary_badge_class": gw_summary_badge_class,
+            "log_card": log_card,
+            "hermes_log_card": hermes_log_card,
+            "clean_junk_card": render_clean_junk_card(),
+            "gateway_log_card": gateway_log_card,
+            "profiles_block": render_profiles_block(),
+            "updating": updating,
+            "dash_active": dash_active,
+            "gw_active": gw_active,
+        }
 
     fetch_hermes_btn = (
         f'<a class="toggle restart" style="width:auto;flex:1;min-height:38px;padding:.4rem .8rem;font-size:.76rem" href="/fetch-hermes-models">'
@@ -14066,16 +14217,11 @@ def build_fragments() -> dict:
     else:
         rate_limit_card = ""
 
-    # Keep the remote Docker log visible during and after update. The exit code
-    # is rendered so a green-looking button cannot masquerade as success.
-    update_result = get_router_update_result()
     if updating:
         update_block = '<div class="update-hint">{}</div>'.format(
             f'{ICON_CLOCK}Menjalankan pembaruan 9router di {html.escape(router_host)}…'
         )
-        log_card = render_log_card(tail_update_log(), update_result)
     else:
-        log_card = render_log_card(tail_update_log(), update_result) if update_result.get("status") in ("success", "failed") else ""
         upd = get_update_status()
         cached_info = get_cached_router_info()
         installed_version = cached_info.get("version") or get_cached_router_version()
@@ -14112,13 +14258,6 @@ def build_fragments() -> dict:
         else:  # checking — the auto-poll picks up the settled result
             update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan 9router…</div>' + cek_btn + router_patch_notes_html
 
-    # Hermes update status
-    hermes_upd = get_hermes_update()
-    hermes_behind = hermes_upd.get("behind", 0)
-    hermes_local = hermes_upd.get("local", "?")
-    hermes_status = hermes_upd.get("status", "unknown")
-    hermes_result = get_hermes_update_result()
-    hermes_log = html.escape(redact_sensitive_tokens(tail_hermes_update_log()))
     hermes_notes = get_hermes_patch_notes()
     hermes_patch_notes_html = render_patch_notes_block("Hermes Agent", hermes_notes)
     hermes_cek_btn = f'<a class="toggle restart" href="/check-hermes-update">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
@@ -14127,7 +14266,6 @@ def build_fragments() -> dict:
     hermes_chan_txt = f" · channel {html.escape(hermes_channel)}" if hermes_channel else ""
 
     if hermes_result.get("running"):
-        cells["hermes"] = f'<span class="value warn">Update berjalan…</span>'
         hermes_update_block = (
             f'<div class="update-hint">{ICON_CLOCK}Updater Hermes sedang berjalan live…</div>'
             + hermes_patch_notes_html
@@ -14135,7 +14273,6 @@ def build_fragments() -> dict:
     elif hermes_status == "available":
         target_txt = (html.escape(hermes_remote) if hermes_remote and hermes_remote != hermes_local
                       else f"{hermes_behind} komit")
-        cells["hermes"] = f'<span class="value warn">{html.escape(hermes_local)} (pembaruan tersedia)</span>'
         hermes_update_block = (
             f'<div class="update-hint">{ICON_ARROW_UP_CIRCLE}Pembaruan tersedia: {target_txt}{hermes_chan_txt}</div>'
             f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);color:#141922" href="/update-hermes">'
@@ -14144,7 +14281,6 @@ def build_fragments() -> dict:
             + hermes_patch_notes_html
         )
     elif hermes_status == "ahead":
-        cells["hermes"] = f'<span class="value up">{html.escape(hermes_local)} (lebih baru dari rilis)</span>'
         hermes_update_block = (
             f'<div class="update-hint">{ICON_CHECK}Versi terpasang ({html.escape(hermes_local)}) lebih baru dari rilis '
             f'{html.escape(hermes_remote) or "channel ini"}{hermes_chan_txt}. Tombol update disembunyikan karena '
@@ -14153,14 +14289,12 @@ def build_fragments() -> dict:
             + hermes_patch_notes_html
         )
     elif hermes_status == "current":
-        cells["hermes"] = f'<span class="value up">{html.escape(hermes_local)} (terbaru)</span>'
         hermes_update_block = (
             f'<div class="update-hint">{ICON_CHECK}Hermes sudah versi terbaru ({html.escape(hermes_remote or hermes_local)}{hermes_chan_txt})</div>'
             + hermes_cek_btn
             + hermes_patch_notes_html
         )
     elif hermes_status == "unknown":
-        cells["hermes"] = f'<span class="value">{html.escape(hermes_local)}</span>'
         err_txt = html.escape(hermes_upd.get("error") or "")
         hermes_update_block = (
             f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek pembaruan Hermes — periksa koneksi atau coba lagi'
@@ -14169,28 +14303,10 @@ def build_fragments() -> dict:
             + hermes_patch_notes_html
         )
     else:  # checking
-        cells["hermes"] = f'<span class="value">{html.escape(hermes_local)}</span>'
         hermes_update_block = (
             f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan Hermes…</div>'
             + hermes_cek_btn
             + hermes_patch_notes_html
-        )
-
-    # Permanently render Hermes log card whenever log file exists or update result exists
-    hermes_log_card = ""
-    if hermes_log or hermes_result.get("status") != "idle" or os.path.exists("/root/.hermes/logs/update.log"):
-        cls = "up" if hermes_result.get("status") == "success" else ("down" if hermes_result.get("status") == "failed" else "warn")
-        summary_text = html.escape(hermes_result.get("summary", "")) if hermes_result.get("summary") else ("Pembaruan sedang berjalan…" if hermes_result.get("running") else "Log Terakhir Pembaruan Hermes")
-        hermes_log_card = (
-            f'<div id="hermes-log-card" style="margin-top:0.8rem">'
-            f'<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:0.4rem">'
-            f'<div class="update-hint {cls}" style="margin:0;flex:1">{summary_text}</div>'
-            f'<button type="button" class="btn" style="width:auto;padding:0.2rem 0.6rem;font-size:0.72rem;margin:0" '
-            f"onclick=\"safeStore('setItem','hermesLogDismissed','1');var c=document.getElementById('hermes-log-card');if(c)c.remove();if(window.syncLogUI)syncLogUI()\">"
-            f'Sembunyikan Log</button>'
-            f'</div>'
-            f'<div class="logbox">{hermes_log or "(belum ada log)"}</div>'
-            f'</div>'
         )
     hermes_update_block += f'<div id="hermes-log-slot">{hermes_log_card}</div>'
 
@@ -14211,13 +14327,6 @@ def build_fragments() -> dict:
         f'<a class="toggle restart" href="/restart-bot">{ICON_REFRESH}Mulai Ulang Gateway</a>'
         f'<a class="toggle restart" href="/clean-junk">{ICON_TRASH}Bersihkan Sampah</a>'
     )
-
-    cpu_pct = get_cpu_percent()
-    try:
-        load1, load5, load15 = os.getloadavg()
-        cell_load = f"{load1:.2f}, {load5:.2f}, {load15:.2f}"
-    except Exception:
-        cell_load = "?"
 
     return {
         "cells": cells,
@@ -14553,7 +14662,7 @@ def _sse_push_loop():
 
         tick_count += 1
         try:
-            frag = build_fragments()
+            frag = build_fragments(sse_only=True)
             data = _sse_payload(frag)
 
             # Extract meaningful signals from cells for change detection
@@ -15355,7 +15464,7 @@ class Handler(BaseHTTPRequestHandler):
                 _sse_active_event.set()
             try:
                 # Send current state immediately
-                frag = build_fragments()
+                frag = build_fragments(sse_only=True)
                 data = _sse_payload(frag)
                 self.wfile.write(f"event: update\ndata: {data}\n\n".encode())
                 self.wfile.flush()

@@ -2251,10 +2251,15 @@ process.stdout.write(serializeGwFormToYaml('discord'));
         self.assertIn('value=""', block, "a 'Hermes default' choice that removes the key")
 
     def test_49_sse_client_keys_parity(self):
-        """build_fragments() must return every key defined in SSE_CLIENT_KEYS."""
+        """build_fragments() and build_fragments(sse_only=True) must return every key defined in SSE_CLIENT_KEYS."""
         frag = panel.build_fragments()
+        frag_sse = panel.build_fragments(sse_only=True)
         for k in panel.SSE_CLIENT_KEYS:
             self.assertIn(k, frag, f"Key '{k}' in SSE_CLIENT_KEYS must be returned by build_fragments()")
+            self.assertIn(k, frag_sse, f"Key '{k}' in SSE_CLIENT_KEYS must be returned by build_fragments(sse_only=True)")
+        self.assertNotIn("docker_apps_block", frag_sse)
+        self.assertNotIn("kanban_board_block", frag_sse)
+        self.assertNotIn("model_chips", frag_sse)
 
     def test_49b_sse_zero_wakeup_and_auto_trim_lifecycle(self):
         """Zero-wakeup event toggles with active clients; trim runs on last disconnect."""
