@@ -2948,9 +2948,25 @@ class TestKanbanBoard(unittest.TestCase):
     def test_06_delete_task(self):
         _, _, task_id = panel.create_kanban_task(title="Delete Me")
         panel.add_kanban_comment(task_id, "temporary note")
+        db_path = panel.get_kanban_db_path()
+        with panel.closing(panel.ensure_kanban_db(db_path)) as con:
+            with con:
+                con.execute(
+                    "INSERT INTO task_attachments (task_id, filename, stored_path, size, created_at) VALUES (?, 'a.txt', '/tmp/a', 1, 1)",
+                    (task_id,),
+                )
+        # Early return paths must not leak connections
+        ok_nf, _ = panel.update_kanban_task_status("t_missing", "done")
+        self.assertFalse(ok_nf)
+        ok_noop, _ = panel.update_kanban_task(task_id)
+        self.assertTrue(ok_noop)
+
         ok, msg = panel.delete_kanban_task(task_id)
         self.assertTrue(ok, msg)
         self.assertIsNone(panel.get_kanban_task(task_id))
+        with panel.closing(panel.ensure_kanban_db(db_path)) as con:
+            cnt = con.execute("SELECT COUNT(*) FROM task_attachments WHERE task_id = ?", (task_id,)).fetchone()[0]
+            self.assertEqual(cnt, 0)
 
     def test_07_boards_management(self):
         boards = panel.list_kanban_boards()

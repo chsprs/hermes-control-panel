@@ -33,7 +33,7 @@ a loading spinner. All rendering stays server-side — /api/status returns the
 same HTML fragments the initial page uses, so the client never re-implements it.
 """
 
-from contextlib import suppress
+from contextlib import closing, suppress
 import copy
 import ctypes
 import ctypes.util
@@ -9124,8 +9124,7 @@ def fetch_hermes_agent_models(sync_hermes: bool = True) -> dict:
         combo_names = set()
         if os.path.exists(ROUTER_DB_PATH):
             try:
-                import sqlite3
-                with sqlite3.connect(ROUTER_DB_PATH, timeout=1.0) as conn:
+                with closing(sqlite3.connect(ROUTER_DB_PATH, timeout=1.0)) as conn:
                     cur = conn.cursor()
                     cur.execute("SELECT name FROM combos")
                     combo_names.update(r[0] for r in cur.fetchall())
@@ -9222,12 +9221,10 @@ def get_combos_from_db() -> list[str]:
     """Fallback: read combo models directly from 9router SQLite database."""
     try:
         if os.path.exists(ROUTER_DB_PATH):
-            conn = sqlite3.connect(f"file:{ROUTER_DB_PATH}?mode=ro", uri=True, timeout=1.0)
-            cur = conn.cursor()
-            cur.execute("SELECT name FROM combos ORDER BY name ASC")
-            combos = [r[0] for r in cur.fetchall() if r[0]]
-            conn.close()
-            return combos
+            with closing(sqlite3.connect(f"file:{ROUTER_DB_PATH}?mode=ro", uri=True, timeout=1.0)) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM combos ORDER BY name ASC")
+                return [r[0] for r in cur.fetchall() if r[0]]
     except Exception:
         pass
     return []
@@ -10774,10 +10771,9 @@ def list_kanban_boards() -> list[dict]:
     def_count = 0
     try:
         if def_path.is_file():
-            con = sqlite3.connect(str(def_path), timeout=3.0)
-            con.execute("PRAGMA synchronous=NORMAL")
-            def_count = con.execute("SELECT COUNT(*) FROM tasks WHERE status != 'archived'").fetchone()[0]
-            con.close()
+            with closing(sqlite3.connect(str(def_path), timeout=3.0)) as con:
+                con.execute("PRAGMA synchronous=NORMAL")
+                def_count = con.execute("SELECT COUNT(*) FROM tasks WHERE status != 'archived'").fetchone()[0]
     except Exception:
         pass
 
@@ -10799,10 +10795,9 @@ def list_kanban_boards() -> list[dict]:
                     b_count = 0
                     try:
                         if b_path.is_file():
-                            con = sqlite3.connect(str(b_path), timeout=3.0)
-                            con.execute("PRAGMA synchronous=NORMAL")
-                            b_count = con.execute("SELECT COUNT(*) FROM tasks WHERE status != 'archived'").fetchone()[0]
-                            con.close()
+                            with closing(sqlite3.connect(str(b_path), timeout=3.0)) as con:
+                                con.execute("PRAGMA synchronous=NORMAL")
+                                b_count = con.execute("SELECT COUNT(*) FROM tasks WHERE status != 'archived'").fetchone()[0]
                     except Exception:
                         pass
                     boards.append({
@@ -11130,25 +11125,24 @@ def create_kanban_task(
 
     db_path = get_kanban_db_path(board)
     try:
-        con = ensure_kanban_db(db_path)
-        with con:
-            con.execute("""
-                INSERT INTO tasks (
-                    id, title, body, assignee, status, priority, created_by, created_at,
-                    started_at, completed_at, model_override, skills
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                task_id, title, body or None, assignee, status, pri_val, "web-panel", now,
-                now if status == "running" else None,
-                now if status == "done" else None,
-                model_override,
-                json.dumps(skills) if skills else None
-            ))
-            con.execute("""
-                INSERT INTO task_events (task_id, kind, payload, created_at)
-                VALUES (?, 'created', ?, ?)
-            """, (task_id, json.dumps({"title": title, "assignee": assignee, "status": status}), now))
-        con.close()
+        with closing(ensure_kanban_db(db_path)) as con:
+            with con:
+                con.execute("""
+                    INSERT INTO tasks (
+                        id, title, body, assignee, status, priority, created_by, created_at,
+                        started_at, completed_at, model_override, skills
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    task_id, title, body or None, assignee, status, pri_val, "web-panel", now,
+                    now if status == "running" else None,
+                    now if status == "done" else None,
+                    model_override,
+                    json.dumps(skills) if skills else None
+                ))
+                con.execute("""
+                    INSERT INTO task_events (task_id, kind, payload, created_at)
+                    VALUES (?, 'created', ?, ?)
+                """, (task_id, json.dumps({"title": title, "assignee": assignee, "status": status}), now))
         _invalidate_status_cache("kanban_board_block", "kanban_board_options")
         return True, "Tugas berhasil dibuat.", task_id
     except Exception as e:
@@ -11169,46 +11163,40 @@ def update_kanban_task_status(
 
     db_path = get_kanban_db_path(board)
     try:
-        con = ensure_kanban_db(db_path)
-        now = int(time.time())
-        with con:
-            cur = con.execute("SELECT status, started_at FROM tasks WHERE id = ?", (task_id,))
-            row = cur.fetchone()
-            if not row:
-                return False, f"Tugas '{task_id}' tidak ditemukan."
+        with closing(ensure_kanban_db(db_path)) as con:
+            now = int(time.time())
+            with con:
+                cur = con.execute("SELECT status, started_at FROM tasks WHERE id = ?", (task_id,))
+                row = cur.fetchone()
+                if not row:
+                    return False, f"Tugas '{task_id}' tidak ditemukan."
 
-            db_status = new_status
-            started_at = row["started_at"]
-            if new_status == "running" and not started_at:
-                started_at = now
-            completed_at = now if new_status == "done" else None
+                db_status = new_status
+                started_at = row["started_at"]
+                if new_status == "running" and not started_at:
+                    started_at = now
+                completed_at = now if new_status == "done" else None
+                block_kind = kind if new_status == "blocked" else None
 
-            # If moving out of running, release locks
-            claim_lock = None if new_status != "running" else None
-            worker_pid = None if new_status != "running" else None
+                con.execute("""
+                    UPDATE tasks SET
+                        status = ?,
+                        started_at = ?,
+                        completed_at = ?,
+                        claim_lock = CASE WHEN ? = 'running' THEN claim_lock ELSE NULL END,
+                        claim_expires = CASE WHEN ? = 'running' THEN claim_expires ELSE NULL END,
+                        worker_pid = CASE WHEN ? = 'running' THEN worker_pid ELSE NULL END,
+                        block_kind = ?
+                    WHERE id = ?
+                """, (db_status, started_at, completed_at, new_status, new_status, new_status, block_kind, task_id))
 
-            block_kind = kind if new_status == "blocked" else None
-
-            con.execute("""
-                UPDATE tasks SET
-                    status = ?,
-                    started_at = ?,
-                    completed_at = ?,
-                    claim_lock = CASE WHEN ? = 'running' THEN claim_lock ELSE NULL END,
-                    claim_expires = CASE WHEN ? = 'running' THEN claim_expires ELSE NULL END,
-                    worker_pid = CASE WHEN ? = 'running' THEN worker_pid ELSE NULL END,
-                    block_kind = ?
-                WHERE id = ?
-            """, (db_status, started_at, completed_at, new_status, new_status, new_status, block_kind, task_id))
-
-            payload = {"from": row["status"], "to": new_status}
-            if reason:
-                payload["reason"] = reason
-            con.execute("""
-                INSERT INTO task_events (task_id, kind, payload, created_at)
-                VALUES (?, 'status_change', ?, ?)
-            """, (task_id, json.dumps(payload), now))
-        con.close()
+                payload = {"from": row["status"], "to": new_status}
+                if reason:
+                    payload["reason"] = reason
+                con.execute("""
+                    INSERT INTO task_events (task_id, kind, payload, created_at)
+                    VALUES (?, 'status_change', ?, ?)
+                """, (task_id, json.dumps(payload), now))
         _invalidate_status_cache("kanban_board_block")
         return True, "Status berhasil diperbarui."
     except Exception as e:
@@ -11227,35 +11215,34 @@ def update_kanban_task(
     """Update task fields."""
     db_path = get_kanban_db_path(board)
     try:
-        con = ensure_kanban_db(db_path)
-        with con:
-            fields = []
-            vals = []
-            if title is not None:
-                fields.append("title = ?")
-                vals.append(title.strip())
-            if body is not None:
-                fields.append("body = ?")
-                vals.append(body.strip() or None)
-            if assignee is not None:
-                fields.append("assignee = ?")
-                vals.append(assignee.strip().lower() or None)
-            if priority is not None:
-                try:
-                    pri_val = int(priority)
-                except (ValueError, TypeError):
-                    pri_val = 0
-                fields.append("priority = ?")
-                vals.append(pri_val)
-            if model_override is not None:
-                fields.append("model_override = ?")
-                vals.append(model_override.strip() or None)
+        with closing(ensure_kanban_db(db_path)) as con:
+            with con:
+                fields = []
+                vals = []
+                if title is not None:
+                    fields.append("title = ?")
+                    vals.append(title.strip())
+                if body is not None:
+                    fields.append("body = ?")
+                    vals.append(body.strip() or None)
+                if assignee is not None:
+                    fields.append("assignee = ?")
+                    vals.append(assignee.strip().lower() or None)
+                if priority is not None:
+                    try:
+                        pri_val = int(priority)
+                    except (ValueError, TypeError):
+                        pri_val = 0
+                    fields.append("priority = ?")
+                    vals.append(pri_val)
+                if model_override is not None:
+                    fields.append("model_override = ?")
+                    vals.append(model_override.strip() or None)
 
-            if not fields:
-                return True, "Tidak ada perubahan."
-            vals.append(task_id)
-            con.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?", vals)
-        con.close()
+                if not fields:
+                    return True, "Tidak ada perubahan."
+                vals.append(task_id)
+                con.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?", vals)
         _invalidate_status_cache("kanban_board_block")
         return True, "Tugas berhasil diperbarui."
     except Exception as e:
@@ -11263,17 +11250,20 @@ def update_kanban_task(
 
 
 def delete_kanban_task(task_id: str, board: str = "") -> tuple[bool, str]:
-    """Delete a task and its associated links, comments, events, and runs."""
+    """Delete a task and its associated links, comments, events, runs, and attachments."""
     db_path = get_kanban_db_path(board)
     try:
-        con = ensure_kanban_db(db_path)
-        with con:
-            con.execute("DELETE FROM task_links WHERE parent_id = ? OR child_id = ?", (task_id, task_id))
-            con.execute("DELETE FROM task_comments WHERE task_id = ?", (task_id,))
-            con.execute("DELETE FROM task_events WHERE task_id = ?", (task_id,))
-            con.execute("DELETE FROM task_runs WHERE task_id = ?", (task_id,))
-            con.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-        con.close()
+        with closing(ensure_kanban_db(db_path)) as con:
+            with con:
+                con.execute("DELETE FROM task_links WHERE parent_id = ? OR child_id = ?", (task_id, task_id))
+                con.execute("DELETE FROM task_comments WHERE task_id = ?", (task_id,))
+                con.execute("DELETE FROM task_events WHERE task_id = ?", (task_id,))
+                con.execute("DELETE FROM task_runs WHERE task_id = ?", (task_id,))
+                with suppress(sqlite3.OperationalError):
+                    con.execute("DELETE FROM task_attachments WHERE task_id = ?", (task_id,))
+                with suppress(sqlite3.OperationalError):
+                    con.execute("DELETE FROM kanban_notify_subs WHERE task_id = ?", (task_id,))
+                con.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
         _invalidate_status_cache("kanban_board_block", "kanban_board_options")
         return True, f"Tugas '{task_id}' berhasil dihapus."
     except Exception as e:
@@ -11284,22 +11274,21 @@ def reclaim_kanban_task(task_id: str, board: str = "") -> tuple[bool, str]:
     """Release active claim lock and reset running task to ready."""
     db_path = get_kanban_db_path(board)
     try:
-        con = ensure_kanban_db(db_path)
-        now = int(time.time())
-        with con:
-            con.execute("""
-                UPDATE tasks SET
-                    status = 'ready',
-                    claim_lock = NULL,
-                    claim_expires = NULL,
-                    worker_pid = NULL
-                WHERE id = ?
-            """, (task_id,))
-            con.execute("""
-                INSERT INTO task_events (task_id, kind, payload, created_at)
-                VALUES (?, 'reclaimed', ?, ?)
-            """, (task_id, json.dumps({"by": "web-panel"}), now))
-        con.close()
+        with closing(ensure_kanban_db(db_path)) as con:
+            now = int(time.time())
+            with con:
+                con.execute("""
+                    UPDATE tasks SET
+                        status = 'ready',
+                        claim_lock = NULL,
+                        claim_expires = NULL,
+                        worker_pid = NULL
+                    WHERE id = ?
+                """, (task_id,))
+                con.execute("""
+                    INSERT INTO task_events (task_id, kind, payload, created_at)
+                    VALUES (?, 'reclaimed', ?, ?)
+                """, (task_id, json.dumps({"by": "web-panel"}), now))
         _invalidate_status_cache("kanban_board_block")
         return True, "Tugas berhasil di-reclaim dan dikembalikan ke antrean ready."
     except Exception as e:
@@ -11313,18 +11302,17 @@ def add_kanban_comment(task_id: str, body: str, author: str = "web-panel", board
         return False, "Komentar tidak boleh kosong."
     db_path = get_kanban_db_path(board)
     try:
-        con = ensure_kanban_db(db_path)
-        now = int(time.time())
-        with con:
-            con.execute("""
-                INSERT INTO task_comments (task_id, author, body, created_at)
-                VALUES (?, ?, ?, ?)
-            """, (task_id, (author or "web-panel").strip(), body, now))
-            con.execute("""
-                INSERT INTO task_events (task_id, kind, payload, created_at)
-                VALUES (?, 'commented', ?, ?)
-            """, (task_id, json.dumps({"author": author}), now))
-        con.close()
+        with closing(ensure_kanban_db(db_path)) as con:
+            now = int(time.time())
+            with con:
+                con.execute("""
+                    INSERT INTO task_comments (task_id, author, body, created_at)
+                    VALUES (?, ?, ?, ?)
+                """, (task_id, (author or "web-panel").strip(), body, now))
+                con.execute("""
+                    INSERT INTO task_events (task_id, kind, payload, created_at)
+                    VALUES (?, 'commented', ?, ?)
+                """, (task_id, json.dumps({"author": author}), now))
         _invalidate_status_cache("kanban_board_block")
         return True, "Komentar berhasil ditambahkan."
     except Exception as e:
@@ -12615,6 +12603,7 @@ def cleanup_system_junk() -> dict:
     # 3. Clean package caches (uv, pip, go-build, typescript, opencode)
     pkg_dirs = [
         ("Cache UV", "/root/.cache/uv"),
+        ("Cache UV Hermes", "/opt/AppData/hermes-native/hermes-data/cache/uv"),
         ("Cache PIP", "/root/.cache/pip"),
         ("Cache Go", "/root/.cache/go-build"),
         ("Cache TypeScript", "/root/.cache/typescript"),
@@ -12625,16 +12614,23 @@ def cleanup_system_junk() -> dict:
             dir_freed = 0
             dir_items = 0
             try:
-                for dp, _, fns in os.walk(cdir):
+                for dp, _, fns in os.walk(cdir, topdown=False):
                     for fn in fns:
                         fp = os.path.join(dp, fn)
                         try:
-                            sz = os.path.getsize(fp)
+                            st = os.lstat(fp)
+                            # Skip files hardlinked into active venvs (st_nlink > 1)
+                            if st.st_nlink > 1:
+                                continue
+                            sz = st.st_size
                             os.remove(fp)
                             dir_freed += sz
                             dir_items += 1
                         except OSError:
                             pass
+                    if dp != cdir:
+                        with suppress(OSError):
+                            os.rmdir(dp)
             except Exception:
                 pass
             if dir_items > 0:
@@ -12646,19 +12642,23 @@ def cleanup_system_junk() -> dict:
 
     # 4. Clean Hermes runtime caches (terminal-output, spillover, scratch, delegation, web)
     hermes_cache_dirs = [
-        ("Terminal Output", "/DATA/AppData/hermes-native/hermes-data/cache/terminal-output"),
-        ("Spillover Data", "/DATA/AppData/hermes-native/hermes-data/cache/spillover"),
-        ("Scratch Files", "/DATA/AppData/hermes-native/hermes-data/cache/scratch"),
-        ("Delegation Subagent", "/DATA/AppData/hermes-native/hermes-data/cache/delegation"),
-        ("Web Scrape Cache", "/DATA/AppData/hermes-native/hermes-data/cache/web"),
+        ("Terminal Output", "/opt/AppData/hermes-native/hermes-data/cache/terminal-output"),
+        ("Spillover Data", "/opt/AppData/hermes-native/hermes-data/cache/spillover"),
+        ("Scratch Files", "/opt/AppData/hermes-native/hermes-data/cache/scratch"),
+        ("Delegation Subagent", "/opt/AppData/hermes-native/hermes-data/cache/delegation"),
+        ("Web Scrape Cache", "/opt/AppData/hermes-native/hermes-data/cache/web"),
     ]
     now_ts = time.time()
     for label, hdir in hermes_cache_dirs:
+        if not os.path.exists(hdir):
+            legacy_dir = hdir.replace("/opt/AppData/", "/DATA/AppData/", 1)
+            if os.path.exists(legacy_dir):
+                hdir = legacy_dir
         if os.path.exists(hdir):
             h_freed = 0
             h_items = 0
             try:
-                for dp, _, fns in os.walk(hdir):
+                for dp, _, fns in os.walk(hdir, topdown=False):
                     for fn in fns:
                         fp = os.path.join(dp, fn)
                         try:
@@ -12671,6 +12671,9 @@ def cleanup_system_junk() -> dict:
                             h_items += 1
                         except OSError:
                             pass
+                    if dp != hdir:
+                        with suppress(OSError):
+                            os.rmdir(dp)
             except Exception:
                 pass
             if h_items > 0:
@@ -13769,11 +13772,10 @@ def get_rate_limited_providers() -> list[dict]:
     """Retrieve detailed recent errors for accounts/providers with actual account name."""
     details = []
     try:
-        conn = sqlite3.connect(f"file:{ROUTER_DB_PATH}?mode=ro", uri=True, timeout=INFO_TIMEOUT)
-        cur = conn.cursor()
-        cur.execute("select id, provider, name, email, data from providerConnections")
-        rows = cur.fetchall()
-        conn.close()
+        with closing(sqlite3.connect(f"file:{ROUTER_DB_PATH}?mode=ro", uri=True, timeout=INFO_TIMEOUT)) as conn:
+            cur = conn.cursor()
+            cur.execute("select id, provider, name, email, data from providerConnections")
+            rows = cur.fetchall()
     except Exception:
         return details
 
