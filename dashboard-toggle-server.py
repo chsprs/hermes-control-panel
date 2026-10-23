@@ -7155,13 +7155,27 @@ _9router_port_lock = threading.Lock()
 
 
 def get_9router_port() -> int:
-    """Auto-detect 9router's host port from Docker, cached for 30s."""
+    """Auto-detect 9router's host port from systemd unit or Docker, cached for 30s."""
     global _9router_port_cache, _9router_port_at
     now = time.monotonic()
     with _9router_port_lock:
         if (now - _9router_port_at) < 30.0:
             return _9router_port_cache
     try:
+        if os.path.isfile("/etc/systemd/system/9router.service"):
+            with open("/etc/systemd/system/9router.service", "r", encoding="utf-8") as f:
+                for line in f:
+                    m = re.match(r"^\s*Environment=PORT=(\d+)\s*$", line)
+                    if m:
+                        val = int(m.group(1))
+                        with _9router_port_lock:
+                            _9router_port_cache = val
+                            _9router_port_at = now
+                        return val
+            with _9router_port_lock:
+                _9router_port_cache = 20128
+                _9router_port_at = now
+            return 20128
         r = subprocess.run(
             ["docker", "inspect", ROUTER_CONTAINER,
              "--format", "{{range $p, $conf := .NetworkSettings.Ports}}{{$p}}->{{(index $conf 0).HostPort}}{{end}}"],
@@ -8112,13 +8126,13 @@ var MUTATING_PREFIXES = [
 ];
 var CONFIRM_ROUTES = [
   {match:'/update-hermes', title:'Perbarui Hermes Agent', msg:'Perbarui Hermes via git pull + install dependency + mulai ulang gateway. Bot tidak bisa dibalas selama proses (beberapa menit). Lanjutkan?'},
-  {match:'/update-router', title:'Perbarui 9router', msg:'Perbarui 9router via docker compose pull + up -d. Kontainer 9router akan mulai ulang. Lanjutkan?'},
+  {match:'/update-router', title:'Perbarui 9router', msg:'Perbarui 9router via npm install -g 9router@latest + mulai ulang layanan 9router.service. Lanjutkan?'},
   {match:'/restart-bot', title:'Mulai Ulang Hermes Gateway', msg:'Mulai ulang service hermes-gateway? Seluruh koneksi platform perpesanan akan mulai ulang dalam beberapa detik.'},
   {match:'/bot-toggle', title:'Ubah Status Gateway', msg:'Ubah status hidup/mati Hermes Gateway? Seluruh platform perpesanan yang terhubung akan ikut mati/hidup.'},
   {match:'/clean-junk', title:'Bersihkan Cache & Sampah', msg:'Bersihkan log pembaruan, cache package uv/pip, dan builder docker dangling untuk melegakan penyimpanan STB?'},
   {match:'/reset-aux', title:'Kembalikan Model Tugas', msg:'Kembalikan semua model tugas tambahan ke otomatis? Setiap tugas akan ikut model obrolan utama.'},
   {match:'/remove-fallback-model', title:'Hapus Model Cadangan', msg:'Hapus model ini dari daftar cadangan?'},
-  {match:'/process-action?service=9router&action=stop', title:'Hentikan 9router', msg:'Hentikan kontainer 9router? AI routing akan mati sampai dinyalakan lagi.'},
+  {match:'/process-action?service=9router&action=stop', title:'Hentikan 9router', msg:'Hentikan layanan 9router? AI routing akan mati sampai dinyalakan lagi.'},
   {match:'/process-action?service=cloudflared&action=stop', title:'Hentikan Cloudflared', msg:'Hentikan tunnel Cloudflared? Akses eksternal putus sampai dinyalakan lagi.'},
   {match:'/process-action?service=pihole-pihole-1&action=stop', title:'Hentikan Pi-hole', msg:'Hentikan Pi-hole? DNS dan anti-iklan mati sampai dinyalakan lagi.'},
   {match:'/process-action?service=casaos&action=stop', title:'Hentikan CasaOS', msg:'Hentikan layanan CasaOS? Dasbor web CasaOS tidak dapat diakses sampai dinyalakan kembali.'},
@@ -12436,19 +12450,27 @@ def _parse_semver(v: str) -> list[int]:
 
 
 def _refresh_update_cache() -> None:
-    """Compare Docker Hub digest, Docker Hub tags, and 9router release/version API."""
+    """Compare npm / 9router release API (native) or Docker Hub digest/tags (container)."""
     global _update_refreshing
     try:
         try:
-            local = get_local_image_digest()
-            remote = get_remote_image_digest()
+            is_native = os.path.isfile("/etc/systemd/system/9router.service")
             release = get_router_release()
-            docker_tag = get_dockerhub_latest_tag()
+            if is_native:
+                local = ""
+                remote = ""
+                docker_tag = ""
+            else:
+                local = get_local_image_digest()
+                remote = get_remote_image_digest()
+                docker_tag = get_dockerhub_latest_tag()
 
             digest_known = bool(local and remote)
             digest_differs = bool(digest_known and local != remote)
 
             installed_ver = release.get("current")
+            if not installed_ver or installed_ver == "?":
+                installed_ver = get_router_version()
             if not installed_ver or installed_ver == "?":
                 installed_ver = get_cached_router_version()
 
@@ -12457,12 +12479,20 @@ def _refresh_update_cache() -> None:
             if docker_tag and installed_ver and installed_ver != "?":
                 tag_is_newer = _parse_semver(docker_tag) > _parse_semver(installed_ver)
 
-            # Native or Docker update detection
-            is_native = os.path.isfile("/etc/systemd/system/9router.service")
             has_docker_update = digest_differs or tag_is_newer
 
             # Check if npm has released a newer version
             npm_latest = release.get("latest", "")
+            if is_native and (not npm_latest or npm_latest == "?"):
+                try:
+                    req = urllib.request.Request(
+                        "https://registry.npmjs.org/9router/latest",
+                        headers={"User-Agent": "Hermes-Panel"}
+                    )
+                    with urllib.request.urlopen(req, timeout=INFO_TIMEOUT) as resp:
+                        npm_latest = json.load(resp).get("version", "") or "?"
+                except Exception:
+                    pass
             npm_ahead = False
             if npm_latest and npm_latest != "?" and installed_ver and installed_ver != "?":
                 npm_ahead = _parse_semver(npm_latest) > _parse_semver(installed_ver)
@@ -12475,7 +12505,7 @@ def _refresh_update_cache() -> None:
                 target_ver = docker_tag or installed_ver
             elif installed_ver and installed_ver != "?":
                 status = "current"
-                target_ver = installed_ver
+                target_ver = (npm_latest if (is_native and npm_latest and npm_latest != "?") else installed_ver)
             else:
                 status = "unknown"
                 target_ver = "?"
@@ -12918,12 +12948,13 @@ def update_router() -> None:
                 changed = True
             elif "changed=false" in log_text:
                 changed = False
+            is_native = os.path.isfile("/etc/systemd/system/9router.service")
             if rc == 0 and changed is True:
-                summary = "Update nyata: image berubah, container direcreate"
+                summary = "Update nyata: paket npm diperbarui, layanan 9router direstart" if is_native else "Update nyata: image berubah, container direcreate"
             elif rc == 0 and changed is False:
-                summary = "Pull sukses, image tidak berubah — sudah terbaru"
+                summary = "Update npm sukses, paket tidak berubah — sudah terbaru" if is_native else "Pull sukses, image tidak berubah — sudah terbaru"
             elif rc == 0:
-                summary = "Compose selesai, perubahan image belum terdeteksi"
+                summary = "Update 9router selesai" if is_native else "Compose selesai, perubahan image belum terdeteksi"
             else:
                 summary = f"Update gagal (exit {rc})"
             with _router_update_lock:
@@ -13215,15 +13246,26 @@ def get_process_list(fresh: bool = False) -> list[dict]:
 
     # 2. 9router AI Engine
     try:
-        dst, dpid, dmem = get_docker_metric("9router", fresh=fresh)
-        is_run = (dst.lower() == "running")
+        if os.path.isfile("/etc/systemd/system/9router.service"):
+            props = get_systemd_show("9router.service", user=False, props="ActiveState,MainPID", fresh=fresh)
+            st = props.get("ActiveState", "inactive")
+            pid = props.get("MainPID", "0")
+            is_run = (st == "active")
+            dmem = _read_proc_rss_mb(pid) if is_run else 0.0
+            dpid = pid if (is_run and pid != "0") else "-"
+            kind_label = "Layanan Systemd"
+        else:
+            dst, dpid, dmem = get_docker_metric("9router", fresh=fresh)
+            is_run = (dst.lower() == "running")
+            dpid = dpid if is_run else "-"
+            kind_label = "Kontainer Docker"
         procs.append({
             "id": "9router",
             "name": "9router AI Routing Engine",
-            "kind": "Kontainer Docker",
+            "kind": kind_label,
             "status": "Berjalan" if is_run else "Berhenti",
             "is_active": is_run,
-            "pid": dpid if is_run else "-",
+            "pid": dpid,
             "mem_mb": dmem,
             "stop_url": "/process-action?service=9router&action=stop",
             "start_url": "/process-action?service=9router&action=start",
@@ -14060,8 +14102,13 @@ def build_fragments(sse_only: bool = False) -> dict:
         prov_badges.append(f'<span class="model-chip" style="font-size:.72rem;padding:.15rem .45rem"><span class="dot {cls_name}" style="width:5px;height:5px;margin-right:.3rem"></span>{pname}</span>')
     prov_html = " ".join(prov_badges) or '<span class="value">9router</span>'
 
+    is_native_router = os.path.isfile("/etc/systemd/system/9router.service")
+    router_sub_label = (
+        f"native v{get_router_version()} · {get_router_image_date()}"
+        if is_native_router else f"citra {get_router_image_date()}"
+    )
     cells = {
-        "dash": f'<span class="value" style="font-size:.72rem;color:var(--text-dim)">citra {get_router_image_date()}</span>' if router_up else '<span class="value down" style="font-size:.72rem">Offline</span>',
+        "dash": f'<span class="value" style="font-size:.72rem;color:var(--text-dim)">{html.escape(router_sub_label)}</span>' if router_up else '<span class="value down" style="font-size:.72rem">Offline</span>',
         "bot": cell("up" if gw_active else "down", "Aktif" if gw_active else "Mati"),
         "gw": f'<span class="value up">{gw_info}</span>' if gw_active else f'<span class="value down">{gw_info}</span>',
         "model": f'<span class="value {"warn" if model_not_listed else ""}" title="{"Model aktif tidak muncul di daftar model" if model_not_listed else ""}">{html.escape(model)}{" ⚠ tidak terdaftar" if model_not_listed else ""}</span>',
@@ -14288,15 +14335,17 @@ def build_fragments(sse_only: bool = False) -> dict:
             )
         elif upd == "current":
             npm_note = ""
-            if npm_ahead and npm_latest and npm_latest != installed_version:
+            if not is_native_router and npm_ahead and npm_latest and npm_latest != installed_version:
                 npm_note = f' <span style="font-size:0.75rem;color:var(--text-dim)">(v{npm_latest} rilis di npm, menunggu build image Docker Hub)</span>'
+            src_label = "npm" if is_native_router else "Docker Hub"
             update_block = (
-                f'<div class="update-hint">{ICON_CHECK}9router sudah versi terbaru di Docker Hub'
+                f'<div class="update-hint">{ICON_CHECK}9router sudah versi terbaru di {src_label}'
                 f' (v{installed_version}){npm_note}</div>' + cek_btn + router_patch_notes_html
             )
         elif upd == "unknown":
+            src_label = "npm" if is_native_router else "Docker Hub"
             update_block = (
-                f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek pembaruan Docker Hub — '
+                f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek pembaruan {src_label} — '
                 f'<a href="/update-router">paksa perbarui</a></div>' + cek_btn + router_patch_notes_html
             )
         else:  # checking — the auto-poll picks up the settled result
@@ -16020,19 +16069,24 @@ class Handler(BaseHTTPRequestHandler):
             if not debounced and service and action:
                 try:
                     if service == "9router":
-                        _cf = router_compose_file()
-                        if action == "stop":
-                            if _cf:
-                                subprocess.run(["docker", "compose", "-f", _cf, "stop"], timeout=15)
-                            else:
-                                subprocess.run(["docker", "stop", "9router"], timeout=15)
-                        elif action == "start":
-                            if _cf:
-                                subprocess.run(["docker", "compose", "-f", _cf, "up", "-d"], timeout=15)
-                            else:
-                                subprocess.run(["docker", "start", "9router"], timeout=15)
-                        elif action == "restart":
-                            subprocess.run(["docker", "restart", "9router"], timeout=15)
+                        if os.path.isfile("/etc/systemd/system/9router.service") and action in ("start", "stop", "restart"):
+                            subprocess.run(["systemctl", action, "9router.service"], timeout=15)
+                            invalidate_systemctl_show_cache("9router.service", "9router")
+                            invalidate_service_cache("9router.service", "9router")
+                        else:
+                            _cf = router_compose_file()
+                            if action == "stop":
+                                if _cf:
+                                    subprocess.run(["docker", "compose", "-f", _cf, "stop"], timeout=15)
+                                else:
+                                    subprocess.run(["docker", "stop", "9router"], timeout=15)
+                            elif action == "start":
+                                if _cf:
+                                    subprocess.run(["docker", "compose", "-f", _cf, "up", "-d"], timeout=15)
+                                else:
+                                    subprocess.run(["docker", "start", "9router"], timeout=15)
+                            elif action == "restart":
+                                subprocess.run(["docker", "restart", "9router"], timeout=15)
                     elif service == "cloudflared" and action in ("start", "stop", "restart"):
                         subprocess.run(["docker", action, "cloudflared"], timeout=15)
                     elif service in ("pihole", "pihole-pihole-1") and action in ("start", "stop", "restart"):

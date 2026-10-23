@@ -4152,6 +4152,39 @@ class TestHermesUpdateFlow(unittest.TestCase):
         self.assertIn('href="/update-hermes"', page)
         self.assertIn("stable v0.22.3 (abc1234def56)", page)
 
+    def test_native_9router_systemd_support(self):
+        """Native 9router.service is detected in process list, process-action, port resolver, and UI labels."""
+        with mock.patch("os.path.isfile", side_effect=lambda p: p == "/etc/systemd/system/9router.service"), \
+             mock.patch.object(panel, "get_systemd_show", return_value={"ActiveState": "active", "MainPID": "54321"}), \
+             mock.patch.object(panel, "_read_proc_rss_mb", return_value=88.5):
+            procs = panel.get_process_list(fresh=True)
+            r_proc = next((p for p in procs if p["id"] == "9router"), None)
+            self.assertIsNotNone(r_proc)
+            self.assertEqual(r_proc["kind"], "Layanan Systemd")
+            self.assertEqual(r_proc["status"], "Berjalan")
+            self.assertTrue(r_proc["is_active"])
+            self.assertEqual(r_proc["pid"], "54321")
+            self.assertEqual(r_proc["mem_mb"], 88.5)
+
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        panel._last_action_at = 0.0
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/process-action?service=9router&action=restart",
+            data=b"", method="POST",
+        )
+        req.add_header("Cookie", cookie)
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a, **k):
+                return None
+        with mock.patch("os.path.isfile", side_effect=lambda p: p == "/etc/systemd/system/9router.service"), \
+             mock.patch.object(panel.subprocess, "run") as mock_sub:
+            try:
+                urllib.request.build_opener(NoRedirect).open(req)
+            except urllib.error.HTTPError as e:
+                self.assertEqual(e.code, 302)
+            mock_sub.assert_any_call(["systemctl", "restart", "9router.service"], timeout=15)
+
 
 if __name__ == "__main__":
     unittest.main()
