@@ -3426,6 +3426,28 @@ class TestSubprocessCachingAndOptimization(unittest.TestCase):
             panel.dashboard_action("stop")
             self.assertIn(["systemctl", "stop", panel.SERVICE], calls)
 
+    def test_mutations_invalidate_cached_blocks(self):
+        """Profile and Kanban mutations must invalidate their _status_probe_cache entries."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            cfg_path = os.path.join(td, "config.yaml")
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                f.write("model:\n  default: m1\n  provider: 9router\n")
+            with mock.patch.object(panel, "CONFIG_PATH", cfg_path):
+                with panel._status_probe_cache_lock:
+                    panel._status_probe_cache["profiles_block"] = {"at": time.monotonic(), "value": "stale"}
+                ok, _ = panel.create_agent_profile("worker1")
+                self.assertTrue(ok)
+                with panel._status_probe_cache_lock:
+                    self.assertNotIn("profiles_block", panel._status_probe_cache)
+
+                with panel._status_probe_cache_lock:
+                    panel._status_probe_cache["kanban_board_block"] = {"at": time.monotonic(), "value": "stale"}
+                ok, _, _ = panel.create_kanban_task("Task 1")
+                self.assertTrue(ok)
+                with panel._status_probe_cache_lock:
+                    self.assertNotIn("kanban_board_block", panel._status_probe_cache)
+
     def test_service_active_subprocess_caching(self):
         call_count = 0
         def fake_run(cmd, *args, **kwargs):

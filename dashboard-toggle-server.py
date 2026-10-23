@@ -9656,6 +9656,14 @@ def get_active_profile_name() -> str:
     return "default"
 
 
+def _invalidate_profile_cache(*names: str) -> None:
+    keys = ["profiles_block"]
+    for n in names:
+        if n:
+            keys.append(f"profile_skill_tool_summary:{n.strip().lower()}")
+    _invalidate_status_cache(*keys)
+
+
 def set_active_profile_name(name: str) -> bool:
     """Set the active profile. 'default' unlinks the active_profile file."""
     name = (name or "").strip().lower()
@@ -9665,6 +9673,7 @@ def set_active_profile_name(name: str) -> bool:
         try:
             if path.exists():
                 path.unlink()
+            _invalidate_profile_cache("default")
             return True
         except Exception:
             return False
@@ -9679,6 +9688,7 @@ def set_active_profile_name(name: str) -> bool:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(name + "\n")
         os.replace(tmp, str(path))
+        _invalidate_profile_cache(name)
         return True
     except Exception:
         return False
@@ -9834,6 +9844,7 @@ def create_agent_profile(name: str, clone_from: str = "", description: str = "")
         if description:
             meta = {"description": description.strip(), "description_auto": False}
             (target_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        _invalidate_profile_cache(name)
         return True, f"Profil '{name}' berhasil dibuat."
     except Exception as e:
         return False, f"Gagal membuat profil: {e}"
@@ -9855,6 +9866,7 @@ def delete_agent_profile(name: str) -> tuple[bool, str]:
         if active == name:
             set_active_profile_name("default")
         shutil.rmtree(target_dir)
+        _invalidate_profile_cache(name)
         return True, f"Profil '{name}' berhasil dihapus."
     except Exception as e:
         return False, f"Gagal menghapus profil: {e}"
@@ -9883,6 +9895,7 @@ def rename_agent_profile(old_name: str, new_name: str) -> tuple[bool, str]:
         active = get_active_profile_name()
         if active == old_name:
             set_active_profile_name(new_name)
+        _invalidate_profile_cache(old_name, new_name)
         return True, f"Profil '{old_name}' berhasil diubah menjadi '{new_name}'."
     except Exception as e:
         return False, f"Gagal mengubah nama profil: {e}"
@@ -10188,6 +10201,7 @@ def set_profile_skill_enabled(name: str, skill: str, enabled: bool) -> tuple[boo
         sk_cfg["disabled"] = sorted(cur)
         _write_profile_cfg(cfg_file, cfg)
         _invalidate_status_cache("gateway_platforms")
+        _invalidate_profile_cache(nm)
         return True, f"Skill '{sk}' {'diaktifkan' if enabled else 'dinonaktifkan'} di profil '{nm}'."
     except Exception as e:
         return False, f"Gagal menyimpan skills.disabled: {e}"
@@ -10273,6 +10287,7 @@ def set_profile_toolset_enabled(name: str, toolset: str, enabled: bool) -> tuple
             cur.add(ts)
         ag["disabled_toolsets"] = sorted(cur)
         _write_profile_cfg(cfg_file, cfg)
+        _invalidate_profile_cache(nm)
         return True, f"Toolset '{ts}' {'diaktifkan' if enabled else 'dinonaktifkan'} di profil '{nm}'."
     except Exception as e:
         return False, f"Gagal menyimpan agent.disabled_toolsets: {e}"
@@ -10309,6 +10324,7 @@ def save_agent_profile_soul(name: str, content: str) -> tuple[bool, str]:
             f.write(content)
         os.chmod(tmp, 0o644)
         os.replace(tmp, str(target_file))
+        _invalidate_profile_cache(name)
         return True, "SOUL.md berhasil disimpan."
     except Exception as e:
         return False, f"Gagal menyimpan SOUL.md: {e}"
@@ -10344,6 +10360,7 @@ def set_agent_profile_model(name: str, provider: str, model: str) -> tuple[bool,
             yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         os.chmod(tmp, 0o600)
         os.replace(tmp, str(cfg_file))
+        _invalidate_profile_cache(name)
         return True, "Model profil berhasil diperbarui."
     except Exception as e:
         return False, f"Gagal memperbarui model profil: {e}"
@@ -10706,6 +10723,7 @@ def set_current_kanban_board(slug: str) -> bool:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(slug + "\n")
         os.replace(tmp, str(path))
+        _invalidate_status_cache("kanban_board_block", "kanban_board_options")
         return True
     except Exception:
         return False
@@ -10813,6 +10831,7 @@ def create_kanban_board(slug: str, name: str = "") -> tuple[bool, str]:
         db_path = board_dir / "kanban.db"
         con = ensure_kanban_db(db_path)
         con.close()
+        _invalidate_status_cache("kanban_board_block", "kanban_board_options")
         return True, f"Papan '{slug}' berhasil dibuat."
     except Exception as e:
         return False, f"Gagal membuat papan: {e}"
@@ -11129,6 +11148,7 @@ def create_kanban_task(
                 VALUES (?, 'created', ?, ?)
             """, (task_id, json.dumps({"title": title, "assignee": assignee, "status": status}), now))
         con.close()
+        _invalidate_status_cache("kanban_board_block", "kanban_board_options")
         return True, "Tugas berhasil dibuat.", task_id
     except Exception as e:
         return False, f"Gagal membuat tugas: {e}", ""
@@ -11188,6 +11208,7 @@ def update_kanban_task_status(
                 VALUES (?, 'status_change', ?, ?)
             """, (task_id, json.dumps(payload), now))
         con.close()
+        _invalidate_status_cache("kanban_board_block")
         return True, "Status berhasil diperbarui."
     except Exception as e:
         return False, f"Gagal memperbarui status: {e}"
@@ -11234,6 +11255,7 @@ def update_kanban_task(
             vals.append(task_id)
             con.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?", vals)
         con.close()
+        _invalidate_status_cache("kanban_board_block")
         return True, "Tugas berhasil diperbarui."
     except Exception as e:
         return False, f"Gagal memperbarui tugas: {e}"
@@ -11251,6 +11273,7 @@ def delete_kanban_task(task_id: str, board: str = "") -> tuple[bool, str]:
             con.execute("DELETE FROM task_runs WHERE task_id = ?", (task_id,))
             con.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
         con.close()
+        _invalidate_status_cache("kanban_board_block", "kanban_board_options")
         return True, f"Tugas '{task_id}' berhasil dihapus."
     except Exception as e:
         return False, f"Gagal menghapus tugas: {e}"
@@ -11276,6 +11299,7 @@ def reclaim_kanban_task(task_id: str, board: str = "") -> tuple[bool, str]:
                 VALUES (?, 'reclaimed', ?, ?)
             """, (task_id, json.dumps({"by": "web-panel"}), now))
         con.close()
+        _invalidate_status_cache("kanban_board_block")
         return True, "Tugas berhasil di-reclaim dan dikembalikan ke antrean ready."
     except Exception as e:
         return False, f"Gagal reclaim tugas: {e}"
@@ -11300,6 +11324,7 @@ def add_kanban_comment(task_id: str, body: str, author: str = "web-panel", board
                 VALUES (?, 'commented', ?, ?)
             """, (task_id, json.dumps({"author": author}), now))
         con.close()
+        _invalidate_status_cache("kanban_board_block")
         return True, "Komentar berhasil ditambahkan."
     except Exception as e:
         return False, f"Gagal menambahkan komentar: {e}"
@@ -11481,18 +11506,24 @@ def render_kanban_board_block(board_slug: str = "") -> str:
 
 
 def restart_bot() -> None:
-    _invalidate_status_cache("gateway_platforms")
+    _invalidate_status_cache("gateway_platforms", "gateway_info", "processes_table", "profiles_block")
+    invalidate_service_cache("hermes-gateway")
     env = os.environ.copy()
     env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
     # Non-blocking: a drain (active task) can make this take a while, and
     # we don't want the HTTP request itself to hang waiting for it — the
     # resulting page shows its own countdown instead.
     p = subprocess.Popen(["systemctl", "--user", "restart", "hermes-gateway"], env=env)
-    threading.Thread(target=p.wait, daemon=True).start()
+    def _wait_and_inv():
+        p.wait()
+        _invalidate_status_cache("gateway_platforms", "gateway_info", "processes_table", "profiles_block")
+        invalidate_service_cache("hermes-gateway")
+    threading.Thread(target=_wait_and_inv, daemon=True).start()
 
 
 def bot_action(action: str) -> None:
-    _invalidate_status_cache("gateway_platforms")
+    _invalidate_status_cache("gateway_platforms", "gateway_info", "processes_table", "profiles_block")
+    invalidate_service_cache("hermes-gateway")
     """start/stop hermes-gateway. Used for the STB-vs-new-server switch:
     only one hermes instance may poll a given Telegram bot token at a time,
     Telegram rejects a second concurrent poller (409). Enable/disable, not
@@ -11505,10 +11536,15 @@ def bot_action(action: str) -> None:
     env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
     if action == "start":
         p = subprocess.Popen(["systemctl", "--user", "enable", "--now", "hermes-gateway"], env=env)
-        threading.Thread(target=p.wait, daemon=True).start()
     elif action == "stop":
         p = subprocess.Popen(["systemctl", "--user", "disable", "--now", "hermes-gateway"], env=env)
-        threading.Thread(target=p.wait, daemon=True).start()
+    else:
+        return
+    def _wait_and_inv():
+        p.wait()
+        _invalidate_status_cache("gateway_platforms", "gateway_info", "processes_table", "profiles_block")
+        invalidate_service_cache("hermes-gateway")
+    threading.Thread(target=_wait_and_inv, daemon=True).start()
 
 
 # --- Jalur Jaringan Gateway (per-platform proxy routes + "DNS Hermes") ----------------------
@@ -12722,6 +12758,7 @@ def cleanup_system_junk() -> dict:
     global _clean_junk_result
     with _clean_junk_lock:
         _clean_junk_result = result_data
+    _invalidate_status_cache("disk_stats")
 
     return result_data
 
