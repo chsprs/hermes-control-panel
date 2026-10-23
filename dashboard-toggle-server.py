@@ -9830,15 +9830,20 @@ def create_agent_profile(name: str, clone_from: str = "", description: str = "")
                         shutil.copy2(src_f, target_dir / fname)
         if not (target_dir / "config.yaml").is_file():
             main_cfg = root / "config.yaml"
-            model_info = {}
+            new_cfg = {"model": {}}
             if main_cfg.is_file():
                 try:
                     with open(main_cfg, encoding="utf-8") as f:
                         c = yaml.safe_load(f) or {}
-                    model_info = c.get("model", {})
+                    if isinstance(c, dict):
+                        new_cfg["model"] = c.get("model", {})
+                        if isinstance(c.get("providers"), dict) and c["providers"]:
+                            new_cfg["providers"] = c["providers"]
+                        if isinstance(c.get("custom_providers"), list) and c["custom_providers"]:
+                            new_cfg["custom_providers"] = c["custom_providers"]
                 except Exception:
                     pass
-            cfg_content = yaml.safe_dump({"model": model_info}, default_flow_style=False)
+            cfg_content = yaml.safe_dump(new_cfg, default_flow_style=False, sort_keys=False, allow_unicode=True)
             (target_dir / "config.yaml").write_text(cfg_content, encoding="utf-8")
             os.chmod(target_dir / "config.yaml", 0o600)
         if description:
@@ -9933,6 +9938,8 @@ def _write_profile_cfg(cfg_file: Path, cfg: dict) -> None:
         yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
     os.chmod(tmp, 0o600)
     os.replace(tmp, str(cfg_file))
+    with _config_cache_lock:
+        _config_cache["mtime"] = 0.0
 
 
 def get_profile_skill_inventory(name: str) -> dict:
@@ -10177,29 +10184,30 @@ def set_profile_skill_enabled(name: str, skill: str, enabled: bool) -> tuple[boo
     if cfg_file is None:
         return False, err
     try:
-        cfg = _read_profile_cfg(cfg_file)
-        sk_cfg = cfg.get("skills")
-        if not isinstance(sk_cfg, dict):
-            sk_cfg = {}
-            cfg["skills"] = sk_cfg
-        raw = sk_cfg.get("disabled")
-        cur: set[str] = set()
-        try:
-            items = [raw] if isinstance(raw, str) else (list(raw) if isinstance(raw, (list, tuple, set)) else [])
-            cur = {str(v).strip() for v in items if str(v).strip()}
-        except Exception:
-            cur = set()
-        # Validasi: skill harus ada di direktori profil
         inv = get_profile_skill_inventory(nm)
         known = {s["name"] for s in inv.get("skills", [])} if inv.get("ok") else set()
-        if known and sk not in known and sk not in cur:
-            return False, f"Skill '{sk}' tidak ditemukan di profil '{nm}'."
-        if enabled:
-            cur.discard(sk)
-        else:
-            cur.add(sk)
-        sk_cfg["disabled"] = sorted(cur)
-        _write_profile_cfg(cfg_file, cfg)
+        with _config_write_lock:
+            cfg = _read_profile_cfg(cfg_file)
+            sk_cfg = cfg.get("skills")
+            if not isinstance(sk_cfg, dict):
+                sk_cfg = {}
+                cfg["skills"] = sk_cfg
+            raw = sk_cfg.get("disabled")
+            cur: set[str] = set()
+            try:
+                items = [raw] if isinstance(raw, str) else (list(raw) if isinstance(raw, (list, tuple, set)) else [])
+                cur = {str(v).strip() for v in items if str(v).strip()}
+            except Exception:
+                cur = set()
+            # Validasi: skill harus ada di direktori profil
+            if known and sk not in known and sk not in cur:
+                return False, f"Skill '{sk}' tidak ditemukan di profil '{nm}'."
+            if enabled:
+                cur.discard(sk)
+            else:
+                cur.add(sk)
+            sk_cfg["disabled"] = sorted(cur)
+            _write_profile_cfg(cfg_file, cfg)
         _invalidate_status_cache("gateway_platforms")
         _invalidate_profile_cache(nm)
         return True, f"Skill '{sk}' {'diaktifkan' if enabled else 'dinonaktifkan'} di profil '{nm}'."
@@ -10258,35 +10266,36 @@ def set_profile_toolset_enabled(name: str, toolset: str, enabled: bool) -> tuple
     if cfg_file is None:
         return False, err
     try:
-        cfg = _read_profile_cfg(cfg_file)
-        ag = cfg.get("agent")
-        if not isinstance(ag, dict):
-            ag = {}
-            cfg["agent"] = ag
-        raw = ag.get("disabled_toolsets")
-        cur: set[str] = set()
-        try:
-            if isinstance(raw, str):
-                s = raw.strip()
-                if s.startswith("["):
-                    import ast as _ast
-                    try:
-                        p = _ast.literal_eval(s)
-                        cur = {str(x).strip() for x in p if str(x).strip()}
-                    except Exception:
-                        cur = {s} if s else set()
-                elif s:
-                    cur = {s}
-            elif isinstance(raw, (list, tuple, set)):
-                cur = {str(x).strip() for x in raw if str(x).strip()}
-        except Exception:
-            cur = set()
-        if enabled:
-            cur.discard(ts)
-        else:
-            cur.add(ts)
-        ag["disabled_toolsets"] = sorted(cur)
-        _write_profile_cfg(cfg_file, cfg)
+        with _config_write_lock:
+            cfg = _read_profile_cfg(cfg_file)
+            ag = cfg.get("agent")
+            if not isinstance(ag, dict):
+                ag = {}
+                cfg["agent"] = ag
+            raw = ag.get("disabled_toolsets")
+            cur: set[str] = set()
+            try:
+                if isinstance(raw, str):
+                    s = raw.strip()
+                    if s.startswith("["):
+                        import ast as _ast
+                        try:
+                            p = _ast.literal_eval(s)
+                            cur = {str(x).strip() for x in p if str(x).strip()}
+                        except Exception:
+                            cur = {s} if s else set()
+                    elif s:
+                        cur = {s}
+                elif isinstance(raw, (list, tuple, set)):
+                    cur = {str(x).strip() for x in raw if str(x).strip()}
+            except Exception:
+                cur = set()
+            if enabled:
+                cur.discard(ts)
+            else:
+                cur.add(ts)
+            ag["disabled_toolsets"] = sorted(cur)
+            _write_profile_cfg(cfg_file, cfg)
         _invalidate_profile_cache(nm)
         return True, f"Toolset '{ts}' {'diaktifkan' if enabled else 'dinonaktifkan'} di profil '{nm}'."
     except Exception as e:
@@ -10340,26 +10349,18 @@ def set_agent_profile_model(name: str, provider: str, model: str) -> tuple[bool,
     if not cfg_file.parent.is_dir():
         return False, f"Direktori profil '{name}' tidak ditemukan."
     try:
-        cfg = {}
-        if cfg_file.is_file():
-            with open(cfg_file, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
-        if not isinstance(cfg, dict):
-            cfg = {}
-        m = cfg.setdefault("model", {})
-        if not isinstance(m, dict):
-            m = cfg["model"] = {}
-        if model:
-            m["default"] = model
-        if provider:
-            m["provider"] = provider
-        elif not m.get("provider"):
-            m["provider"] = "9router"
-        fd, tmp = tempfile.mkstemp(dir=str(cfg_file.parent), prefix=".config.yaml.tmp.")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, str(cfg_file))
+        with _config_write_lock:
+            cfg = _read_profile_cfg(cfg_file)
+            m = cfg.setdefault("model", {})
+            if not isinstance(m, dict):
+                m = cfg["model"] = {}
+            if model:
+                m["default"] = model
+            if provider:
+                m["provider"] = provider
+            elif not m.get("provider"):
+                m["provider"] = "9router"
+            _write_profile_cfg(cfg_file, cfg)
         _invalidate_profile_cache(name)
         return True, "Model profil berhasil diperbarui."
     except Exception as e:
@@ -15206,7 +15207,8 @@ class Handler(BaseHTTPRequestHandler):
         # /toggle, /on, /off with an explicit valid token keep working).
         if parsed.path in MUTATING_PATHS:
             query_token = (qs.get("token") or [""])[0]
-            if not (parsed.path in LEGACY_GET_SHORTCUTS and self._token_matches(query_token)):
+            has_explicit_token = bool(TOKEN) and bool(query_token) and hmac.compare_digest(query_token, TOKEN)
+            if not (parsed.path in LEGACY_GET_SHORTCUTS and has_explicit_token):
                 self._send_method_not_allowed()
                 return
 

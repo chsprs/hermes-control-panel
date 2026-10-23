@@ -283,6 +283,9 @@ class TestHermesControlPanel(unittest.TestCase):
             code, headers, _ = self._request("/login")
             self.assertEqual(code, 302)
             self.assertEqual(headers.get("Location"), "/status")
+            # GET mutation shortcut without explicit token must be refused even in passwordless mode
+            code, _, _ = self._request("/toggle", method="GET")
+            self.assertEqual(code, 405)
         finally:
             panel.PASSWORD = old_pwd
             panel.TOKEN = old_tok
@@ -2711,8 +2714,9 @@ class TestAgentProfiles(unittest.TestCase):
         r = _sp.run(["/usr/local/lib/hermes-agent/venv/bin/python", "-c",
                      "import sys;sys.path.insert(0,'/opt/AppData/hermes-native/hermes-lib');"
                      "import os;os.environ['HERMES_HOME']='/root/.hermes';"
-                     "from tools.skills_tool import _find_all_skills;"
-                     "a=_find_all_skills(skip_disabled=True);e=_find_all_skills(skip_disabled=False);"
+                     "import tools.skills_tool as st;"
+                     "fn=getattr(st,'find_all_skills',None) or getattr(st,'_find_all_skills');"
+                     "a=fn(skip_disabled=True);e=fn(skip_disabled=False);"
                      "print(len(a),len(e))"],
                     capture_output=True, text=True, timeout=120)
         h_total, h_en = map(int, r.stdout.strip().split())
@@ -3440,6 +3444,15 @@ class TestSubprocessCachingAndOptimization(unittest.TestCase):
                 self.assertTrue(ok)
                 with panel._status_probe_cache_lock:
                     self.assertNotIn("profiles_block", panel._status_probe_cache)
+
+                # Verify create_agent_profile without clone preserves providers block
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    f.write("model:\n  default: m1\n  provider: 9router\nproviders:\n  9router:\n    api: http://127.0.0.1:20128/v1\n")
+                ok2, _ = panel.create_agent_profile("worker2")
+                self.assertTrue(ok2)
+                with open(os.path.join(td, "profiles", "worker2", "config.yaml"), encoding="utf-8") as f:
+                    w2_cfg = panel.yaml.safe_load(f)
+                self.assertIn("9router", w2_cfg.get("providers", {}))
 
                 with panel._status_probe_cache_lock:
                     panel._status_probe_cache["kanban_board_block"] = {"at": time.monotonic(), "value": "stale"}
