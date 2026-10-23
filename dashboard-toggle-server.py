@@ -7084,12 +7084,21 @@ def get_9router_host() -> str:
         if _9router_host_cache and (time.time() - _9router_host_at) < 300:  # 5 min cache
             return _9router_host_cache
 
-    # 1. Check local Docker / Compose first: if compose file or container exists locally, it's local!
-    if router_compose_file():
+    # 1. Check local systemd service / socket / Docker / Compose first: if present locally, it's local!
+    if os.path.isfile("/etc/systemd/system/9router.service") or router_compose_file():
         with _9router_host_lock:
             _9router_host_cache = "127.0.0.1"
             _9router_host_at = time.time()
         return "127.0.0.1"
+
+    try:
+        with socket.create_connection(("127.0.0.1", 20128), timeout=0.5):
+            with _9router_host_lock:
+                _9router_host_cache = "127.0.0.1"
+                _9router_host_at = time.time()
+            return "127.0.0.1"
+    except Exception:
+        pass
 
     try:
         r = subprocess.run(
@@ -12193,20 +12202,34 @@ def _router_exec(command: str, timeout: float = INFO_TIMEOUT):
 
 
 def _refresh_router_uptime() -> None:
-    """Fetch 9router container StartedAt in background."""
+    """Fetch 9router systemd/container StartedAt in background."""
+    val = ""
     try:
-        r = _router_exec(
-            f"docker inspect {shlex.quote(ROUTER_CONTAINER)} "
-            f"--format '{{{{.State.StartedAt}}}}'",
+        r_sys = _router_exec(
+            "systemctl show 9router.service -p ActiveEnterTimestampMonotonic --value",
             timeout=INFO_TIMEOUT,
         )
-        started_epoch = _parse_docker_started(r.stdout)
-        if started_epoch:
-            val = _fmt_dur(time.time() - started_epoch)
-        else:
-            val = ""
+        mono_us = int((r_sys.stdout or "").strip() or "0")
+        if mono_us > 0:
+            with open("/proc/uptime", "r", encoding="utf-8") as f:
+                up_sec = float(f.read().split()[0])
+            started_sec = up_sec - (mono_us / 1_000_000.0)
+            if started_sec >= 0:
+                val = _fmt_dur(started_sec)
     except Exception:
-        val = ""
+        pass
+    if not val:
+        try:
+            r = _router_exec(
+                f"docker inspect {shlex.quote(ROUTER_CONTAINER)} "
+                f"--format '{{{{.State.StartedAt}}}}'",
+                timeout=INFO_TIMEOUT,
+            )
+            started_epoch = _parse_docker_started(r.stdout)
+            if started_epoch:
+                val = _fmt_dur(time.time() - started_epoch)
+        except Exception:
+            val = ""
     with _router_uptime_lock:
         _router_uptime_cache.update(at=time.time(), val=val)
 
@@ -12226,11 +12249,16 @@ def get_router_image_date() -> str:
     with _router_image_date_lock:
         if time.time() - _router_image_date_cache["at"] < 300:
             return _router_image_date_cache["val"]
+    val = "?"
     try:
-        r = _router_exec(
-            f"docker image inspect {shlex.quote(ROUTER_IMAGE)} --format '{{{{.Created}}}}'"
-        )
-        val = r.stdout.strip()[:10] or "?"
+        if os.path.exists("/usr/lib/node_modules/9router/package.json"):
+            mtime = os.path.getmtime("/usr/lib/node_modules/9router/package.json")
+            val = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+        else:
+            r = _router_exec(
+                f"docker image inspect {shlex.quote(ROUTER_IMAGE)} --format '{{{{.Created}}}}'"
+            )
+            val = r.stdout.strip()[:10] or "?"
     except Exception:
         val = "?"
     with _router_image_date_lock:
@@ -12239,8 +12267,11 @@ def get_router_image_date() -> str:
 
 
 def get_router_version() -> str:
-    """Read semver from the running 9router container."""
+    """Read semver from native package.json or running 9router container."""
     try:
+        if os.path.exists("/usr/lib/node_modules/9router/package.json"):
+            with open("/usr/lib/node_modules/9router/package.json", encoding="utf-8") as f:
+                return json.load(f).get("version") or "?"
         r = _router_exec(
             f"docker exec {shlex.quote(ROUTER_CONTAINER)} cat /app/package.json"
         )
@@ -12426,19 +12457,20 @@ def _refresh_update_cache() -> None:
             if docker_tag and installed_ver and installed_ver != "?":
                 tag_is_newer = _parse_semver(docker_tag) > _parse_semver(installed_ver)
 
-            # Docker container can ONLY update if a new image exists on Docker Hub!
+            # Native or Docker update detection
+            is_native = os.path.isfile("/etc/systemd/system/9router.service")
             has_docker_update = digest_differs or tag_is_newer
 
-            # Check if npm has released a newer version before Docker Hub builds it
+            # Check if npm has released a newer version
             npm_latest = release.get("latest", "")
             npm_ahead = False
             if npm_latest and npm_latest != "?" and installed_ver and installed_ver != "?":
                 npm_ahead = _parse_semver(npm_latest) > _parse_semver(installed_ver)
 
-            if has_docker_update:
+            if (is_native and npm_ahead) or (not is_native and has_docker_update):
                 status = "available"
-                target_ver = docker_tag or npm_latest or "baru"
-            elif digest_known and local == remote:
+                target_ver = (npm_latest if is_native else docker_tag) or npm_latest or "baru"
+            elif not is_native and digest_known and local == remote:
                 status = "current"
                 target_ver = docker_tag or installed_ver
             elif installed_ver and installed_ver != "?":
@@ -12525,11 +12557,23 @@ def _router_update_command() -> str:
     image = shlex.quote(ROUTER_IMAGE)
     candidates = " ".join(shlex.quote(c) for c in ROUTER_COMPOSE_CANDIDATES if c)
     return (
-        # Resolve the compose file ON THE TARGET HOST: CasaOS keeps the real
-        # file under /var/lib/casaos/apps/<app>/, while the panel dir holds
-        # only update.log/update-check.json. A missing -f path made `compose
-        # up` fail, the `docker start` fallback reused the OLD image, and the
-        # panel reported success while the container stayed on the old build.
+        # Support native systemd 9router.service first; fall back to Docker Compose / container
+        "if [ -f /etc/systemd/system/9router.service ]; then "
+        "echo \"[1/4] host=$(hostname) mode=native-systemd\"; "
+        "before=$(node -p \"require('/usr/lib/node_modules/9router/package.json').version\" 2>/dev/null || echo none); "
+        "echo \"[2/4] before=$before\"; "
+        "echo '[3/4] Memperbarui paket npm 9router@latest...'; "
+        "DATA_DIR=/DATA/AppData/9router npm install -g 9router@latest --no-audit --no-fund 2>&1; pull_rc=$?; "
+        "DATA_DIR=/DATA/AppData/9router /usr/bin/node -e \"require('/usr/lib/node_modules/9router/hooks/sqliteRuntime').ensureSqliteRuntime({silent:false})\" 2>&1 || true; "
+        "echo '[4/4] Me-restart layanan 9router.service...'; "
+        "systemctl restart 9router.service 2>&1; up_rc=$?; "
+        "after=$(node -p \"require('/usr/lib/node_modules/9router/package.json').version\" 2>/dev/null || echo none); "
+        "echo \"after=$after\"; "
+        "if [ -n \"$before\" ] && [ \"$before\" = \"$after\" ]; then echo 'changed=false'; else echo 'changed=true'; fi; "
+        "[ \"$up_rc\" -eq 0 ] || exit \"$up_rc\"; "
+        "[ \"$pull_rc\" -eq 0 ] || exit \"$pull_rc\"; "
+        "exit 0; "
+        "fi; "
         f"CF=''; for f in {candidates}; do [ -f \"$f\" ] && {{ CF=\"$f\"; break; }}; done; "
         "echo \"[1/5] host=$(hostname) compose=${CF:-none}\"; "
         f"before=$(docker inspect -f '{{{{.Image}}}}' {container} 2>&1); echo \"[2/5] before=$before\"; "
