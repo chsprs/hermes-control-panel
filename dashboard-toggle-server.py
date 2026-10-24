@@ -8133,7 +8133,7 @@ var CONFIRM_ROUTES = [
   {match:'/reset-aux', title:'Kembalikan Model Tugas', msg:'Kembalikan semua model tugas tambahan ke otomatis? Setiap tugas akan ikut model obrolan utama.'},
   {match:'/remove-fallback-model', title:'Hapus Model Cadangan', msg:'Hapus model ini dari daftar cadangan?'},
   {match:'/process-action?service=9router&action=stop', title:'Hentikan 9router', msg:'Hentikan layanan 9router? AI routing akan mati sampai dinyalakan lagi.'},
-  {match:'/process-action?service=cloudflared&action=stop', title:'Hentikan Cloudflared', msg:'Hentikan tunnel Cloudflared? Akses eksternal putus sampai dinyalakan lagi.'},
+  {match:'/process-action?service=cloudflared&action=stop', title:'Hentikan Cloudflared', msg:'Hentikan layanan tunnel Cloudflared? Akses eksternal putus sampai dinyalakan lagi.'},
   {match:'/process-action?service=pihole-pihole-1&action=stop', title:'Hentikan Pi-hole', msg:'Hentikan Pi-hole? DNS dan anti-iklan mati sampai dinyalakan lagi.'},
   {match:'/process-action?service=casaos&action=stop', title:'Hentikan CasaOS', msg:'Hentikan layanan CasaOS? Dasbor web CasaOS tidak dapat diakses sampai dinyalakan kembali.'},
   {match:'/process-action?service=hermes-dashboard&action=restart', title:'Mulai Ulang Dasbor', msg:'Mulai ulang layanan hermes-dashboard? Halaman dasbor :9119 terputus sebentar.'},
@@ -13327,15 +13327,26 @@ def get_process_list(fresh: bool = False) -> list[dict]:
 
     # 5. Cloudflared Tunnel
     try:
-        dst, dpid, dmem = get_docker_metric("cloudflared", fresh=fresh)
-        is_run = (dst.lower() == "running")
+        if os.path.isfile("/etc/systemd/system/cloudflared.service"):
+            props = get_systemd_show("cloudflared.service", user=False, props="ActiveState,MainPID", fresh=fresh)
+            st = props.get("ActiveState", "inactive")
+            pid = props.get("MainPID", "0")
+            is_run = (st == "active")
+            dmem = _read_proc_rss_mb(pid) if is_run else 0.0
+            dpid = pid if (is_run and pid != "0") else "-"
+            cf_kind = "Layanan Systemd"
+        else:
+            dst, dpid, dmem = get_docker_metric("cloudflared", fresh=fresh)
+            is_run = (dst.lower() == "running")
+            dpid = dpid if is_run else "-"
+            cf_kind = "Kontainer Docker"
         procs.append({
             "id": "cloudflared",
             "name": "Cloudflared (Tunnel Aman)",
-            "kind": "Kontainer Docker",
+            "kind": cf_kind,
             "status": "Berjalan" if is_run else "Berhenti",
             "is_active": is_run,
-            "pid": dpid if is_run else "-",
+            "pid": dpid,
             "mem_mb": dmem,
             "stop_url": "/process-action?service=cloudflared&action=stop",
             "start_url": "/process-action?service=cloudflared&action=start",
@@ -16088,7 +16099,12 @@ class Handler(BaseHTTPRequestHandler):
                             elif action == "restart":
                                 subprocess.run(["docker", "restart", "9router"], timeout=15)
                     elif service == "cloudflared" and action in ("start", "stop", "restart"):
-                        subprocess.run(["docker", action, "cloudflared"], timeout=15)
+                        if os.path.isfile("/etc/systemd/system/cloudflared.service"):
+                            subprocess.run(["systemctl", action, "cloudflared.service"], timeout=15)
+                            invalidate_systemctl_show_cache("cloudflared.service", "cloudflared")
+                            invalidate_service_cache("cloudflared.service", "cloudflared")
+                        else:
+                            subprocess.run(["docker", action, "cloudflared"], timeout=15)
                     elif service in ("pihole", "pihole-pihole-1") and action in ("start", "stop", "restart"):
                         subprocess.run(["docker", action, "pihole-pihole-1"], timeout=15)
                     elif service == "casaos" and action in ("start", "stop", "restart"):
