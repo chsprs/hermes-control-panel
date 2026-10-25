@@ -13577,7 +13577,7 @@ def get_docker_containers_info() -> list[dict]:
                 if not title or title == name:
                     title = "Pi-hole"
                 if not web_port:
-                    web_port = "8080"
+                    web_port = "8000"
                 if web_path == "/":
                     web_path = "/admin"
             elif "9router" in low_name or "9router" in low_img:
