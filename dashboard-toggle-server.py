@@ -156,7 +156,7 @@ def _clear_login_failures(ip: str) -> None:
 # CasaOS one-click shortcuts may only mutate state via explicit GET when the
 # URL itself carries a valid token; every other mutation requires POST.
 MUTATING_PATHS = frozenset({
-    "/toggle", "/on", "/off", "/restart-bot", "/bot-toggle",
+    "/toggle", "/on", "/off", "/restart-bot", "/bot-toggle", "/openclaw-toggle",
     "/switch-model", "/update-router", "/check-update",
     "/check-hermes-update", "/update-hermes",
     "/clean-junk", "/fetch-models", "/fetch-hermes-models", "/reload-panel-config",
@@ -180,7 +180,7 @@ MUTATING_PATHS = frozenset({
     "/api/network/restart-gateway",
 })
 MAX_BODY_SIZE = 5 * 1024 * 1024  # 5 MB max POST body (SEC-DOS-01)
-LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off"})
+LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off", "/openclaw-toggle"})
 ROUTER_URL = "http://{host}:20128/"
 INFO_TIMEOUT = 2.0  # seconds — every live check below is capped at this
 SYSTEMCTL_TIMEOUT = 1.5  # seconds — fast cap for systemctl checks (1-2s)
@@ -1863,12 +1863,14 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div class="btn-row" id="quick-links-slot">
       {open_block}
       {router_open_block}
+      {openclaw_open_block}
     </div>
   </div>
   <div class="card card-control">
     <div class="card-title">Dasbor & Gateway</div>
     <div class="btn-row" id="dash-bot-btns-slot">
       <a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle">{icon_power}{toggle_label}</a>
+      <a class="toggle {openclaw_toggle_class}" id="btn-openclaw-toggle" href="/openclaw-toggle">{icon_power}{openclaw_toggle_label}</a>
       <a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle">{icon_power}{bot_toggle_label}</a>
       <a class="toggle restart" href="/restart-bot">{icon_refresh}Mulai Ulang Gateway</a>
       <a class="toggle restart" href="/clean-junk">{icon_trash}Bersihkan Sampah</a>
@@ -5755,6 +5757,49 @@ def get_open_block_active():
 
 OPEN_BLOCK_INACTIVE = '<div class="update-hint warn" style="margin:0">Dasbor Hermes mati — nyalakan dulu untuk membukanya</div>'
 
+OPENCLAW_CONFIG_PATH = os.environ.get("OPENCLAW_CONFIG_PATH", "/root/.openclaw/openclaw.json")
+
+
+def is_openclaw_control_ui_enabled() -> bool:
+    try:
+        if not os.path.isfile(OPENCLAW_CONFIG_PATH):
+            return False
+        with open(OPENCLAW_CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        return bool(cfg.get("gateway", {}).get("controlUi", {}).get("enabled", True))
+    except Exception:
+        return False
+
+
+def toggle_openclaw_control_ui() -> bool:
+    try:
+        if not os.path.isfile(OPENCLAW_CONFIG_PATH):
+            return False
+        with open(OPENCLAW_CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        gui = cfg.setdefault("gateway", {}).setdefault("controlUi", {})
+        current = bool(gui.get("enabled", True))
+        new_val = not current
+        gui["enabled"] = new_val
+        tmp_path = f"{OPENCLAW_CONFIG_PATH}.tmp.{os.getpid()}"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=1)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, OPENCLAW_CONFIG_PATH)
+        return new_val
+    except Exception:
+        return False
+
+
+def get_openclaw_open_block() -> str:
+    if is_openclaw_control_ui_enabled():
+        return (
+            f'<a class="open" href="https://192.168.1.100:18789/" target="_blank" rel="noopener" '
+            f'onclick="window.open(\'https://\'+window.location.hostname+\':18789/\',\'_blank\',\'noopener\');return false;">'
+            f'{ICON_EXTERNAL_LINK}Buka Dasbor OpenClaw</a>'
+        )
+    return '<div class="update-hint warn" style="margin:0">Dasbor OpenClaw mati — nyalakan dulu untuk membukanya</div>'
+
 _status_probe_cache = {}
 _status_probe_cache_lock = threading.Lock()
 _ttl_refreshing: set[str] = set()
@@ -8108,7 +8153,7 @@ NETWORK_SCRIPT_TAG = f'<script src="/assets/network-card.js?v={NETWORK_ASSET_VER
 
 NAV_SCRIPT = """<script>
 var MUTATING_PREFIXES = [
-  '/toggle', '/on', '/off', '/restart-bot', '/bot-toggle',
+  '/toggle', '/on', '/off', '/restart-bot', '/bot-toggle', '/openclaw-toggle',
   '/update-router', '/check-update',
   '/check-hermes-update', '/update-hermes',
   '/clean-junk',
@@ -13409,6 +13454,34 @@ def get_process_list(fresh: bool = False) -> list[dict]:
     except Exception:
         pass
 
+    # 8. OpenClaw Gateway
+    try:
+        oc_active = service_active("openclaw-gateway", user=True, fresh=fresh)
+        oc_ui_on = is_openclaw_control_ui_enabled()
+        oc_pid = "-"
+        oc_mem = 0.0
+        if oc_active:
+            props = get_systemd_show("openclaw-gateway.service", user=True, props="MainPID", fresh=fresh)
+            p = props.get("MainPID", "").strip()
+            if p and p != "0":
+                oc_pid = p
+                oc_mem = _read_proc_rss_mb(p)
+        ui_tag = "UI Aktif" if oc_ui_on else "UI Mati"
+        procs.append({
+            "id": "openclaw-gateway",
+            "name": f"OpenClaw Gateway ({ui_tag})",
+            "kind": "Layanan Systemd User",
+            "status": "Berjalan" if oc_active else "Berhenti",
+            "is_active": oc_active,
+            "pid": oc_pid,
+            "mem_mb": oc_mem,
+            "stop_url": "/process-action?service=openclaw-gateway&action=stop",
+            "start_url": "/process-action?service=openclaw-gateway&action=start",
+            "restart_url": "/process-action?service=openclaw-gateway&action=restart",
+        })
+    except Exception:
+        pass
+
     return procs
 
 
@@ -14425,15 +14498,20 @@ def build_fragments(sse_only: bool = False) -> dict:
         (get_open_block_active() if dash_active else OPEN_BLOCK_INACTIVE)
         + (f'<a class="open" href="{get_9router_public_url()}" '
            f'target="_blank">{ICON_EXTERNAL_LINK}Buka 9router</a>')
+        + get_openclaw_open_block()
     )
 
     dash_label = "Matikan Dasbor" if dash_active else "Nyalakan Dasbor"
     dash_toggle_class = "btn-off" if dash_active else "btn-on"
     bot_label = "Matikan Gateway" if gw_active else "Nyalakan Gateway"
     bot_toggle_class = "btn-off" if gw_active else "btn-on"
+    oc_ui_active = is_openclaw_control_ui_enabled()
+    oc_label = "Matikan Dasbor OpenClaw" if oc_ui_active else "Nyalakan Dasbor OpenClaw"
+    oc_toggle_class = "btn-off" if oc_ui_active else "btn-on"
 
     dash_bot_btns_block = (
         f'<a class="toggle {dash_toggle_class}" id="btn-dash-toggle" href="/toggle">{ICON_POWER}{dash_label}</a>'
+        f'<a class="toggle {oc_toggle_class}" id="btn-openclaw-toggle" href="/openclaw-toggle">{ICON_POWER}{oc_label}</a>'
         f'<a class="toggle {bot_toggle_class}" id="btn-bot-toggle" href="/bot-toggle">{ICON_POWER}{bot_label}</a>'
         f'<a class="toggle restart" href="/restart-bot">{ICON_REFRESH}Mulai Ulang Gateway</a>'
         f'<a class="toggle restart" href="/clean-junk">{ICON_TRASH}Bersihkan Sampah</a>'
@@ -14672,8 +14750,11 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         open_block=get_open_block_active() if dash_active else OPEN_BLOCK_INACTIVE,
         router_open_block=(f'<a class="open" href="{get_9router_public_url()}" '
                            f'target="_blank">{ICON_EXTERNAL_LINK}Buka 9router</a>'),
+        openclaw_open_block=get_openclaw_open_block(),
         toggle_label="Matikan Dasbor" if dash_active else "Nyalakan Dasbor",
         dash_toggle_class="btn-off" if dash_active else "btn-on",
+        openclaw_toggle_label="Matikan Dasbor OpenClaw" if is_openclaw_control_ui_enabled() else "Nyalakan Dasbor OpenClaw",
+        openclaw_toggle_class="btn-off" if is_openclaw_control_ui_enabled() else "btn-on",
         bot_toggle_label="Matikan Gateway" if gw_active else "Nyalakan Gateway",
         bot_toggle_class="btn-off" if gw_active else "btn-on",
         nav_script=NAV_SCRIPT,
@@ -15617,6 +15698,14 @@ class Handler(BaseHTTPRequestHandler):
             json_data = {}
         is_ajax = bool(json_data) or bool((qs.get("ajax") or [""])[0]) or "application/json" in self.headers.get("Accept", "")
 
+        if parsed.path == "/openclaw-toggle":
+            new_state = toggle_openclaw_control_ui()
+            if is_ajax:
+                self._send_json({"ok": True, "enabled": new_state})
+                return
+            self._redirect_to_status(just="openclaw-toggle", tab="control")
+            return
+
         if parsed.path == "/set-password":
             raw_pwd = str(json_data.get("password") if "password" in json_data else (qs.get("password") or [""])[0]).strip()
             clear = _to_bool(json_data.get("clear") if "clear" in json_data else (qs.get("clear") or ["0"])[0], default=False)
@@ -16127,6 +16216,10 @@ class Handler(BaseHTTPRequestHandler):
                             "casaos-message-bus.service",
                         ]
                         subprocess.run(["systemctl", action] + casaos_units, timeout=15)
+                    elif service == "openclaw-gateway" and action in ("start", "stop", "restart"):
+                        subprocess.run(["systemctl", "--user", action, "openclaw-gateway.service"], timeout=15)
+                        invalidate_systemctl_show_cache("openclaw-gateway.service", "openclaw-gateway")
+                        invalidate_service_cache("openclaw-gateway.service", "openclaw-gateway")
                     elif service == "hermes-dashboard" and action in ("start", "stop", "restart"):
                         dashboard_action(action)
                     elif service == "hermes-panel" and action == "restart":
@@ -16155,7 +16248,7 @@ class Handler(BaseHTTPRequestHandler):
         # requests), then redirect — never render an action route directly,
         # so a refresh of the resulting page can never re-trigger it.
         VALID_POST_ACTIONS = {
-            "/toggle", "/on", "/off", "/restart-bot", "/bot-toggle",
+            "/toggle", "/on", "/off", "/restart-bot", "/bot-toggle", "/openclaw-toggle",
             "/update-router", "/check-update", "/clean-junk",
             "/check-hermes-update", "/update-hermes", "/fetch-models",
             "/fetch-hermes-models", "/reload-panel-config"
@@ -16194,6 +16287,10 @@ class Handler(BaseHTTPRequestHandler):
                     was_active = service_active("hermes-gateway", user=True)
                     bot_action("stop" if was_active else "start")
                     just = "bot-off" if was_active else "bot-on"
+                    target_tab = "control"
+                elif parsed.path == "/openclaw-toggle":
+                    toggle_openclaw_control_ui()
+                    just = "openclaw-toggle"
                     target_tab = "control"
                 elif parsed.path == "/update-router":
                     # updating flag (set in update_router) makes /status show the

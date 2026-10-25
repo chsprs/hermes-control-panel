@@ -4185,6 +4185,69 @@ class TestHermesUpdateFlow(unittest.TestCase):
                 self.assertEqual(e.code, 302)
             mock_sub.assert_any_call(["systemctl", "restart", "9router.service"], timeout=15)
 
+    def test_openclaw_control_ui_helpers_and_toggle(self):
+        """OpenClaw Control UI toggle helper, route, and UI elements behave correctly."""
+        import tempfile
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as tf:
+            json.dump({"gateway": {"controlUi": {"enabled": False}}}, tf)
+            tmp_cfg = tf.name
+
+        try:
+            with mock.patch.object(panel, "OPENCLAW_CONFIG_PATH", tmp_cfg):
+                self.assertFalse(panel.is_openclaw_control_ui_enabled())
+                new_state = panel.toggle_openclaw_control_ui()
+                self.assertTrue(new_state)
+                self.assertTrue(panel.is_openclaw_control_ui_enabled())
+                new_state = panel.toggle_openclaw_control_ui()
+                self.assertFalse(new_state)
+                self.assertFalse(panel.is_openclaw_control_ui_enabled())
+
+                # Test POST /openclaw-toggle
+                cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+                panel._last_action_at = 0.0
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:{self.port}/openclaw-toggle",
+                    data=b"", method="POST",
+                )
+                req.add_header("Cookie", cookie)
+
+                class NoRedirect(urllib.request.HTTPRedirectHandler):
+                    def redirect_request(self, *a, **k):
+                        return None
+                try:
+                    urllib.request.build_opener(NoRedirect).open(req)
+                except urllib.error.HTTPError as e:
+                    self.assertEqual(e.code, 302)
+                    self.assertIn("tab=control", e.headers.get("Location", ""))
+
+                self.assertTrue(panel.is_openclaw_control_ui_enabled())
+
+                # Test page render includes openclaw toggle button
+                page = panel.build_status_page()
+                self.assertIn('id="btn-openclaw-toggle"', page)
+                self.assertIn('/openclaw-toggle', page)
+                self.assertIn('Buka Dasbor OpenClaw', page)
+        finally:
+            if os.path.exists(tmp_cfg):
+                os.remove(tmp_cfg)
+
+    def test_openclaw_gateway_in_process_list(self):
+        """openclaw-gateway service is properly parsed into get_process_list."""
+        with mock.patch.object(panel, "service_active", side_effect=lambda name, user=False, fresh=False: name == "openclaw-gateway" and user is True), \
+             mock.patch.object(panel, "get_systemd_show", return_value={"MainPID": "98765"}), \
+             mock.patch.object(panel, "_read_proc_rss_mb", return_value=125.0), \
+             mock.patch.object(panel, "is_openclaw_control_ui_enabled", return_value=False):
+            procs = panel.get_process_list(fresh=True)
+            oc_proc = next((p for p in procs if p["id"] == "openclaw-gateway"), None)
+            self.assertIsNotNone(oc_proc)
+            self.assertEqual(oc_proc["kind"], "Layanan Systemd User")
+            self.assertEqual(oc_proc["status"], "Berjalan")
+            self.assertTrue(oc_proc["is_active"])
+            self.assertEqual(oc_proc["pid"], "98765")
+            self.assertEqual(oc_proc["mem_mb"], 125.0)
+            self.assertIn("UI Mati", oc_proc["name"])
+            self.assertEqual(oc_proc["stop_url"], "/process-action?service=openclaw-gateway&action=stop")
+
 
 if __name__ == "__main__":
     unittest.main()
