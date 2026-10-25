@@ -8134,6 +8134,7 @@ var CONFIRM_ROUTES = [
   {match:'/remove-fallback-model', title:'Hapus Model Cadangan', msg:'Hapus model ini dari daftar cadangan?'},
   {match:'/process-action?service=9router&action=stop', title:'Hentikan 9router', msg:'Hentikan layanan 9router? AI routing akan mati sampai dinyalakan lagi.'},
   {match:'/process-action?service=cloudflared&action=stop', title:'Hentikan Cloudflared', msg:'Hentikan layanan tunnel Cloudflared? Akses eksternal putus sampai dinyalakan lagi.'},
+  {match:'/process-action?service=pihole&action=stop', title:'Hentikan Pi-hole', msg:'Hentikan Pi-hole? DNS dan anti-iklan mati sampai dinyalakan lagi.'},
   {match:'/process-action?service=pihole-pihole-1&action=stop', title:'Hentikan Pi-hole', msg:'Hentikan Pi-hole? DNS dan anti-iklan mati sampai dinyalakan lagi.'},
   {match:'/process-action?service=casaos&action=stop', title:'Hentikan CasaOS', msg:'Hentikan layanan CasaOS? Dasbor web CasaOS tidak dapat diakses sampai dinyalakan kembali.'},
   {match:'/process-action?service=hermes-dashboard&action=restart', title:'Mulai Ulang Dasbor', msg:'Mulai ulang layanan hermes-dashboard? Halaman dasbor :9119 terputus sebentar.'},
@@ -13357,19 +13358,25 @@ def get_process_list(fresh: bool = False) -> list[dict]:
 
     # 6. Pi-hole DNS
     try:
-        dst, dpid, dmem = get_docker_metric("pihole-pihole-1", fresh=fresh)
+        dst, dpid, dmem = get_docker_metric("pihole", fresh=fresh)
+        c_id = "pihole"
+        if dst.lower() != "running":
+            dst_alt, dpid_alt, dmem_alt = get_docker_metric("pihole-pihole-1", fresh=fresh)
+            if dst_alt.lower() == "running":
+                dst, dpid, dmem = dst_alt, dpid_alt, dmem_alt
+                c_id = "pihole-pihole-1"
         is_run = (dst.lower() == "running")
         procs.append({
-            "id": "pihole-pihole-1",
+            "id": c_id,
             "name": "Pi-hole (DNS Anti-Iklan)",
             "kind": "Kontainer Docker",
             "status": "Berjalan" if is_run else "Berhenti",
             "is_active": is_run,
             "pid": dpid if is_run else "-",
             "mem_mb": dmem,
-            "stop_url": "/process-action?service=pihole-pihole-1&action=stop",
-            "start_url": "/process-action?service=pihole-pihole-1&action=start",
-            "restart_url": "/process-action?service=pihole-pihole-1&action=restart",
+            "stop_url": f"/process-action?service={c_id}&action=stop",
+            "start_url": f"/process-action?service={c_id}&action=start",
+            "restart_url": f"/process-action?service={c_id}&action=restart",
         })
     except Exception:
         pass
@@ -16106,7 +16113,10 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             subprocess.run(["docker", action, "cloudflared"], timeout=15)
                     elif service in ("pihole", "pihole-pihole-1") and action in ("start", "stop", "restart"):
-                        subprocess.run(["docker", action, "pihole-pihole-1"], timeout=15)
+                        target_container = service
+                        if service == "pihole-pihole-1" and get_docker_metric("pihole", fresh=True)[0] == "running":
+                            target_container = "pihole"
+                        subprocess.run(["docker", action, target_container], timeout=15)
                     elif service == "casaos" and action in ("start", "stop", "restart"):
                         casaos_units = [
                             "casaos.service",
