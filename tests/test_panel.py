@@ -4140,6 +4140,46 @@ class TestHermesUpdateFlow(unittest.TestCase):
                                                           return_value=b"\x00".join(a.encode() for a in argv) + b"\x00"):
                 self.assertEqual(panel._pid_is_hermes_update(99999), expected)
 
+    def test_hermes_update_timeout_closes_child_pipes(self):
+        """On timeout the updater must reap the child and close its pipes, not leak fds."""
+        import tempfile
+        from pathlib import Path
+        td = tempfile.mkdtemp(prefix="hupd-timeout-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(td, ignore_errors=True))
+        log_path = os.path.join(td, "update.log")
+
+        class FakeProc:
+            def __init__(self):
+                self.stdout = io.StringIO()
+                self.stderr = io.StringIO()
+                self.waited = 0
+                self.killed = False
+            def wait(self, timeout=None):
+                self.waited += 1
+                if self.waited == 1:
+                    raise subprocess.TimeoutExpired(cmd="hermes", timeout=timeout or 1)
+                return 124
+
+        fake = FakeProc()
+        with mock.patch.object(panel, "HERMES_UPDATE_TIMEOUT", 0.05), \
+             mock.patch.object(panel, "HERMES_UPDATE_LOG_PATH", log_path), \
+             mock.patch.object(panel, "_hermes_update_argv", return_value=["/bin/sh", "-c", "sleep 5"]), \
+             mock.patch.object(panel.subprocess, "Popen", return_value=fake), \
+             mock.patch.object(panel, "_clear_stale_hermes_git_lock"), \
+             mock.patch.object(panel, "is_hermes_updating", return_value=False), \
+             mock.patch.object(panel, "_hermes_update_summary", return_value="timeout"):
+            panel.run_hermes_update()
+            for _ in range(100):
+                if not panel._hermes_update_running:
+                    break
+                time.sleep(0.02)
+
+        self.assertFalse(panel._hermes_update_running)
+        self.assertGreaterEqual(fake.waited, 2)
+        self.assertTrue(fake.stdout.closed)
+        self.assertTrue(fake.stderr.closed)
+        self.assertIn("timeout", Path(log_path).read_text(encoding="utf-8"))
+
     def test_update_runs_in_transient_systemd_unit(self):
         with mock.patch.object(panel.shutil, "which", return_value="/usr/bin/systemd-run"), \
              mock.patch.dict(os.environ, {"HERMES_HOME": "/opt/hh"}):

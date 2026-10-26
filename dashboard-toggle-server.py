@@ -6457,6 +6457,8 @@ def _wa_pair_watcher(proc, session_dir: Path):
         with _wa_pair_lock:
             if _wa_pair_proc is proc:
                 _wa_pair_proc = None
+        with suppress(Exception):
+            proc.stdout.close()
         if proc.poll() is None:
             _reap_proc_async(proc)
 
@@ -8859,9 +8861,16 @@ def run_hermes_update() -> None:
                 if argv[0] != "systemd-run":
                     with suppress(Exception):
                         os.killpg(proc.pid, signal.SIGTERM)
+                with suppress(Exception):
+                    proc.wait(timeout=10)
                 with open(HERMES_UPDATE_LOG_PATH, "a", encoding="utf-8") as log:
                     log.write(f"\n[panel] ERROR: timeout {HERMES_UPDATE_TIMEOUT} detik\n")
                 rc = 124
+            finally:
+                with suppress(Exception):
+                    proc.stdout.close()
+                with suppress(Exception):
+                    proc.stderr.close()
             _invalidate_status_cache("gateway_platforms")
             summary = _hermes_update_summary(rc, tail_hermes_update_log(400))
             with _hermes_update_lock:
