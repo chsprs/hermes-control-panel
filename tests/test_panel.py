@@ -1854,7 +1854,7 @@ class TestHermesControlPanel(unittest.TestCase):
                 method="POST", headers={"Cookie": cookie},
             )
         self.assertEqual(code, 302)
-        self.assertIn("action-failed%3Asystemctl%2520restart%25209router.service%2520exit%25201", headers.get("Location", ""))
+        self.assertIn("action-failed%3Asystemctl%20restart%209router.service%20exit%201", headers.get("Location", ""))
         self.assertNotIn("action-done", headers.get("Location", ""))
 
 

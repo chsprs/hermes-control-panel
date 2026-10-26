@@ -5771,24 +5771,39 @@ def is_openclaw_control_ui_enabled() -> bool:
         return False
 
 
-def toggle_openclaw_control_ui() -> bool:
-    try:
-        if not os.path.isfile(OPENCLAW_CONFIG_PATH):
-            return False
-        with open(OPENCLAW_CONFIG_PATH, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-        gui = cfg.setdefault("gateway", {}).setdefault("controlUi", {})
-        current = bool(gui.get("enabled", True))
-        new_val = not current
-        gui["enabled"] = new_val
-        tmp_path = f"{OPENCLAW_CONFIG_PATH}.tmp.{os.getpid()}"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=1)
-        os.chmod(tmp_path, 0o600)
-        os.replace(tmp_path, OPENCLAW_CONFIG_PATH)
-        return new_val
-    except Exception:
-        return False
+_openclaw_config_lock = threading.Lock()
+
+
+def toggle_openclaw_control_ui() -> bool | None:
+    """Toggle Control UI atomically; None means read/write failure."""
+    tmp_path = f"{OPENCLAW_CONFIG_PATH}.tmp.{os.getpid()}"
+    with _openclaw_config_lock:
+        try:
+            if not os.path.isfile(OPENCLAW_CONFIG_PATH):
+                return None
+            with open(OPENCLAW_CONFIG_PATH, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            if not isinstance(cfg, dict):
+                return None
+            gui = cfg.setdefault("gateway", {}).setdefault("controlUi", {})
+            if not isinstance(gui, dict):
+                return None
+            new_val = not bool(gui.get("enabled", True))
+            gui["enabled"] = new_val
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=1)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp_path, 0o600)
+            os.replace(tmp_path, OPENCLAW_CONFIG_PATH)
+            return new_val
+        except (OSError, TypeError, ValueError):
+            return None
+        finally:
+            with suppress(OSError):
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
 
 
 def get_openclaw_open_block() -> str:
@@ -15811,7 +15826,13 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/openclaw-toggle":
             new_state = toggle_openclaw_control_ui()
             if is_ajax:
-                self._send_json({"ok": True, "enabled": new_state})
+                self._send_json(
+                    {"ok": new_state is not None, "enabled": new_state},
+                    code=200 if new_state is not None else 500,
+                )
+                return
+            if new_state is None:
+                self._send_html("<h1>500 — gagal menyimpan konfigurasi OpenClaw</h1>", 500)
                 return
             self._redirect_to_status(just="openclaw-toggle", tab="control")
             return
@@ -16374,7 +16395,7 @@ class Handler(BaseHTTPRequestHandler):
                     target_tab = "control"
                 if action_error:
                     # Never report success for a lifecycle command that failed.
-                    self._redirect_to_status(just=f"action-failed:{quote(action_error, safe='')}", tab=target_tab)
+                    self._redirect_to_status(just=f"action-failed:{action_error}", tab=target_tab)
                     return
                 self._redirect_to_status(just="action-done", tab=target_tab)
                 return
@@ -16400,19 +16421,25 @@ class Handler(BaseHTTPRequestHandler):
 
         just = ""
         target_tab = ""
+        action_error = ""
         if not debounced:
             try:
                 if parsed.path == "/toggle":
                     will_start = not is_dashboard_active()
-                    dashboard_action("start" if will_start else "stop")
-                    just = "start" if will_start else ""
+                    if not dashboard_action("start" if will_start else "stop"):
+                        action_error = f"systemctl {'start' if will_start else 'stop'} {SERVICE} gagal"
+                    else:
+                        just = "start" if will_start else ""
                     target_tab = "control"
                 elif parsed.path == "/on":
-                    dashboard_action("start")
-                    just = "start"
+                    if not dashboard_action("start"):
+                        action_error = f"systemctl start {SERVICE} gagal"
+                    else:
+                        just = "start"
                     target_tab = "control"
                 elif parsed.path == "/off":
-                    dashboard_action("stop")
+                    if not dashboard_action("stop"):
+                        action_error = f"systemctl stop {SERVICE} gagal"
                     target_tab = "control"
                 elif parsed.path == "/restart-bot":
                     restart_bot()
@@ -16424,8 +16451,10 @@ class Handler(BaseHTTPRequestHandler):
                     just = "bot-off" if was_active else "bot-on"
                     target_tab = "control"
                 elif parsed.path == "/openclaw-toggle":
-                    toggle_openclaw_control_ui()
-                    just = "openclaw-toggle"
+                    if toggle_openclaw_control_ui() is None:
+                        action_error = "gagal menyimpan konfigurasi OpenClaw"
+                    else:
+                        just = "openclaw-toggle"
                     target_tab = "control"
                 elif parsed.path == "/update-router":
                     # updating flag (set in update_router) makes /status show the
@@ -16480,8 +16509,12 @@ class Handler(BaseHTTPRequestHandler):
                     just = "model"
                     target_tab = "status"
             except Exception as ex:
+                action_error = f"{type(ex).__name__}: {ex}"
                 sys.stderr.write(f"[panel] Action route error {parsed.path}: {ex}\n")
 
+        if action_error:
+            self._redirect_to_status(just=f"action-failed:{action_error}", tab=target_tab)
+            return
         self._redirect_to_status(just=just, tab=target_tab)
 
 
