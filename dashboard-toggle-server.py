@@ -2559,10 +2559,13 @@ syncGwLogTabUI();
 
 var currentEditingSoulProfile = '';
 var profileSoulLoadGen = 0;
+var profileCloneLoadGen = 0;
+var taskAssigneeLoadGen = 0;
 var currentRenamingProfile = '';
 var currentProfileModelTarget = '';
 
 function openCreateProfileModal(){{
+  var loadGen = ++profileCloneLoadGen;
   var modal = document.getElementById('create-profile-modal');
   if(!modal) return;
   document.getElementById('create-profile-name').value = '';
@@ -2572,6 +2575,7 @@ function openCreateProfileModal(){{
     sel.innerHTML = '<option value="">-- Tanpa Clone (Mulai Baru) --</option><option value="default">default (Profil Utama)</option>';
     fetchJsonChecked('/api/profiles')
       .then(function(res){{
+        if(loadGen !== profileCloneLoadGen) return;
         if(res && res.profiles){{
           sel.innerHTML = '<option value="">-- Tanpa Clone (Mulai Baru) --</option>';
           res.profiles.forEach(function(p){{
@@ -2583,6 +2587,7 @@ function openCreateProfileModal(){{
         }}
       }})
       .catch(function(err){{
+        if(loadGen !== profileCloneLoadGen) return;
         sel.innerHTML = '<option value="">-- Tanpa Clone (Mulai Baru) --</option><option value="" disabled>Gagal memuat daftar profil</option>';
         sel.title = 'Gagal memuat daftar profil: ' + (err && err.message || err);
       }});
@@ -2591,6 +2596,7 @@ function openCreateProfileModal(){{
 }}
 
 function closeCreateProfileModal(){{
+  ++profileCloneLoadGen;
   var modal = document.getElementById('create-profile-modal');
   if(modal) modal.classList.remove('show');
 }}
@@ -3591,6 +3597,7 @@ setTimeout(function() {{
 }}, 500);
 
 function openCreateTaskModal(){{
+  var loadGen = ++taskAssigneeLoadGen;
   var modal = document.getElementById('create-kanban-task-modal');
   if(!modal) return;
   document.getElementById('kanban-task-title').value = '';
@@ -3602,6 +3609,7 @@ function openCreateTaskModal(){{
   if(sel){{
     fetchJsonChecked('/api/profiles')
       .then(function(res){{
+        if(loadGen !== taskAssigneeLoadGen) return;
         if(res && res.profiles){{
           sel.innerHTML = '<option value="">-- Tanpa Assignee --</option>';
           res.profiles.forEach(function(p){{
@@ -3613,6 +3621,7 @@ function openCreateTaskModal(){{
         }}
       }})
       .catch(function(err){{
+        if(loadGen !== taskAssigneeLoadGen) return;
         sel.innerHTML = '<option value="">-- Tanpa Assignee --</option><option value="" disabled>Gagal memuat daftar profil</option>';
         sel.title = 'Gagal memuat daftar profil: ' + (err && err.message || err);
       }});
@@ -3621,6 +3630,7 @@ function openCreateTaskModal(){{
 }}
 
 function closeCreateTaskModal(){{
+  ++taskAssigneeLoadGen;
   var modal = document.getElementById('create-kanban-task-modal');
   if(modal) modal.classList.remove('show');
 }}

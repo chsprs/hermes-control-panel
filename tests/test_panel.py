@@ -444,6 +444,22 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("if(loadGen !== kanbanBoardLoadGen) return", segment)
         self.assertIn("if(board !== (bSel ? bSel.value : 'default')) return", segment)
 
+    def test_profile_and_task_assignee_loaders_ignore_stale_responses(self):
+        page = panel.PAGE
+        self.assertIn("var profileCloneLoadGen = 0;", page)
+        self.assertIn("var taskAssigneeLoadGen = 0;", page)
+        for function_name, gen in (("openCreateProfileModal", "profileCloneLoadGen"), ("openCreateTaskModal", "taskAssigneeLoadGen")):
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            self.assertIn("var loadGen = ++" + gen, segment, function_name)
+            self.assertIn("if(loadGen !== " + gen + ") return", segment, function_name)
+        for function_name, gen in (("closeCreateProfileModal", "profileCloneLoadGen"), ("closeCreateTaskModal", "taskAssigneeLoadGen")):
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            self.assertIn("++" + gen, segment, function_name)
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_sse_ignores_stale_eventsource_callbacks(self):
         src = panel.SSE_SCRIPT
