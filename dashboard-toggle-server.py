@@ -10817,6 +10817,11 @@ def render_profiles_block() -> str:
 _KANBAN_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _KANBAN_VALID_STATUSES = {"triage", "todo", "scheduled", "ready", "running", "blocked", "review", "done", "completed", "archived"}
 
+
+class KanbanReadError(RuntimeError):
+    """Kanban read failed; never present a broken board as an empty board."""
+
+
 KANBAN_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS tasks (
     id                   TEXT PRIMARY KEY,
@@ -11013,13 +11018,12 @@ def list_kanban_boards() -> list[dict]:
     # 1. Default board
     def_path = root / "kanban.db"
     def_count = 0
-    try:
-        if def_path.is_file():
-            with closing(sqlite3.connect(str(def_path), timeout=3.0)) as con:
-                con.execute("PRAGMA synchronous=NORMAL")
+    if def_path.is_file():
+        try:
+            with closing(ensure_kanban_db(def_path)) as con:
                 def_count = con.execute("SELECT COUNT(*) FROM tasks WHERE status != 'archived'").fetchone()[0]
-    except Exception:
-        pass
+        except Exception:
+            def_count = None
 
     boards.append({
         "slug": "default",
@@ -11037,13 +11041,12 @@ def list_kanban_boards() -> list[dict]:
                 if entry.is_dir() and _KANBAN_SLUG_RE.match(entry.name) and entry.name != "default":
                     b_path = entry / "kanban.db"
                     b_count = 0
-                    try:
-                        if b_path.is_file():
-                            with closing(sqlite3.connect(str(b_path), timeout=3.0)) as con:
-                                con.execute("PRAGMA synchronous=NORMAL")
+                    if b_path.is_file():
+                        try:
+                            with closing(ensure_kanban_db(b_path)) as con:
                                 b_count = con.execute("SELECT COUNT(*) FROM tasks WHERE status != 'archived'").fetchone()[0]
-                    except Exception:
-                        pass
+                        except Exception:
+                            b_count = None
                     boards.append({
                         "slug": entry.name,
                         "name": entry.name.replace("-", " ").replace("_", " ").title(),
@@ -11227,8 +11230,8 @@ def list_kanban_tasks(board: str = "", status: str = None, assignee: str = None)
     db_path = get_kanban_db_path(board)
     try:
         con = ensure_kanban_db(db_path)
-    except Exception:
-        return []
+    except Exception as e:
+        raise KanbanReadError(f"Gagal membuka board Kanban '{board or get_current_kanban_board()}': {e}") from e
 
     try:
         query = "SELECT * FROM tasks WHERE 1=1"
@@ -11257,8 +11260,8 @@ def list_kanban_tasks(board: str = "", status: str = None, assignee: str = None)
             _enrich_kanban_liveness(d, now=now)
             tasks.append(d)
         return tasks
-    except Exception:
-        return []
+    except Exception as e:
+        raise KanbanReadError(f"Gagal membaca board Kanban '{board or get_current_kanban_board()}': {e}") from e
     finally:
         con.close()
 
@@ -11681,7 +11684,8 @@ def render_kanban_board_options(active_slug: str = "") -> str:
     for b in boards:
         sel = " selected" if b["slug"] == cur else ""
         cnt = b.get("task_count", 0)
-        opts.append(f'<option value="{html.escape(b["slug"])}"{sel}>{html.escape(b["name"])} ({cnt})</option>')
+        cnt_label = "?" if cnt is None else str(cnt)
+        opts.append(f'<option value="{html.escape(b["slug"])}"{sel}>{html.escape(b["name"])} ({cnt_label})</option>')
     return "".join(opts)
 
 
@@ -11701,7 +11705,10 @@ def render_kanban_dispatcher_badge() -> str:
 def render_kanban_board_block(board_slug: str = "") -> str:
     """Render the Kanban columns and task cards."""
     slug = board_slug or get_current_kanban_board()
-    tasks = list_kanban_tasks(board=slug)
+    try:
+        tasks = list_kanban_tasks(board=slug)
+    except KanbanReadError as e:
+        return f'<div class="hint" style="color:var(--danger)">Kanban error: {html.escape(str(e))}</div>'
 
     # Columns to render
     cols_def = [
@@ -15870,7 +15877,12 @@ class Handler(BaseHTTPRequestHandler):
             b = (qs.get("board") or [""])[0]
             st = (qs.get("status") or [None])[0]
             ass = (qs.get("assignee") or [None])[0]
-            self._send_json({"ok": True, "board": b or get_current_kanban_board(), "tasks": list_kanban_tasks(board=b, status=st, assignee=ass)})
+            try:
+                tasks = list_kanban_tasks(board=b, status=st, assignee=ass)
+            except KanbanReadError as e:
+                self._send_json({"ok": False, "board": b or get_current_kanban_board(), "error": str(e)}, code=503)
+                return
+            self._send_json({"ok": True, "board": b or get_current_kanban_board(), "tasks": tasks})
             return
 
         if parsed.path == "/api/kanban/task":

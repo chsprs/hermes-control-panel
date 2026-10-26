@@ -3108,6 +3108,14 @@ class TestKanbanBoard(unittest.TestCase):
         self.assertFalse(panel.set_current_kanban_board("does-not-exist"))
         self.assertEqual(panel.get_current_kanban_board(), "default")
 
+    def test_08e_kanban_read_errors_are_not_empty_success(self):
+        with mock.patch.object(panel, "ensure_kanban_db", side_effect=OSError("locked")):
+            with self.assertRaises(panel.KanbanReadError):
+                panel.list_kanban_tasks()
+            rendered = panel.render_kanban_board_block("default")
+            self.assertIn("Kanban error", rendered)
+            self.assertIn("locked", rendered)
+
     def test_08b_kanban_parallel_writes(self):
         errors = []
         task_ids = []
