@@ -13030,16 +13030,24 @@ def update_router() -> None:
                 proc = subprocess.Popen(
                     cmd_args,
                     stdout=log, stderr=subprocess.STDOUT, text=True,
+                    start_new_session=True,
                 )
                 try:
                     rc = proc.wait(timeout=UPDATE_TIMEOUT)
                 except subprocess.TimeoutExpired:
+                    # Kill the whole process group: `sh -c` only wraps npm/node,
+                    # and killing just the shell leaves the installer running
+                    # and still holding the log file.
+                    with suppress(Exception):
+                        os.killpg(proc.pid, signal.SIGTERM)
                     try:
-                        proc.kill()
-                        proc.wait(timeout=5)
+                        proc.wait(timeout=10)
                     except Exception:
-                        pass
-                    log.write("\n[ERROR] timeout: update melebihi 300 detik\n")
+                        with suppress(Exception):
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        with suppress(Exception):
+                            proc.wait(timeout=5)
+                    log.write("\n[ERROR] timeout: update melebihi batas waktu\n")
                     rc = 124
             try:
                 with open(log_path, encoding="utf-8", errors="replace") as lf:

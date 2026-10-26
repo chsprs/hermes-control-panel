@@ -97,6 +97,39 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertEqual(panel._router_update_result["status"], "failed")
         self.assertIn("RuntimeError", panel._router_update_result["summary"])
 
+    def test_01b_router_update_timeout_kills_process_group(self):
+        """Timeout must kill the whole process group, not just the wrapping shell."""
+        import tempfile
+        td = tempfile.mkdtemp(prefix="router-upd-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(td, ignore_errors=True))
+        log_path = os.path.join(td, "update.log")
+
+        class FakeProc:
+            pid = 4242
+            def wait(self, timeout=None):
+                raise subprocess.TimeoutExpired(cmd="sh", timeout=timeout or 1)
+
+        killed = []
+        fake = FakeProc()
+        with mock.patch.object(panel, "UPDATE_TIMEOUT", 0.05), \
+             mock.patch.object(panel, "ROUTER_COMPOSE_DIR", td), \
+             mock.patch.object(panel, "get_9router_host", return_value="127.0.0.1"), \
+             mock.patch.object(panel, "_router_update_command", return_value="npm install -g 9router@latest"), \
+             mock.patch.object(panel.subprocess, "Popen", return_value=fake), \
+             mock.patch.object(panel.os, "killpg", side_effect=lambda pg, sig: killed.append((pg, sig))), \
+             mock.patch.object(panel, "_refresh_update_cache"):
+            panel.update_router()
+            for _ in range(100):
+                if not panel._router_updating:
+                    break
+                time.sleep(0.02)
+
+        self.assertFalse(panel._router_updating)
+        self.assertEqual(panel._router_update_result["exit_code"], 124)
+        self.assertEqual(killed[0][0], 4242)
+        self.assertEqual(killed[0][1], __import__("signal").SIGTERM)
+        self.assertIn("timeout", open(log_path, encoding="utf-8").read())
+
     # --- PR 2: Config write failures propagation ---
     def test_02_aux_model_write_failure_returns_500(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
