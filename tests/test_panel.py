@@ -327,6 +327,38 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertGreaterEqual(page.count(marker), 3, marker)
         self.assertNotIn(".catch(function(){{}});", page)
 
+    def test_modal_loaders_ignore_stale_async_responses(self):
+        page = panel.PAGE
+        checks = {
+            "openProfileSkillsModal": [
+                "var loadGen = ++profileSkillsLoadGen",
+                "if(loadGen !== profileSkillsLoadGen) return",
+                "if(loadGen !== profileSkillsLoadGen) return",
+                "if(loadGen !== profileSkillsLoadGen) return",
+            ],
+            "openViewTaskModal": [
+                "var loadGen = ++taskDetailLoadGen",
+                "if(loadGen !== taskDetailLoadGen) return",
+                "if(loadGen !== taskDetailLoadGen) return",
+            ],
+        }
+        for function_name, needles in checks.items():
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            for needle in needles:
+                self.assertIn(needle, segment, f"{function_name}: {needle}")
+        for function_name in ("closeProfileSkillsModal", "closeViewTaskModal", "closeProfileSkillRead"):
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            if function_name == "closeProfileSkillRead":
+                self.assertIn("++profileSkillReadGen", segment)
+            elif function_name == "closeProfileSkillsModal":
+                self.assertIn("++profileSkillsLoadGen", segment)
+            else:
+                self.assertIn("++taskDetailLoadGen", segment)
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_network_status_renderer_rejects_hostile_numeric_fields(self):
         script = r"""

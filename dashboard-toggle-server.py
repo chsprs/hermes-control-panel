@@ -2759,8 +2759,11 @@ function setProfileModel(profileName, provider, model){{
 var currentSkillsProfile = '';
 var profileSkillsCache = [];
 var profileToolsCache = {{cli: null, disabled: []}};
+var profileSkillsLoadGen = 0;
+var profileSkillReadGen = 0;
 
 function openProfileSkillsModal(name){{
+  var loadGen = ++profileSkillsLoadGen;
   currentSkillsProfile = name;
   profileSkillsCache = [];
   profileToolsCache = {{cli: null, disabled: []}};
@@ -2778,6 +2781,7 @@ function openProfileSkillsModal(name){{
   if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--text-dim)">Memuat...</div>';
   fetchJsonChecked('/api/profile-skills?profile=' + encodeURIComponent(name))
     .then(function(res){{
+      if(loadGen !== profileSkillsLoadGen) return;
       if(res && res.ok){{
         profileSkillsCache = res.skills || [];
         var sub = document.getElementById('profile-skills-sub');
@@ -2789,17 +2793,25 @@ function openProfileSkillsModal(name){{
       renderProfileSkillsList();
     }})
     .catch(function(err){{
+      if(loadGen !== profileSkillsLoadGen) return;
       if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Error: ' + escHtml(err && err.message || err) + '</div>';
     }});
   fetchJsonChecked('/api/profile-toolsets?profile=' + encodeURIComponent(name))
     .then(function(res){{
+      if(loadGen !== profileSkillsLoadGen) return;
       if(res && res.ok) profileToolsCache = {{cli: res.cli_toolsets, disabled: res.disabled_toolsets || []}};
       renderProfileToolsList();
     }})
-    .catch(function(){{ renderProfileToolsList(); }});
+    .catch(function(err){{
+      if(loadGen !== profileSkillsLoadGen) return;
+      renderProfileToolsList();
+      var tools = document.getElementById('profile-tools-list');
+      if(tools) tools.title = 'Gagal memuat toolset: ' + (err && err.message || err);
+    }});
 }}
 
 function closeProfileSkillsModal(){{
+  ++profileSkillsLoadGen;
   var modal = document.getElementById('profile-skills-modal');
   if(modal) modal.classList.remove('show');
   currentSkillsProfile = '';
@@ -2904,6 +2916,7 @@ function toggleProfileSkillView(){{
 }}
 
 function readProfileSkill(skill){{
+  var loadGen = ++profileSkillReadGen;
   var box = document.getElementById('profile-skill-read');
   var t = document.getElementById('profile-skill-read-title');
   var b = document.getElementById('profile-skill-read-body');
@@ -2919,6 +2932,7 @@ function readProfileSkill(skill){{
   if(box) box.style.display = 'flex';
   fetchJsonChecked('/api/profile-skill?profile=' + encodeURIComponent(currentSkillsProfile) + '&skill=' + encodeURIComponent(skill))
     .then(function(res){{
+      if(loadGen !== profileSkillReadGen) return;
       if(b){{
         if(res && res.ok){{
           currentProfileSkillRaw = res.content || '';
@@ -2930,10 +2944,14 @@ function readProfileSkill(skill){{
         }}
       }}
     }})
-    .catch(function(err){{ if(b) b.textContent = 'Error: ' + err; }});
+    .catch(function(err){{
+      if(loadGen !== profileSkillReadGen) return;
+      if(b) b.textContent = 'Error: ' + (err && err.message || err);
+    }});
 }}
 
 function closeProfileSkillRead(){{
+  ++profileSkillReadGen;
   var box = document.getElementById('profile-skill-read');
   if(box) box.style.display = 'none';
 }}
@@ -2992,6 +3010,7 @@ function toggleProfileToolset(toolset, enable){{
 
 // --- Kanban UI JavaScript ---
 var currentViewingTaskId = '';
+var taskDetailLoadGen = 0;
 var selectedTaskIds = new Set();
 var kanbanSyncTimer = null;
 var isDraggingKanban = false;
@@ -3666,6 +3685,7 @@ function switchKanbanBoard(slug){{
 }}
 
 function openViewTaskModal(taskId){{
+  var loadGen = ++taskDetailLoadGen;
   currentViewingTaskId = taskId;
   var modal = document.getElementById('view-kanban-task-modal');
   if(!modal) return;
@@ -3674,6 +3694,7 @@ function openViewTaskModal(taskId){{
 
   fetchJsonChecked('/api/kanban/task?id=' + encodeURIComponent(taskId) + '&board=' + encodeURIComponent(board))
     .then(function(res){{
+      if(loadGen !== taskDetailLoadGen) return;
       if(!res || !res.ok || !res.task){{
         alert('Tugas tidak ditemukan');
         return;
@@ -3874,7 +3895,10 @@ function openViewTaskModal(taskId){{
       }}
       modal.classList.add('show');
     }})
-    .catch(function(err){{ alert('Error: ' + err); }});
+    .catch(function(err){{
+      if(loadGen !== taskDetailLoadGen) return;
+      alert('Error: ' + (err && err.message || err));
+    }});
 }}
 
 function formatKanbanBytes(n){{
@@ -3982,6 +4006,7 @@ function closeAttachmentViewerModal(){{
 }}
 
 function closeViewTaskModal(){{
+  ++taskDetailLoadGen;
   var modal = document.getElementById('view-kanban-task-modal');
   if(modal) modal.classList.remove('show');
   currentViewingTaskId = '';
