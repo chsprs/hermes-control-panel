@@ -5804,11 +5804,12 @@ _status_probe_cache = {}
 _status_probe_cache_lock = threading.Lock()
 _ttl_refreshing: set[str] = set()
 _ttl_refreshing_lock = threading.Lock()
+_ttl_inflight: dict[str, threading.Event] = {}
 
 
 def _ttl_cached(key: str, ttl: float, loader):
     """Return a short-lived cached probe result without holding the lock during I/O.
-    Uses stale-while-revalidate in background to prevent blocking callers when cache is stale."""
+    Stale values refresh in background; cold misses coalesce concurrent callers."""
     now = time.monotonic()
 
     with _status_probe_cache_lock:
@@ -5837,14 +5838,37 @@ def _ttl_cached(key: str, ttl: float, loader):
                 threading.Thread(target=_bg_worker, daemon=True).start()
         return entry["value"]
 
-    # Cold start: first request loads synchronously
-    value = loader()
-    with _status_probe_cache_lock:
-        _status_probe_cache[key] = {
-            "at": time.monotonic(),
-            "value": value,
-        }
-    return value
+    # Cold start: one caller loads synchronously; other callers wait briefly,
+    # then use the value it published. Prevents request bursts from multiplying
+    # expensive subprocess/SQLite probes after startup or invalidation.
+    with _ttl_refreshing_lock:
+        event = _ttl_inflight.get(key)
+        if event is None:
+            event = threading.Event()
+            _ttl_inflight[key] = event
+            owner = True
+        else:
+            owner = False
+    if not owner:
+        event.wait(timeout=max(1.0, min(float(ttl), 10.0)))
+        with _status_probe_cache_lock:
+            published = _status_probe_cache.get(key)
+        if published:
+            return published["value"]
+        return loader()
+    try:
+        value = loader()
+        with _status_probe_cache_lock:
+            _status_probe_cache[key] = {
+                "at": time.monotonic(),
+                "value": value,
+            }
+        return value
+    finally:
+        with _ttl_refreshing_lock:
+            current = _ttl_inflight.pop(key, None)
+            if current:
+                current.set()
 
 
 def _invalidate_status_cache(*keys: str) -> None:
@@ -8952,21 +8976,21 @@ def dashboard_action(action: str) -> None:
     _invalidate_status_cache("services", "processes_table")
 
 
-_config_cache = {"mtime": 0.0, "val": {}}
+_config_cache = {"mtime_ns": 0, "val": {}}
 _config_cache_lock = threading.Lock()
 
 
 def get_parsed_config() -> dict:
-    """Cached parsing of config.yaml based on file mtime."""
+    """Cached parsing of config.yaml based on nanosecond mtime."""
     try:
-        mt = os.path.getmtime(CONFIG_PATH)
+        mt_ns = os.stat(CONFIG_PATH).st_mtime_ns
         with _config_cache_lock:
-            if _config_cache["val"] and _config_cache["mtime"] == mt:
+            if _config_cache["mtime_ns"] == mt_ns:
                 return _config_cache["val"]
         with open(CONFIG_PATH, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         with _config_cache_lock:
-            _config_cache["mtime"] = mt
+            _config_cache["mtime_ns"] = mt_ns
             _config_cache["val"] = data
         return data
     except Exception:
@@ -8975,7 +8999,7 @@ def get_parsed_config() -> dict:
 
 def invalidate_config_cache():
     with _config_cache_lock:
-        _config_cache["mtime"] = 0.0
+        _config_cache["mtime_ns"] = 0
         _config_cache["val"] = {}
 
 
@@ -12156,14 +12180,14 @@ def test_gateway_route(platform: str, route: str = "", url: str = "", attempts: 
             parts = (p.stdout or "").split()
             code = parts[0] if parts else "000"
             secs = float(parts[1]) if len(parts) > 1 else 0.0
-            ok = code != "000"
+            ok = p.returncode == 0 and code != "000"
             err = "" if ok else _CURL_EXIT_HINTS.get(p.returncode, (p.stderr or "").strip()[:120] or f"curl exit {p.returncode}")
         except (OSError, subprocess.SubprocessError, ValueError) as exc:
             code, secs, ok, err = "000", 0.0, False, str(exc)[:120]
         results.append({"ok": ok, "http": code, "seconds": round(secs, 2), "error": err})
     good = [r for r in results if r["ok"]]
     return {
-        "ok": True, "platform": platform, "route": _route_from_proxy_url(proxy), "proxy": _mask_proxy_url(proxy),
+        "ok": bool(good), "platform": platform, "route": _route_from_proxy_url(proxy), "proxy": _mask_proxy_url(proxy),
         "url": test_url, "passed": len(good), "total": len(results),
         "avg_seconds": round(sum(r["seconds"] for r in good) / len(good), 2) if good else None,
         "results": results,
@@ -12184,6 +12208,9 @@ def resolve_gateway_host(host: str) -> dict:
         data = json.loads((p.stdout or "").strip().splitlines()[-1])
     except (OSError, subprocess.SubprocessError, ValueError, IndexError) as exc:
         return {"ok": False, "error": f"Tes DNS gagal: {exc}"}
+    if p.returncode != 0 or not isinstance(data, dict) or data.get("ok") is False:
+        detail = data.get("error") if isinstance(data, dict) else "relay mengembalikan respons tidak valid"
+        return {"ok": False, "error": detail or f"Tes DNS gagal (exit {p.returncode})"}
     return {"ok": True, **data}
 
 
@@ -15162,9 +15189,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         self.end_headers()
-        self.wfile.write(data)
+        if self.command != "HEAD":
+            self.wfile.write(data)
 
     def do_HEAD(self):
+        # HEAD must never reach mutation handlers: crawlers and health checks
+        # routinely issue HEAD without intending a state change.
+        parsed = urlparse(self.path)
+        if parsed.path in MUTATING_PATHS:
+            self._send_method_not_allowed()
+            return
         self.do_GET()
 
     def do_PUT(self):
@@ -15323,7 +15357,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         self.end_headers()
-        self.wfile.write(data)
+        if self.command != "HEAD":
+            self.wfile.write(data)
 
     def _redirect_to_status(self, just: str = "", tab: str = ""):
         _invalidate_status_cache(
@@ -15363,12 +15398,18 @@ class Handler(BaseHTTPRequestHandler):
         same way as GET; body (form-encoded) is merged into qs."""
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None or not raw_length.strip():
             length = 0
-        if length < 0:
-            length = 0
+        else:
+            try:
+                length = int(raw_length)
+            except (TypeError, ValueError):
+                self._send_json({"ok": False, "error": "Content-Length tidak valid"}, code=400)
+                return
+            if length < 0:
+                self._send_json({"ok": False, "error": "Content-Length tidak valid"}, code=400)
+                return
         if length > MAX_BODY_SIZE:
             is_json_client = parsed.path.startswith("/api/") or "application/json" in self.headers.get("Accept", "") or "application/json" in self.headers.get("Content-Type", "")
             if is_json_client:

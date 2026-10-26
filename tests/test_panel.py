@@ -2250,6 +2250,34 @@ process.stdout.write(serializeGwFormToYaml('discord'));
         self.assertIn('value="pairing"', block)
         self.assertIn('value=""', block, "a 'Hermes default' choice that removes the key")
 
+    def test_head_never_executes_mutating_route(self):
+        """HEAD probes must not trigger legacy GET shortcut actions."""
+        with mock.patch.object(panel.Handler, "_send_method_not_allowed") as blocked, \
+             mock.patch.object(panel.Handler, "_handle_mutation") as mutation:
+            handler = object.__new__(panel.Handler)
+            handler.path = "/toggle?token=explicit"
+            handler.do_HEAD()
+            blocked.assert_called_once_with()
+            mutation.assert_not_called()
+
+    def test_post_rejects_malformed_content_length(self):
+        """Malformed framing metadata must fail closed, not become an empty body."""
+        class Headers(dict):
+            def get(self, key, default=None):
+                return super().get(key, default)
+        class Writer:
+            def write(self, data):
+                return len(data)
+        handler = object.__new__(panel.Handler)
+        handler.path = "/api/status"
+        handler.headers = Headers({"Content-Length": "oops", "Accept": "application/json"})
+        handler.rfile = io.BytesIO(b"ignored")
+        handler.wfile = Writer()
+        with mock.patch.object(handler, "_send_json") as send_json:
+            handler.do_POST()
+        send_json.assert_called_once()
+        self.assertEqual(send_json.call_args.kwargs["code"], 400)
+
     def test_49_sse_client_keys_parity(self):
         """build_fragments() and build_fragments(sse_only=True) must return every key defined in SSE_CLIENT_KEYS."""
         frag = panel.build_fragments()
@@ -3523,6 +3551,28 @@ class TestSubprocessCachingAndOptimization(unittest.TestCase):
                 self.assertEqual(call_count, first_calls, "No new subprocesses must be called within TTL window")
                 self.assertEqual(len(procs1), len(procs2))
 
+    def test_ttl_cached_cold_miss_coalesces_concurrent_callers(self):
+        import threading
+        call_count = 0
+        lock = threading.Lock()
+        def loader():
+            nonlocal call_count
+            with lock:
+                call_count += 1
+            time.sleep(0.05)
+            return "cold"
+
+        with panel._status_probe_cache_lock:
+            panel._status_probe_cache.pop("test_cold_coalesce", None)
+        results = []
+        threads = [threading.Thread(target=lambda: results.append(panel._ttl_cached("test_cold_coalesce", 1.0, loader))) for _ in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=1)
+        self.assertEqual(call_count, 1)
+        self.assertEqual(results, ["cold"] * 6)
+
     def test_ttl_cached_stale_while_revalidate(self):
         call_count = 0
         def loader():
@@ -3795,6 +3845,7 @@ class TestGatewayNetwork(unittest.TestCase):
         fake = mock.Mock(returncode=0, stdout="302 0.50", stderr="")
         with mock.patch.object(panel.subprocess, "run", return_value=fake) as run:
             res = panel.test_gateway_route("telegram")
+            self.assertTrue(res["ok"])
             argv = run.call_args[0][0]
             self.assertEqual(argv[argv.index("-x") + 1], "socks5h://127.0.0.1:40001")
             self.assertEqual(argv[-1], "https://api.telegram.org/")
@@ -3807,8 +3858,17 @@ class TestGatewayNetwork(unittest.TestCase):
         fail = mock.Mock(returncode=97, stdout="000 0", stderr="")
         with mock.patch.object(panel.subprocess, "run", return_value=fail):
             res = panel.test_gateway_route("telegram", attempts=1)
+        self.assertFalse(res["ok"])
         self.assertEqual(res["passed"], 0)
         self.assertIn("SOCKS", res["results"][0]["error"])
+
+    def test_resolve_gateway_host_rejects_failed_relay(self):
+        failed = mock.Mock(returncode=1, stdout=json.dumps({"ok": False, "error": "resolver down"}), stderr="")
+        with mock.patch.object(panel.os.path, "isfile", return_value=True), \
+             mock.patch.object(panel.subprocess, "run", return_value=failed):
+            res = panel.resolve_gateway_host("api.telegram.org")
+        self.assertFalse(res["ok"])
+        self.assertIn("resolver down", res["error"])
 
     def test_http_api_auth_methods_and_save(self):
         url = f"http://127.0.0.1:{self.port}/api/network"
@@ -4254,6 +4314,21 @@ class TestHermesUpdateFlow(unittest.TestCase):
         cmd = panel._router_update_command()
         self.assertIn('/usr/bin/node /usr/bin/npm install -g --prefix /usr 9router@latest', cmd)
         self.assertIn('export PATH="/usr/bin:/usr/sbin:/bin:/sbin:$PATH"', cmd)
+
+    def test_config_cache_uses_nanosecond_mtime_and_empty_values(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "config.yaml")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{}"); f.flush(); os.fsync(f.fileno())
+            with mock.patch.object(panel, "CONFIG_PATH", path):
+                panel.invalidate_config_cache()
+                first = panel.get_parsed_config()
+                self.assertEqual(first, {})
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write("model:\n  default: changed\n"); f.flush(); os.fsync(f.fileno())
+                os.utime(path, ns=(time.time_ns(), time.time_ns()))
+                self.assertEqual(panel.get_parsed_config()["model"]["default"], "changed")
 
 
 if __name__ == "__main__":
