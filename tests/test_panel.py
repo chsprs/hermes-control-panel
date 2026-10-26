@@ -313,6 +313,65 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("&lt;img src=x onerror=alert(1)&gt;", r.stdout)
         self.assertIn("&lt;svg onload=alert(1)&gt;", r.stdout)
 
+    def test_frontend_pair_cancel_checks_http_status(self):
+        page = panel.PAGE
+        start = page.index("function closeWaPairModal")
+        end = page.index("function renderWaQrSvg", start)
+        segment = page[start:end]
+        self.assertIn("fetchJsonChecked('/api/whatsapp/pair-cancel'", segment)
+        self.assertNotIn("fetch('/api/whatsapp/pair-cancel'", segment)
+        self.assertNotIn(".catch(function(){{}})", segment)
+
+    @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
+    def test_sse_ignores_stale_eventsource_callbacks(self):
+        src = panel.SSE_SCRIPT
+        start = src.index("var es=null, retryTimer=null, esGeneration=0;")
+        end = src.index("  var hideDisconnectTimer", start)
+        connection = src[start:end]
+        harness = r"""
+var timers = [], instances = [], applied = [], liveLabel = '';
+function setTimeout(fn, ms){ timers.push(fn); return timers.length; }
+function clearTimeout(id){ timers[id - 1] = null; }
+var live = {classList: {remove: function(){}, add: function(){}}, querySelector: function(){ return {textContent: ''}; }};
+var spin = {classList: {add: function(){}, remove: function(){}}};
+var document = {getElementById: function(id){ return id === 'live-badge' ? live : null; }, addEventListener: function(){}, hidden: false};
+var window = {addEventListener: function(){}};
+function onUpdate(d){ applied.push(d); }
+function EventSource(url){ this.url = url; this.closed = false; this.readyState = 1; this.handlers = {}; instances.push(this); }
+EventSource.prototype.close = function(){ this.closed = true; this.readyState = 2; };
+EventSource.prototype.addEventListener = function(name, fn){ this.handlers[name] = fn; };
+EventSource.prototype.emit = function(name, event){ if(this.handlers[name]) this.handlers[name](event); };
+"""
+        script = harness + connection + r"""
+var first = instances[0];
+connect();
+var second = instances[1];
+first.onopen();
+first.emit('update', {data: '{"stale":true}'});
+first.onerror();
+process.stdout.write(JSON.stringify({
+  count: instances.length,
+  secondClosed: second.closed,
+  applied: applied,
+  timers: timers.filter(function(x){ return x !== null; }).length,
+  label: liveLabel
+}));
+"""
+        # connection code starts with declarations; it does not auto-connect.
+        script = harness + connection + r"""
+connect();
+var first = instances[0];
+connect();
+var second = instances[1];
+first.onopen();
+first.emit('update', {data: '{"stale":true}'});
+first.onerror();
+process.stdout.write(JSON.stringify({count: instances.length, secondClosed: second.closed, applied: applied, timers: timers.filter(function(x){ return x !== null; }).length}));
+"""
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"count": 2, "secondClosed": False, "applied": [], "timers": 0})
+
     def test_02_aux_model_write_failure_returns_500(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "set_aux_task_model", return_value=False):

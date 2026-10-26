@@ -5365,7 +5365,15 @@ function closeWaPairModal(skipCancel){{
   if(timerEl) timerEl.textContent = '';
   var isPairingActive = (_lastWaPairStatus === 'waiting_scan' || _lastWaPairStatus === 'starting');
   if(!skipCancel && isPairingActive){{
-    fetch('/api/whatsapp/pair-cancel', {{method: 'POST'}}).catch(function(){{}});
+    fetchJsonChecked('/api/whatsapp/pair-cancel', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json', 'Accept': 'application/json'}},
+      body: JSON.stringify({{}})
+    }}).catch(function(err){{
+      var detail = String(err && err.message || err);
+      var statusText = document.getElementById('wa-pair-status-text');
+      if(statusText) statusText.textContent = 'Pembatalan pairing gagal: ' + detail;
+    }});
   }}
 }}
 
@@ -7404,7 +7412,7 @@ const t = setInterval(() => {{
 SSE_SCRIPT = """<script>
 (function(){
     var pbar=document.getElementById('pbar'), spin=document.getElementById('spin');
-  var es=null, retryTimer=null;
+  var es=null, retryTimer=null, esGeneration=0;
   var cpuHistory = [10, 15, 12, 18, 22, 19, 14, 16, 20, 25, 22, 18, 15, 12, 10, 14, 18, 22, 19, 15, 20, 25, 18, 14, 12, 16, 18, 20, 15, 16];
   var ramHistory = [30, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 30, 31, 31, 31, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 30];
   function updateSparkline(svgId, val, historyArr){
@@ -7645,25 +7653,33 @@ SSE_SCRIPT = """<script>
   }
   function connect(){
     if(retryTimer){ clearTimeout(retryTimer); retryTimer=null; }
+    var generation = ++esGeneration;
     if(es) try{ es.close(); }catch(x){}
     setLive('reconnecting', 'Menyambung...');
-    es=new EventSource('/events');
-    es.onopen=function(){
+    var current = new EventSource('/events');
+    es = current;
+    current.onopen=function(){
+      if(generation !== esGeneration || es !== current) return;
       if(spin) spin.classList.remove('on');
       setLive('connected', 'Live');
     };
-    es.addEventListener('update', function(e){
+    current.addEventListener('update', function(e){
+      if(generation !== esGeneration || es !== current) return;
       try{ onUpdate(JSON.parse(e.data)); }catch(ex){}
     });
-    es.onerror=function(){
+    current.onerror=function(){
+      if(generation !== esGeneration || es !== current) return;
       if(spin) spin.classList.add('on');
       setLive('offline', 'Terputus');
-      es.close(); es=null;
-      retryTimer=setTimeout(connect, 3000);
+      current.close(); es=null;
+      retryTimer=setTimeout(function(){
+        if(generation === esGeneration) connect();
+      }, 3000);
     };
   }
   var hideDisconnectTimer = null;
   function disconnect(){
+    ++esGeneration;
     if(retryTimer){ clearTimeout(retryTimer); retryTimer=null; }
     if(es){ es.close(); es=null; }
   }
