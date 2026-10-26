@@ -8203,6 +8203,8 @@ function netRestartGateway() {
     if (!d.ok) { netCallout('net-routes-msg', 'bad', netEsc(d.error || 'Gagal restart')); return; }
     netCallout('net-routes-msg', 'ok', 'Gateway sedang di-restart. Status diperbarui otomatis dalam ±1 menit.');
     setTimeout(function () { netLoad(true); }, 45000);
+  }).catch(function (e) {
+    netCallout('net-routes-msg', 'bad', netEsc(e.message || e));
   });
 }
 
@@ -8276,6 +8278,8 @@ function netResolve() {
       + (ips.length ? ips.map(function (ip, i) { return '<span class="net-chip">' + (i + 1) + '. ' + netEsc(ip) + '</span>'; }).join('')
         : '<span class="net-result bad">tidak ada IPv4</span>')
       + (d.config_error ? '<span class="net-result warn">' + netIcon('alert', 13) + 'config relay error: ' + netEsc(d.config_error) + '</span>' : '');
+  }).catch(function (e) {
+    if (out) out.innerHTML = '<span class="net-result bad">' + netIcon('x', 13) + netEsc(e.message || e) + '</span>';
   });
 }
 

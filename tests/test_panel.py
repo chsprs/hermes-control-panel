@@ -302,6 +302,15 @@ class TestHermesControlPanel(unittest.TestCase):
         close = page[close_start:] if close_end == -1 else page[close_start:close_end]
         self.assertIn("++attachmentLoadGen", close)
 
+    def test_network_actions_handle_request_failures(self):
+        network = panel.NETWORK_SCRIPT
+        for function_name in ("netRestartGateway", "netResolve"):
+            start = network.index("function " + function_name)
+            next_function = network.find("\nfunction ", start + 1)
+            segment = network[start:] if next_function == -1 else network[start:next_function]
+            self.assertIn(".then(function", segment, function_name)
+            self.assertIn(".catch(function", segment, function_name)
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_network_status_renderer_rejects_hostile_numeric_fields(self):
         script = r"""
