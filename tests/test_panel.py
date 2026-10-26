@@ -276,6 +276,43 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("renderWaQrSvg(data.qr_svg, qrBox)", status)
         self.assertNotIn("+ data.qr_svg +", status)
 
+    def test_frontend_error_messages_escape_before_innerhtml(self):
+        page = panel.PAGE
+        start = page.index("function openProfileSkillsModal")
+        end = page.index("function closeProfileSkillsModal", start)
+        skills = page[start:end]
+        self.assertIn("escHtml((res && res.error) || 'unknown')", skills)
+        self.assertIn("escHtml(err && err.message || err)", skills)
+        start = page.index("function openKanbanAttachment")
+        end = page.index("function setAttachmentViewMode", start)
+        attachment = page[start:end]
+        self.assertIn("escHtml(err && err.message || err)", attachment)
+        self.assertNotIn("' + err.message + '</span>", attachment)
+
+    @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
+    def test_network_status_renderer_rejects_hostile_numeric_fields(self):
+        script = r"""
+var document = {readyState: 'complete', addEventListener: function(){}, getElementById: function(){ return null; }};
+""" + panel.NETWORK_SCRIPT + r"""
+var st = {
+  relay: {service: 'active', warp_service: 'active', warp: '<img src=x onerror=alert(1)>', stats: {
+    totals: {ok: '<svg onload=alert(1)>', failed: '<b>2</b>', fallback: '<i>3</i>', started_at: 0},
+    per_ip: {}, events: []
+  }},
+  gateway: {active: true, proxy_errors: '<img src=x>', failed_deliveries: '<b>1</b>', network_errors: '<i>1</i>', since: '', last_error: '<svg onload=alert(1)>'},
+  ports: {relay: '<img src=x>', warp: '<svg onload=alert(1)>'}, platforms: [], warnings: []
+};
+process.stdout.write(netRenderStatus(st));
+"""
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("<img src=x", r.stdout)
+        self.assertNotIn("<svg onload=", r.stdout)
+        self.assertNotIn("<b>2</b>", r.stdout)
+        self.assertNotIn("<i>3</i>", r.stdout)
+        self.assertIn("&lt;img src=x onerror=alert(1)&gt;", r.stdout)
+        self.assertIn("&lt;svg onload=alert(1)&gt;", r.stdout)
+
     def test_02_aux_model_write_failure_returns_500(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "set_aux_task_model", return_value=False):

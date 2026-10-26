@@ -2780,12 +2780,12 @@ function openProfileSkillsModal(name){{
         if(sub) sub.textContent = res.enabled_count + ' aktif / ' + res.total + ' skill · Sinkron dengan config.yaml profil ' + name;
       }} else {{
         profileSkillsCache = [];
-        if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Gagal: ' + ((res && res.error) || 'unknown') + '</div>';
+        if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Gagal: ' + escHtml((res && res.error) || 'unknown') + '</div>';
       }}
       renderProfileSkillsList();
     }})
     .catch(function(err){{
-      if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Error: ' + err + '</div>';
+      if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Error: ' + escHtml(err && err.message || err) + '</div>';
     }});
   fetchJsonChecked('/api/profile-toolsets?profile=' + encodeURIComponent(name))
     .then(function(res){{
@@ -3911,8 +3911,9 @@ function openKanbanAttachment(aid, filename){{
       if(rawEl) rawEl.textContent = txt;
     }})
     .catch(function(err){{
-      if(prevEl) prevEl.innerHTML = '<span style="color:var(--danger)">Gagal memuat lampiran: ' + err.message + '</span>';
-      if(rawEl) rawEl.textContent = 'Gagal memuat lampiran: ' + err.message;
+      var safeErr = escHtml(err && err.message || err);
+      if(prevEl) prevEl.innerHTML = '<span style="color:var(--danger)">Gagal memuat lampiran: ' + safeErr + '</span>';
+      if(rawEl) rawEl.textContent = 'Gagal memuat lampiran: ' + (err && err.message || err);
     }});
 }}
 
@@ -7853,6 +7854,15 @@ function netIcon(name, size) {
 function netEl(id) { return document.getElementById(id); }
 function netBadge(cls, text) { return '<span class="badge ' + cls + '">' + netEsc(text) + '</span>'; }
 function netPad(n) { return (n < 10 ? '0' : '') + n; }
+function netNumber(value, fallback) {
+  var n = Number(value);
+  return isFinite(n) && n >= 0 ? n : (fallback || 0);
+}
+function netCount(value) { return String(Math.floor(netNumber(value, 0))); }
+function netPort(value, fallback) {
+  var n = Number(value);
+  return isFinite(n) && n >= 1 && n <= 65535 ? String(Math.floor(n)) : String(fallback);
+}
 function netTime(ts) {
   if (!ts) return '-';
   var d = new Date(ts * 1000);
@@ -7926,19 +7936,22 @@ function netTile(box, icon, label, dot, value, sub, title) {
 function netRenderStatus(st) {
   var r = st.relay || {}, g = st.gateway || {}, s = r.stats || {}, t = s.totals || {};
   var relayOn = r.service === 'active', warpOn = r.warp_service === 'active';
-  var errs = g.proxy_errors || 0, fails = g.failed_deliveries || 0;
+  var errs = netNumber(g.proxy_errors, 0), fails = netNumber(g.failed_deliveries, 0);
+  var networkErrs = netNumber(g.network_errors, 0);
+  var trafficOk = netNumber(t.ok, 0), trafficFailed = netNumber(t.failed, 0), trafficFallback = netNumber(t.fallback, 0);
+  var ports = st.ports || {};
   var h = '<div class="net-tiles">';
   h += netTile(relayOn ? 'cc-icon-green' : 'cc-icon-red', 'shield', 'Relay IPv4', relayOn ? 'ok' : 'bad',
-    relayOn ? 'Aktif' : netEsc(r.service || 'mati'), ':' + ((st.ports || {}).relay || 40001) + (r.enabled === 'enabled' ? ' · auto saat boot' : ' · <span style="color:var(--warning)">tidak auto saat boot</span>'));
+    relayOn ? 'Aktif' : netEsc(r.service || 'mati'), ':' + netPort(ports.relay, 40001) + (r.enabled === 'enabled' ? ' · auto saat boot' : ' · <span style="color:var(--warning)">tidak auto saat boot</span>'));
   h += netTile(warpOn ? 'cc-icon-orange' : 'cc-icon-red', 'cloud', 'WARP', warpOn ? 'ok' : 'bad',
-    warpOn ? 'Aktif' : netEsc(r.warp_service || 'mati'), netEsc(r.warp || ':' + ((st.ports || {}).warp || 40000)), r.warp);
+    warpOn ? 'Aktif' : netEsc(r.warp_service || 'mati'), netEsc(r.warp || ':' + netPort(ports.warp, 40000)), r.warp);
   h += netTile(g.active ? 'cc-icon-blue' : 'cc-icon-red', 'bot', 'Gateway', g.active ? 'ok' : 'bad',
     g.active ? 'Aktif' : 'Mati', g.since ? 'sejak ' + netEsc(netShortDate(g.since)) : '-', g.since);
   h += netTile(errs || fails ? 'cc-icon-orange' : 'cc-icon-green', errs || fails ? 'alert' : 'check', 'Error',
-    errs ? 'warn' : 'ok', errs + ' proxy', (g.network_errors || 0) + ' jaringan · ' + fails + ' gagal kirim', 'Sejak gateway start' + (g.last_error ? ' · terakhir: ' + g.last_error : ''));
+    errs ? 'warn' : 'ok', netCount(errs) + ' proxy', netCount(networkErrs) + ' jaringan · ' + netCount(fails) + ' gagal kirim', 'Sejak gateway start' + (g.last_error ? ' · terakhir: ' + g.last_error : ''));
   if (r.stats) {
-    h += netTile('cc-icon-purple', 'activity', 'Lalu lintas', (t.failed || 0) ? 'warn' : 'ok', (t.ok || 0) + ' sukses',
-      (t.fallback || 0) + ' pindah IP · ' + (t.failed || 0) + ' gagal', 'Sejak relay start ' + netTime(s.started_at));
+    h += netTile('cc-icon-purple', 'activity', 'Lalu lintas', trafficFailed ? 'warn' : 'ok', netCount(trafficOk) + ' sukses',
+      netCount(trafficFallback) + ' pindah IP · ' + netCount(trafficFailed) + ' gagal', 'Sejak relay start ' + netTime(s.started_at));
   }
   h += '</div>';
   var ips = Object.keys(s.per_ip || {}).sort(function (a, b) {
