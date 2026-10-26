@@ -15355,23 +15355,34 @@ class Handler(BaseHTTPRequestHandler):
         script in the panel origin; the original name rides in the header only.
         """
         try:
-            data = Path(path).read_bytes()
-        except Exception:
+            fh = Path(path).open("rb")
+            size = os.fstat(fh.fileno()).st_size
+        except (OSError, ValueError):
             self._send_json({"ok": False, "error": "Lampiran tidak bisa dibaca"}, code=404)
             return
         safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", (filename or "lampiran").strip()) or "lampiran"
         disposition = "attachment" if as_attachment else "inline"
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Content-Disposition", f'{disposition}; filename="{safe_name}"')
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Frame-Options", "DENY")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(data)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Content-Disposition", f'{disposition}; filename="{safe_name}"')
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+            self.end_headers()
+            if self.command != "HEAD":
+                while True:
+                    chunk = fh.read(64 * 1024)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            # Client disconnect is normal for a cancellable download.
+            pass
+        finally:
+            fh.close()
 
     def _redirect_to_status(self, just: str = "", tab: str = ""):
         _invalidate_status_cache(
