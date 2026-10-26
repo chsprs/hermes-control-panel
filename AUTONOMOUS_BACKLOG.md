@@ -10,7 +10,8 @@ Updated: 2026-10-27
 - [x] Expanded checked fetch usage to profile loading/creation, SOUL loading, Kanban board/task loading and task creation without changing response contracts.
 - [x] Harden Kanban bulk status/delete actions: validate every response and report partial failures instead of false all-success.
 - [x] Expanded checked fetch usage to profile mutations, Kanban single-task/board/config mutations, and Kanban drag actions without changing response contracts.
-- [ ] Expand checked fetch usage to gateway config/preview/mutations and WhatsApp pairing polling without changing response contracts.
+- [x] Expanded checked fetch usage to gateway config/preview/load/save/toggle/remove and WhatsApp pairing status/start/cancel/apply flows.
+- [ ] Expand checked fetch usage to fallback/aux model flows, remaining Kanban/profile reads, and network status flows without changing response contracts.
 
 
 ## Completed

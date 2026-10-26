@@ -4151,12 +4151,11 @@ function switchGwConfigMode(mode){{
       var plat = gwActivePlatform();
       var reqGen = ++_gwPreviewGen;
       yamlEl.readOnly = true;
-      fetch('/api/gateway-config-preview', {{
+      fetchJsonChecked('/api/gateway-config-preview', {{
         method: 'POST',
         headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
         body: JSON.stringify({{ platform: plat, base_yaml: yamlEl.value, yaml: serializeGwFormToYaml(plat) }})
       }})
-      .then(function(r){{ return r.json(); }})
       .then(function(res){{
         if(yamlEl) yamlEl.readOnly = false;
         if(reqGen !== _gwPreviewGen || currentGwMode !== 'yaml') return;
@@ -5124,8 +5123,7 @@ function selectCatalogPlatform(plat){{
       populateGwFormFromYaml(yamlEl.value, plat);
     }}
   }} else {{
-    fetch('/api/gateway-config?platform=' + encodeURIComponent(plat))
-      .then(function(r){{ return r.json(); }})
+    fetchJsonChecked('/api/gateway-config?platform=' + encodeURIComponent(plat))
       .then(function(d){{
         if(d.ok && yamlEl && currentGwPlatform === plat){{
           yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
@@ -5176,8 +5174,7 @@ function openGwConfig(platform, title){{
     updateGwGuide(platform);
     if(modal) modal.classList.add('show');
 
-    fetch('/api/gateway-config?platform=' + encodeURIComponent(platform))
-      .then(function(r){{ return r.json(); }})
+    fetchJsonChecked('/api/gateway-config?platform=' + encodeURIComponent(platform))
       .then(function(d){{
         if(saveBtn) saveBtn.disabled = false;
         if(d.ok){{
@@ -5237,12 +5234,11 @@ function saveGwConfig(){{
   }};
   if(isUi && yamlEl) payload.base_yaml = yamlEl.value;
 
-  fetch('/save-gateway-platform', {{
+  fetchJsonChecked('/save-gateway-platform', {{
     method: 'POST',
     headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
     body: JSON.stringify(payload)
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res.ok){{
       closeGwConfig();
@@ -5262,12 +5258,11 @@ function saveGwConfig(){{
 }}
 
 function toggleGwPlatform(plat, enable){{
-  fetch('/toggle-gateway-platform', {{
+  fetchJsonChecked('/toggle-gateway-platform', {{
     method: 'POST',
     headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
     body: JSON.stringify({{ platform: plat, enabled: enable, restart_gw: true }})
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res.ok && res.html){{
       var slot = document.getElementById('gateway-list-slot');
@@ -5278,12 +5273,11 @@ function toggleGwPlatform(plat, enable){{
 
 function deleteGwPlatform(plat, name){{
   if(!confirm('Hapus konfigurasi platform ' + (name || plat) + ' dari config.yaml?')) return;
-  fetch('/remove-gateway-platform', {{
+  fetchJsonChecked('/remove-gateway-platform', {{
     method: 'POST',
     headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
     body: JSON.stringify({{ platform: plat, restart_gw: true }})
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res.ok && res.html){{
       var slot = document.getElementById('gateway-list-slot');
@@ -5340,8 +5334,7 @@ function openWaPairModal(){{
   if(qrBox) qrBox.innerHTML = '';
   var timerEl = document.getElementById('wa-pair-timer');
   if(timerEl) timerEl.textContent = '';
-  fetch('/api/whatsapp/pair-status')
-    .then(function(r){{ return r.json(); }})
+  fetchJsonChecked('/api/whatsapp/pair-status')
     .then(function(d){{
       var m = document.getElementById('wa-pair-modal');
       var isOpen = m && (m.classList.contains('show') || m.style.display !== 'none');
@@ -5493,8 +5486,7 @@ function pollWaPairStatus(){{
   if(_waPairPollTimer){{ clearTimeout(_waPairPollTimer); _waPairPollTimer = null; }}
   if(_waPairPolling) return;
   _waPairPolling = true;
-  fetch('/api/whatsapp/pair-status')
-    .then(function(r){{ return r.json(); }})
+  fetchJsonChecked('/api/whatsapp/pair-status')
     .then(function(d){{
       _waPairPolling = false;
       var m = document.getElementById('wa-pair-modal');
@@ -5530,11 +5522,11 @@ function startWaPair(clearSession){{
   if(qrBox){{
     qrBox.innerHTML = '<div style="padding:2.2rem 1rem;text-align:center;color:var(--text-muted)"><div class="spinner" style="margin:0 auto 0.75rem auto;width:24px;height:24px;border:2px solid rgba(255,255,255,0.1);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></div><div style="font-weight:600;color:var(--text);font-size:0.85rem">Menghubungkan ke WhatsApp Bridge...</div><div style="font-size:0.75rem;margin-top:0.3rem">Menyiapkan socket Baileys &amp; QR code</div></div>';
   }}
-  fetch('/api/whatsapp/pair-start', {{
+  fetchJsonChecked('/api/whatsapp/pair-start', {{
     method: 'POST',
     headers: {{'Content-Type': 'application/json', 'Accept': 'application/json'}},
     body: JSON.stringify({{force_new: clearSession !== false}})
-  }}).then(function(r){{ return r.json(); }})
+  }})
     .then(function(d){{
       setWaPairStatusUI(d);
       pollWaPairStatus();
@@ -5555,11 +5547,11 @@ function cancelWaPair(){{
     clearInterval(_waPairTimerInterval);
     _waPairTimerInterval = null;
   }}
-  fetch('/api/whatsapp/pair-cancel', {{
+  fetchJsonChecked('/api/whatsapp/pair-cancel', {{
     method: 'POST',
     headers: {{'Content-Type': 'application/json', 'Accept': 'application/json'}},
     body: JSON.stringify({{}})
-  }}).then(function(r){{ return r.json(); }})
+  }})
     .then(function(d){{
       if(actGen !== _waPairActionGen) return;
       setWaPairStatusUI(d);
@@ -5573,11 +5565,11 @@ function cancelWaPair(){{
 function applyWaPair(){{
   var btn = document.getElementById('btn-apply-wa-pair');
   if(btn){{ btn.disabled = true; btn.textContent = 'Mengaktifkan...'; }}
-  fetch('/api/whatsapp/pair-apply', {{
+  fetchJsonChecked('/api/whatsapp/pair-apply', {{
     method: 'POST',
     headers: {{'Content-Type': 'application/json', 'Accept': 'application/json'}},
     body: JSON.stringify({{restart_gw: true}})
-  }}).then(function(r){{ return r.json(); }})
+  }})
     .then(function(d){{
       if(d && d.ok){{
         closeWaPairModal(true);
