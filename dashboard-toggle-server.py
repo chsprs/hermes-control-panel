@@ -3055,6 +3055,7 @@ function toggleProfileToolset(toolset, enable){{
 // --- Kanban UI JavaScript ---
 var currentViewingTaskId = '';
 var taskDetailLoadGen = 0;
+var taskMutationGen = 0;
 var kanbanBoardLoadGen = 0;
 var kanbanBoardSwitchGen = 0;
 var selectedTaskIds = new Set();
@@ -3749,6 +3750,7 @@ function switchKanbanBoard(slug){{
 
 function openViewTaskModal(taskId){{
   var loadGen = ++taskDetailLoadGen;
+  ++taskMutationGen;
   currentViewingTaskId = taskId;
   var modal = document.getElementById('view-kanban-task-modal');
   if(!modal) return;
@@ -4070,6 +4072,7 @@ function closeAttachmentViewerModal(){{
 
 function closeViewTaskModal(){{
   ++taskDetailLoadGen;
+  ++taskMutationGen;
   var modal = document.getElementById('view-kanban-task-modal');
   if(modal) modal.classList.remove('show');
   currentViewingTaskId = '';
@@ -4078,14 +4081,17 @@ function closeViewTaskModal(){{
 function moveCurrentTaskStatus(newStatus){{
   if(!currentViewingTaskId) return;
   var bSel = document.getElementById('kanban-board-select');
-  var board = bSel ? bSel.value : '';
+  var mutationTaskId = currentViewingTaskId;
+  var mutationBoard = bSel ? bSel.value : '';
+  var mutationGen = ++taskMutationGen;
 
   fetchJsonChecked('/api/kanban/task/status', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
-    body: JSON.stringify({{ task_id: currentViewingTaskId, status: newStatus, board: board }})
+    body: JSON.stringify({{ task_id: mutationTaskId, status: newStatus, board: mutationBoard }})
   }})
   .then(function(res){{
+    if(mutationGen !== taskMutationGen || currentViewingTaskId !== mutationTaskId) return;
     if(res && res.ok){{
       closeViewTaskModal();
       refreshKanbanBoard(true);
@@ -4094,20 +4100,26 @@ function moveCurrentTaskStatus(newStatus){{
       alert('Gagal memindahkan status: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationGen !== taskMutationGen || currentViewingTaskId !== mutationTaskId) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 function reclaimCurrentTask(){{
   if(!currentViewingTaskId || !confirm('Reclaim worker claim lock untuk tugas ini?')) return;
   var bSel = document.getElementById('kanban-board-select');
-  var board = bSel ? bSel.value : '';
+  var mutationTaskId = currentViewingTaskId;
+  var mutationBoard = bSel ? bSel.value : '';
+  var mutationGen = ++taskMutationGen;
 
   fetchJsonChecked('/api/kanban/task/reclaim', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
-    body: JSON.stringify({{ task_id: currentViewingTaskId, board: board }})
+    body: JSON.stringify({{ task_id: mutationTaskId, board: mutationBoard }})
   }})
   .then(function(res){{
+    if(mutationGen !== taskMutationGen || currentViewingTaskId !== mutationTaskId) return;
     if(res && res.ok){{
       closeViewTaskModal();
       refreshKanbanBoard(true);
@@ -4116,20 +4128,26 @@ function reclaimCurrentTask(){{
       alert('Gagal reclaim tugas: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationGen !== taskMutationGen || currentViewingTaskId !== mutationTaskId) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 function deleteCurrentTask(){{
   if(!currentViewingTaskId || !confirm('Hapus tugas ' + currentViewingTaskId + ' secara permanen?')) return;
   var bSel = document.getElementById('kanban-board-select');
-  var board = bSel ? bSel.value : '';
+  var mutationTaskId = currentViewingTaskId;
+  var mutationBoard = bSel ? bSel.value : '';
+  var mutationGen = ++taskMutationGen;
 
   fetchJsonChecked('/api/kanban/task/delete', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
-    body: JSON.stringify({{ task_id: currentViewingTaskId, board: board }})
+    body: JSON.stringify({{ task_id: mutationTaskId, board: mutationBoard }})
   }})
   .then(function(res){{
+    if(mutationGen !== taskMutationGen || currentViewingTaskId !== mutationTaskId) return;
     if(res && res.ok){{
       closeViewTaskModal();
       refreshKanbanBoard(true);
@@ -4138,7 +4156,10 @@ function deleteCurrentTask(){{
       alert('Gagal menghapus tugas: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationGen !== taskMutationGen || currentViewingTaskId !== mutationTaskId) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 function submitCurrentTaskComment(){{
