@@ -470,6 +470,21 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("if(actionGen !== kanbanBoardSwitchGen) return", segment)
         self.assertIn("if(bSel && bSel.value !== slug) return", segment)
 
+    def test_gateway_yaml_preview_ignores_stale_mode_changes(self):
+        page = panel.PAGE
+        start = page.index("function switchGwConfigMode")
+        end = page.index("function gwActivePlatform", start)
+        segment = page[start:end]
+        self.assertIn("if(reqGen !== _gwPreviewGen || currentGwMode !== 'yaml') return;", segment)
+        then_guard = segment.index("if(reqGen !== _gwPreviewGen || currentGwMode !== 'yaml') return;")
+        self.assertGreater(segment.index("if(yamlEl) yamlEl.readOnly = false;"), then_guard)
+        catch_start = segment.index(".catch(function()")
+        catch_segment = segment[catch_start:]
+        self.assertIn("if(reqGen !== _gwPreviewGen || currentGwMode !== 'yaml') return;", catch_segment)
+        close_start = page.index("function closeGwConfig")
+        close_end = page.index("function saveGwConfig", close_start)
+        self.assertIn("++_gwPreviewGen", page[close_start:close_end])
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_sse_ignores_stale_eventsource_callbacks(self):
         src = panel.SSE_SCRIPT

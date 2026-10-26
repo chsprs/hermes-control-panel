@@ -4211,6 +4211,7 @@ var _yamlEditedByUser = false;
 
 function switchGwConfigMode(mode){{
   currentGwMode = mode;
+  if(mode !== 'yaml') ++_gwPreviewGen;
   var btnUi = document.getElementById('gw-btn-mode-ui');
   var btnYaml = document.getElementById('gw-btn-mode-yaml');
   var formView = document.getElementById('gw-config-form-view');
@@ -4245,12 +4246,13 @@ function switchGwConfigMode(mode){{
         body: JSON.stringify({{ platform: plat, base_yaml: yamlEl.value, yaml: serializeGwFormToYaml(plat) }})
       }})
       .then(function(res){{
-        if(yamlEl) yamlEl.readOnly = false;
         if(reqGen !== _gwPreviewGen || currentGwMode !== 'yaml') return;
+        if(yamlEl) yamlEl.readOnly = false;
         if(res.ok && !_yamlEditedByUser) yamlEl.value = res.yaml;
         else if(!res.ok && errEl){{ errEl.textContent = res.error || 'Gagal menyusun YAML'; errEl.style.display = 'block'; }}
       }})
       .catch(function(){{
+        if(reqGen !== _gwPreviewGen || currentGwMode !== 'yaml') return;
         if(yamlEl) yamlEl.readOnly = false;
       }});
     }}
@@ -5293,6 +5295,7 @@ function openGwConfig(platform, title){{
 
 function closeGwConfig(){{
   ++_gwConfigLoadGen;
+  ++_gwPreviewGen;
   var modal = document.getElementById('gw-config-modal');
   if(modal) modal.classList.remove('show');
   currentGwPlatform = '';
