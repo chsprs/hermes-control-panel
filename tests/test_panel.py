@@ -3058,6 +3058,9 @@ class TestKanbanBoard(unittest.TestCase):
 
         boards_after = panel.list_kanban_boards()
         self.assertTrue(any(b["slug"] == "project-x" for b in boards_after))
+        self.assertTrue((self.root / "kanban" / "boards" / "project-x" / "board.json").is_file())
+        with panel.closing(panel.ensure_kanban_db(self.root / "kanban" / "boards" / "project-x" / "kanban.db")) as con:
+            self.assertIsNotNone(con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='kanban_notify_subs'").fetchone())
 
         ok_sw = panel.set_current_kanban_board("project-x")
         self.assertTrue(ok_sw)
