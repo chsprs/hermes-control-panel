@@ -10141,6 +10141,8 @@ def _write_profile_cfg(cfg_file: Path, cfg: dict) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            f.flush()
+            os.fsync(f.fileno())
         os.chmod(tmp, 0o600)
         os.replace(tmp, str(cfg_file))
     except BaseException:
@@ -11987,6 +11989,8 @@ def _write_env_file(env_file: Path, lines: list) -> None:
         os.chmod(tmp_path, mode)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp_path, env_file)
     except BaseException:
         with suppress(OSError):
@@ -12122,6 +12126,8 @@ def save_gateway_dns(raw) -> tuple[bool, str, dict]:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
             f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
         os.chmod(tmp, 0o644)
         os.replace(tmp, path)
     except OSError as exc:
@@ -14324,6 +14330,8 @@ def set_panel_password(new_password: str, env_path: str = None) -> tuple[bool, s
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write("\n".join(new_lines) + ("\n" if new_lines else ""))
+                f.flush()
+                os.fsync(f.fileno())
             os.chmod(tmp, 0o600)
             os.replace(tmp, target_path)
         finally:
