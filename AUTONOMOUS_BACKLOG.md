@@ -11,7 +11,8 @@ Updated: 2026-10-27
 - [x] Harden Kanban bulk status/delete actions: validate every response and report partial failures instead of false all-success.
 - [x] Expanded checked fetch usage to profile mutations, Kanban single-task/board/config mutations, and Kanban drag actions without changing response contracts.
 - [x] Expanded checked fetch usage to gateway config/preview/load/save/toggle/remove and WhatsApp pairing status/start/cancel/apply flows.
-- [ ] Expand checked fetch usage to fallback/aux model flows, remaining Kanban/profile reads, and network status flows without changing response contracts.
+- [x] Finished checked fetch migration for fallback/aux models, profile skills/toolsets reads, Kanban profile filter loading, and network GET/POST helpers.
+- [ ] Audit remaining non-JSON fetches, SSE reconnect/error paths, and API-derived `innerHTML` boundaries.
 
 
 ## Completed

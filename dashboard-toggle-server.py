@@ -2395,12 +2395,11 @@ function selectFallbackModel(provider, model){{
     ajax: '1'
   }});
 
-  fetch('/set-fallback-model', {{
+  fetchJsonChecked('/set-fallback-model', {{
     method: 'POST',
     headers: {{'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'}},
     body: body.toString()
   }})
-    .then(function(r){{ return r.json(); }})
     .then(function(res){{
       if(pbar){{ pbar.style.width = '100%'; setTimeout(function(){{ pbar.style.width = '0'; }}, 300); }}
       if(spin) spin.classList.remove('on');
@@ -2488,12 +2487,11 @@ function selectAuxModel(provider, model){{
     ajax: '1'
   }});
 
-  fetch('/set-aux-model', {{
+  fetchJsonChecked('/set-aux-model', {{
     method: 'POST',
     headers: {{'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded'}},
     body: body.toString()
   }})
-    .then(function(r){{ return r.json(); }})
     .then(function(res){{
       if(pbar){{ pbar.style.width = '100%'; setTimeout(function(){{ pbar.style.width = '0'; }}, 300); }}
       if(spin) spin.classList.remove('on');
@@ -2774,8 +2772,7 @@ function openProfileSkillsModal(name){{
   if(modal) modal.classList.add('show');
   var list = document.getElementById('profile-skills-list');
   if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--text-dim)">Memuat...</div>';
-  fetch('/api/profile-skills?profile=' + encodeURIComponent(name))
-    .then(function(r){{ return r.json(); }})
+  fetchJsonChecked('/api/profile-skills?profile=' + encodeURIComponent(name))
     .then(function(res){{
       if(res && res.ok){{
         profileSkillsCache = res.skills || [];
@@ -2790,8 +2787,7 @@ function openProfileSkillsModal(name){{
     .catch(function(err){{
       if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Error: ' + err + '</div>';
     }});
-  fetch('/api/profile-toolsets?profile=' + encodeURIComponent(name))
-    .then(function(r){{ return r.json(); }})
+  fetchJsonChecked('/api/profile-toolsets?profile=' + encodeURIComponent(name))
     .then(function(res){{
       if(res && res.ok) profileToolsCache = {{cli: res.cli_toolsets, disabled: res.disabled_toolsets || []}};
       renderProfileToolsList();
@@ -2917,8 +2913,7 @@ function readProfileSkill(skill){{
     b.innerHTML = '<span style="color:var(--text-dim)">Memuat...</span>';
   }}
   if(box) box.style.display = 'flex';
-  fetch('/api/profile-skill?profile=' + encodeURIComponent(currentSkillsProfile) + '&skill=' + encodeURIComponent(skill))
-    .then(function(r){{ return r.json(); }})
+  fetchJsonChecked('/api/profile-skill?profile=' + encodeURIComponent(currentSkillsProfile) + '&skill=' + encodeURIComponent(skill))
     .then(function(res){{
       if(b){{
         if(res && res.ok){{
@@ -3529,8 +3524,7 @@ function startKanbanAutoSync() {{
 // Initialize assignee filter and auto-sync
 setTimeout(function() {{
   startKanbanAutoSync();
-  fetch('/api/profiles')
-    .then(function(r){{ return r.json(); }})
+  fetchJsonChecked('/api/profiles')
     .then(function(res){{
       var fSel = document.getElementById('kanban-filter-assignee');
       if(fSel && res && res.profiles){{
@@ -7839,7 +7833,14 @@ function netDirty(section, on) {
 function netPost(path, payload) {
   return fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
     body: JSON.stringify(payload)}).then(function (r) {
-    return r.json().catch(function () { return {ok: false, error: 'HTTP ' + r.status}; });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json().catch(function () { throw new Error('HTTP ' + r.status); });
+  });
+}
+function netGet(path) {
+  return fetch(path, {headers: {'Accept': 'application/json'}}).then(function (r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json().catch(function () { throw new Error('HTTP ' + r.status); });
   });
 }
 
@@ -8022,7 +8023,7 @@ function netLoad(full) {
   if (!slot) return;
   var btn = netEl('net-reload-btn');
   if (btn) btn.classList.add('loading');
-  fetch('/api/network', {headers: {'Accept': 'application/json'}}).then(function (r) { return r.json(); }).then(function (st) {
+  netGet('/api/network').then(function (st) {
     if (!st || !st.ok) throw new Error((st && st.error) || 'gagal memuat');
     NET.state = st;
     var statusSlot = netEl('net-status-slot');

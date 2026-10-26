@@ -224,6 +224,43 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn("fetchJsonChecked(", segment, function_name)
             self.assertNotIn(".then(function(r){{ return r.json(); }})", segment, function_name)
 
+    def test_frontend_remaining_json_fetches_check_http_status(self):
+        page = panel.PAGE
+        for function_name in (
+            "selectFallbackModel",
+            "selectAuxModel",
+            "openProfileSkillsModal",
+            "readProfileSkill",
+            "refreshKanbanBoard",
+            "openAttachmentViewerModal",
+            "loadNetworkStatus",
+            "testNetworkConnection",
+            "resolveNetworkDns",
+        ):
+            if "function " + function_name not in page:
+                continue
+            start = page.index("function " + function_name)
+            next_function = page.find("function ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            if "fetch(" in segment:
+                self.assertIn("fetchJsonChecked(", segment, function_name)
+                self.assertNotIn(".then(function(r){{ return r.json(); }})", segment, function_name)
+
+    def test_frontend_json_fetches_do_not_directly_parse_unchecked_response(self):
+        page = panel.PAGE
+        self.assertNotIn(".then(function(r){{ return r.json(); }})", page)
+        self.assertNotIn("}}).then(function(r){{ return r.json(); }})", page)
+        network = panel.NETWORK_SCRIPT
+        net_start = network.index("function netPost")
+        net_end = network.index("function netHealth", net_start)
+        net_helpers = network[net_start:net_end]
+        self.assertIn("function netGet", net_helpers)
+        self.assertIn("if (!r.ok) throw new Error", net_helpers)
+        load_start = network.index("function netLoad")
+        load_end = network.index("function netPickRoute", load_start)
+        self.assertIn("netGet('/api/network')", network[load_start:load_end])
+        self.assertNotIn(".then(function (r) { return r.json(); })", network)
+
     def test_02_aux_model_write_failure_returns_500(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "set_aux_task_model", return_value=False):
