@@ -2905,13 +2905,17 @@ function renderProfileSkillsList(){{
 function filterProfileSkills(){{ renderProfileSkillsList(); }}
 
 function toggleProfileSkill(skill, enable){{
-  var body = new URLSearchParams({{ profile: currentSkillsProfile, skill: skill, enabled: enable ? '1' : '0', ajax: '1' }});
+  var mutationProfile = currentSkillsProfile;
+  var mutationLoadGen = profileSkillsLoadGen;
+  var body = new URLSearchParams({{ profile: mutationProfile, skill: skill, enabled: enable ? '1' : '0', ajax: '1' }});
+  var mutationGuard = function(){{ return mutationProfile === currentSkillsProfile && mutationLoadGen === profileSkillsLoadGen; }};
   fetchJsonChecked('/toggle-profile-skill', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
     body: body.toString()
   }})
   .then(function(res){{
+    if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
     if(res && res.ok){{
       for(var i = 0; i < profileSkillsCache.length; i++){{
         if(profileSkillsCache[i].name === skill) profileSkillsCache[i].enabled = !!enable;
@@ -2921,7 +2925,10 @@ function toggleProfileSkill(skill, enable){{
       alert('Gagal: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 var currentProfileSkillRaw = '';
@@ -3018,13 +3025,16 @@ function renderProfileToolsList(){{
 }}
 
 function toggleProfileToolset(toolset, enable){{
-  var body = new URLSearchParams({{ profile: currentSkillsProfile, toolset: toolset, enabled: enable ? '1' : '0', ajax: '1' }});
+  var mutationProfile = currentSkillsProfile;
+  var mutationLoadGen = profileSkillsLoadGen;
+  var body = new URLSearchParams({{ profile: mutationProfile, toolset: toolset, enabled: enable ? '1' : '0', ajax: '1' }});
   fetchJsonChecked('/toggle-profile-toolset', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
     body: body.toString()
   }})
   .then(function(res){{
+    if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
     if(res && res.ok){{
       var dis = profileToolsCache.disabled || [];
       var ix = dis.indexOf(toolset);
@@ -3036,7 +3046,10 @@ function toggleProfileToolset(toolset, enable){{
       alert('Gagal: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 // --- Kanban UI JavaScript ---

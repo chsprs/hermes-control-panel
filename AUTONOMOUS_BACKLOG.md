@@ -31,6 +31,7 @@ Updated: 2026-10-27
 - [x] Added generation guards to shared model-catalog cache writes; stale `/api/models` responses cannot replace newer picker data.
 - [x] Added generation guards to auxiliary/fallback model-save callbacks; stale save responses cannot overwrite newer model state or progress UI.
 - [x] Added generation guards to gateway save/toggle/delete mutations; stale platform responses cannot overwrite the gateway slot or current error state.
+- [x] Added profile-context and load-generation guards to skill/toolset mutations; stale profile responses cannot mutate a reopened profile modal.
 - [ ] Audit remaining non-JSON fetches, SSE reconnect/error paths, and API-derived `innerHTML` boundaries.
 
 

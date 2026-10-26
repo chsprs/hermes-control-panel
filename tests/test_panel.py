@@ -533,6 +533,23 @@ process.stdout.write(netRenderStatus(st));
             self.assertIn(guard, catch_segment, function_name)
             self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
 
+    def test_profile_skill_mutations_ignore_stale_profile_context(self):
+        page = panel.PAGE
+        for function_name in ("toggleProfileSkill", "toggleProfileToolset"):
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            self.assertIn("var mutationProfile = currentSkillsProfile", segment, function_name)
+            self.assertIn("var mutationLoadGen = profileSkillsLoadGen", segment, function_name)
+            guard = "if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;"
+            then_start = segment.index(".then(function(res)")
+            catch_start = segment.index(".catch(function")
+            then_segment = segment[then_start:catch_start]
+            catch_segment = segment[catch_start:]
+            self.assertIn(guard, then_segment, function_name)
+            self.assertIn(guard, catch_segment, function_name)
+            self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_sse_ignores_stale_eventsource_callbacks(self):
         src = panel.SSE_SCRIPT
