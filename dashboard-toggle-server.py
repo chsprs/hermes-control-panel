@@ -3261,20 +3261,28 @@ function applyBulkStatus() {{
 
   var ids = Array.from(selectedTaskIds);
   var promises = ids.map(function(tid) {{
-    return fetch('/api/kanban/task/status', {{
+    return fetchJsonChecked('/api/kanban/task/status', {{
       method: 'POST',
       headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
       body: JSON.stringify({{ task_id: tid, status: targetStatus, board: board }})
-    }}).then(function(r){{ return r.json(); }});
+    }}).then(function(res) {{
+      if(!res || !res.ok) throw new Error((res && (res.error || res.message)) || 'status update gagal');
+      return {{ok: true, task_id: tid}};
+    }}).catch(function(err) {{
+      return {{ok: false, task_id: tid, error: String(err && err.message || err)}};
+    }});
   }});
 
-  Promise.all(promises).then(function() {{
+  Promise.all(promises).then(function(results) {{
     clearKanbanSelection();
     refreshKanbanBoard(true);
-    showKanbanToast('Status ' + ids.length + ' tugas berhasil diperbarui ke ' + targetStatus);
-  }}).catch(function(err) {{
-    alert('Error bulk update: ' + err);
-    refreshKanbanBoard(true);
+    var failed = results.filter(function(result) {{ return !result.ok; }});
+    var succeeded = results.length - failed.length;
+    if(failed.length) {{
+      showKanbanToast(succeeded + ' berhasil, ' + failed.length + ' gagal memperbarui status', true);
+    }} else {{
+      showKanbanToast('Status ' + succeeded + ' tugas berhasil diperbarui ke ' + targetStatus);
+    }}
   }});
 }}
 
@@ -3286,20 +3294,28 @@ function applyBulkDelete() {{
 
   var ids = Array.from(selectedTaskIds);
   var promises = ids.map(function(tid) {{
-    return fetch('/api/kanban/task/delete', {{
+    return fetchJsonChecked('/api/kanban/task/delete', {{
       method: 'POST',
       headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
       body: JSON.stringify({{ task_id: tid, board: board }})
-    }}).then(function(r){{ return r.json(); }});
+    }}).then(function(res) {{
+      if(!res || !res.ok) throw new Error((res && (res.error || res.message)) || 'delete gagal');
+      return {{ok: true, task_id: tid}};
+    }}).catch(function(err) {{
+      return {{ok: false, task_id: tid, error: String(err && err.message || err)}};
+    }});
   }});
 
-  Promise.all(promises).then(function() {{
+  Promise.all(promises).then(function(results) {{
     clearKanbanSelection();
     refreshKanbanBoard(true);
-    showKanbanToast(ids.length + ' tugas berhasil dihapus');
-  }}).catch(function(err) {{
-    alert('Error bulk delete: ' + err);
-    refreshKanbanBoard(true);
+    var failed = results.filter(function(result) {{ return !result.ok; }});
+    var succeeded = results.length - failed.length;
+    if(failed.length) {{
+      showKanbanToast(succeeded + ' berhasil, ' + failed.length + ' gagal menghapus', true);
+    }} else {{
+      showKanbanToast(succeeded + ' tugas berhasil dihapus');
+    }}
   }});
 }}
 

@@ -8,6 +8,7 @@ Updated: 2026-10-27
 - [x] Added `fetchJsonChecked()` and applied it to `/api/models`; HTTP failures now enter the existing error path instead of being parsed as success.
 - [x] Added regression coverage for frontend fetch helper presence and model-loader integration.
 - [x] Expanded checked fetch usage to profile loading/creation, SOUL loading, Kanban board/task loading and task creation without changing response contracts.
+- [x] Harden Kanban bulk status/delete actions: validate every response and report partial failures instead of false all-success.
 - [ ] Expand checked fetch usage to remaining profile mutations, Kanban mutations, gateway, and WhatsApp flows without changing response contracts.
 
 
