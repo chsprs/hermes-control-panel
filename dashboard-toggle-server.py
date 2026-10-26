@@ -11853,7 +11853,7 @@ def _watch_gateway_action(proc) -> None:
     try:
         code = proc.wait()
         if code != 0:
-            sys.stderr.write(f"[panel] hermes-gateway lifecycle action failed: exit {code}\\n")
+            sys.stderr.write(f"[panel] hermes-gateway lifecycle action failed: exit {code}\n")
     finally:
         _invalidate_status_cache("gateway_platforms", "gateway_info", "processes_table", "profiles_block")
         invalidate_service_cache("hermes-gateway")
@@ -11867,7 +11867,7 @@ def restart_bot() -> bool:
     try:
         p = subprocess.Popen(["systemctl", "--user", "restart", "hermes-gateway"], env=env)
     except OSError as e:
-        sys.stderr.write(f"[panel] hermes-gateway restart launch failed: {e}\\n")
+        sys.stderr.write(f"[panel] hermes-gateway restart launch failed: {e}\n")
         return False
     threading.Thread(target=_watch_gateway_action, args=(p,), daemon=True).start()
     return True
@@ -11888,7 +11888,7 @@ def bot_action(action: str) -> bool:
     try:
         p = subprocess.Popen(argv, env=env)
     except OSError as e:
-        sys.stderr.write(f"[panel] hermes-gateway {action} launch failed: {e}\\n")
+        sys.stderr.write(f"[panel] hermes-gateway {action} launch failed: {e}\n")
         return False
     threading.Thread(target=_watch_gateway_action, args=(p,), daemon=True).start()
     return True
