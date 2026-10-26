@@ -138,6 +138,15 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertFalse(panel.bot_action("start"))
         self.assertFalse(panel.bot_action("invalid"))
 
+    def test_frontend_fetch_helper_checks_http_and_json_errors(self):
+        page = panel.PAGE
+        self.assertIn("function fetchJsonChecked", page)
+        self.assertIn("if(!response.ok) throw new Error", page)
+        self.assertIn("return response.json()", page)
+        loader_start = page.index("function ensureAvailableModels")
+        loader_end = page.index("function openAuxPicker", loader_start)
+        self.assertIn("fetchJsonChecked('/api/models'", page[loader_start:loader_end])
+
     def test_02_aux_model_write_failure_returns_500(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "set_aux_task_model", return_value=False):

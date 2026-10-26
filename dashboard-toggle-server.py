@@ -2273,6 +2273,13 @@ function copyCodeBlock(btn){{
 }}
 
 
+function fetchJsonChecked(url, options){{
+  return fetch(url, options).then(function(response){{
+    if(!response.ok) throw new Error('HTTP ' + response.status);
+    return response.json();
+  }});
+}}
+
 function ensureAvailableModels(callback){{
   var hasAny = false;
   if(typeof AVAILABLE_MODELS === 'object' && AVAILABLE_MODELS !== null){{
@@ -2286,8 +2293,7 @@ function ensureAvailableModels(callback){{
   }}
   var container = document.getElementById('aux-picker-list');
   if(container) container.innerHTML = '<div style="padding:1.5rem;color:var(--text-dim);font-size:0.82rem;text-align:center">Memuat daftar model 9router…</div>';
-  fetch('/api/models', {{headers: {{'Accept': 'application/json'}}}})
-    .then(function(r){{ return r.json(); }})
+  fetchJsonChecked('/api/models', {{headers: {{'Accept': 'application/json'}}}})
     .then(function(data){{
       if(typeof data === 'object' && data !== null){{
         AVAILABLE_MODELS = data;
