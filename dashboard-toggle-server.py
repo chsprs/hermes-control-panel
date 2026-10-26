@@ -11039,6 +11039,9 @@ def list_kanban_boards() -> list[dict]:
         try:
             for entry in sorted(boards_root.iterdir()):
                 if entry.is_dir() and _KANBAN_SLUG_RE.match(entry.name) and entry.name != "default":
+                    kb = _runtime_kanban_api()
+                    if kb is not None and not (entry / "board.json").is_file():
+                        continue
                     b_path = entry / "kanban.db"
                     b_count = 0
                     if b_path.is_file():
@@ -11271,8 +11274,8 @@ def get_kanban_task(task_id: str, board: str = "") -> dict | None:
     db_path = get_kanban_db_path(board)
     try:
         con = ensure_kanban_db(db_path)
-    except Exception:
-        return None
+    except Exception as e:
+        raise KanbanReadError(f"Gagal membuka board Kanban '{board or get_current_kanban_board()}': {e}") from e
 
     try:
         r = con.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
@@ -11304,8 +11307,8 @@ def get_kanban_task(task_id: str, board: str = "") -> dict | None:
             t["attachments"] = []
 
         return t
-    except Exception:
-        return None
+    except Exception as e:
+        raise KanbanReadError(f"Gagal membaca task Kanban '{task_id}': {e}") from e
     finally:
         con.close()
 
@@ -15888,7 +15891,11 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/kanban/task":
             tid = (qs.get("id") or [""])[0]
             b = (qs.get("board") or [""])[0]
-            t = get_kanban_task(tid, board=b)
+            try:
+                t = get_kanban_task(tid, board=b)
+            except KanbanReadError as e:
+                self._send_json({"ok": False, "error": str(e)}, code=503)
+                return
             if not t:
                 self._send_json({"ok": False, "error": "Tugas tidak ditemukan"}, code=404)
                 return

@@ -3112,9 +3112,19 @@ class TestKanbanBoard(unittest.TestCase):
         with mock.patch.object(panel, "ensure_kanban_db", side_effect=OSError("locked")):
             with self.assertRaises(panel.KanbanReadError):
                 panel.list_kanban_tasks()
+            with self.assertRaises(panel.KanbanReadError):
+                panel.get_kanban_task("missing")
             rendered = panel.render_kanban_board_block("default")
             self.assertIn("Kanban error", rendered)
             self.assertIn("locked", rendered)
+
+    def test_08f_orphan_board_directory_is_hidden_with_runtime(self):
+        orphan = self.root / "kanban" / "boards" / "orphan"
+        orphan.mkdir(parents=True)
+        panel.ensure_kanban_db(orphan / "kanban.db").close()
+        with mock.patch.object(panel, "_runtime_kanban_api", return_value=object()):
+            boards = panel.list_kanban_boards()
+        self.assertFalse(any(item["slug"] == "orphan" for item in boards))
 
     def test_08b_kanban_parallel_writes(self):
         errors = []
