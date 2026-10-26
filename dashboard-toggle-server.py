@@ -7486,8 +7486,7 @@ SSE_SCRIPT = """<script>
     for(var j=0;j<nb.length;j++){
       if(sticky.indexOf(j)!==-1){
         nb[j].scrollTop=nb[j].scrollHeight;
-        var tb = nb[j];
-        setTimeout(function(){ tb.scrollTop = tb.scrollHeight; }, 30);
+        (function(box){ setTimeout(function(){ box.scrollTop = box.scrollHeight; }, 30); })(nb[j]);
       }
     }
     if(force) window._forceBottom = false;

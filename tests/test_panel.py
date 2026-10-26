@@ -2304,6 +2304,67 @@ function apply(d){ applied.push(d); }
         self.assertEqual(sent, read_by_js, "static slots (model_chips ~38 KB) were re-sent and parsed every second")
 
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
+    def test_55_sticky_set_delayed_scroll_targets_each_log_box(self):
+        src = panel.SSE_SCRIPT
+        start = src.index("function stickySet")
+        end = src.index("function apply", start)
+        sticky = src[start:end]
+        harness = r"""
+var timers = [];
+function setTimeout(fn, ms){ timers.push(fn); return timers.length; }
+var window = {};
+function box(height){ return {innerHTML: '<old>', scrollHeight: height, clientHeight: 10, scrollTop: height - 20}; }
+var fresh = [box(100), box(200)];
+var el = {_html: '<old>', fresh: fresh};
+Object.defineProperty(el, 'innerHTML', {get: function(){ return this._html; }, set: function(v){ this._html = v; }});
+el.querySelectorAll = function(){ return this.fresh; };
+var document = {
+  getElementById: function(){ return el; },
+  createElement: function(){ return {innerHTML: '', querySelectorAll: function(){ return []; }}; }
+};
+"""
+        script = harness + sticky + r"""
+stickySet('log-slot', '<new>');
+fresh[0].scrollHeight = 111;
+fresh[1].scrollHeight = 222;
+timers.forEach(function(fn){ fn(); });
+process.stdout.write(JSON.stringify(fresh.map(function(b){ return b.scrollTop; })));
+"""
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), [111, 222])
+
+
+    def test_54_updates_debounced_when_tab_hidden(self):
+        out = self._run_sse_gate(r"""
+document.hidden = true;
+onUpdate('h1');
+onUpdate('h2');
+onUpdate('h3');
+var during = applied.slice();
+runTimers();
+var afterTimer = applied.slice();
+onUpdate('h4');
+onUpdate('h5');
+document.hidden = false;
+onVisibilityChange();
+var afterVisible = applied.slice();
+onUpdate('v1');
+var normalRate = applied.slice();
+process.stdout.write(JSON.stringify({
+  during: during,
+  afterTimer: afterTimer,
+  afterVisible: afterVisible,
+  normalRate: normalRate
+}));
+""")
+        res = json.loads(out)
+        self.assertEqual(res["during"], ["h1"], "intermediate updates when tab hidden must be debounced")
+        self.assertEqual(res["afterTimer"], ["h1", "h3"], "throttled timer applies latest pending update")
+        self.assertEqual(res["afterVisible"], ["h1", "h3", "h5"], "tab becoming visible immediately flushes latest update")
+        self.assertEqual(res["normalRate"], ["h1", "h3", "h5", "v1"], "updates resume immediate normal rate when visible")
+
+    @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_51_set_skips_unchanged_html(self):
         out = self._run_sse_gate(r"""
 set('a', '<b>1</b>'); set('a', '<b>1</b>'); set('a', '<b>2</b>');
