@@ -2552,6 +2552,7 @@ restorePatchPages();
 syncGwLogTabUI();
 
 var currentEditingSoulProfile = '';
+var profileSoulLoadGen = 0;
 var currentRenamingProfile = '';
 var currentProfileModelTarget = '';
 
@@ -2681,6 +2682,7 @@ function submitRenameProfile(){{
 }}
 
 function openProfileSoulModal(name){{
+  var loadGen = ++profileSoulLoadGen;
   currentEditingSoulProfile = name;
   var title = document.getElementById('soul-modal-title');
   if(title) title.textContent = 'Edit SOUL.md - Profil ' + name;
@@ -2690,15 +2692,19 @@ function openProfileSoulModal(name){{
   if(modal) modal.classList.add('show');
   fetchJsonChecked('/api/profile-soul?profile=' + encodeURIComponent(name))
     .then(function(res){{
+      if(loadGen !== profileSoulLoadGen || currentEditingSoulProfile !== name) return;
       if(txt) txt.value = (res && res.content) || '';
     }})
     .catch(function(err){{
+      if(loadGen !== profileSoulLoadGen || currentEditingSoulProfile !== name) return;
       if(txt) txt.value = '';
-      alert('Gagal memuat SOUL.md: ' + err);
+      alert('Gagal memuat SOUL.md: ' + (err && err.message || err));
     }});
 }}
 
 function closeProfileSoulModal(){{
+  ++profileSoulLoadGen;
+  currentEditingSoulProfile = '';
   var modal = document.getElementById('soul-modal');
   if(modal) modal.classList.remove('show');
 }}
@@ -4103,11 +4109,14 @@ function submitCurrentTaskComment(){{
   .catch(function(err){{ alert('Error: ' + err); }});
 }}
 
+var kanbanConfigLoadGen = 0;
 function openKanbanConfigModal(){{
+  var loadGen = ++kanbanConfigLoadGen;
   var modal = document.getElementById('kanban-config-modal');
   if(!modal) return;
   fetchJsonChecked('/api/kanban/config')
     .then(function(res){{
+      if(loadGen !== kanbanConfigLoadGen) return;
       if(res && res.ok && res.config){{
         var c = res.config;
         document.getElementById('cfg-kb-dispatch-gw').checked = !!c.dispatch_in_gateway;
@@ -4121,10 +4130,14 @@ function openKanbanConfigModal(){{
         modal.classList.add('show');
       }}
     }})
-    .catch(function(err){{ alert('Gagal memuat konfigurasi: ' + err); }});
+    .catch(function(err){{
+      if(loadGen !== kanbanConfigLoadGen) return;
+      alert('Gagal memuat konfigurasi: ' + (err && err.message || err));
+    }});
 }}
 
 function closeKanbanConfigModal(){{
+  ++kanbanConfigLoadGen;
   var modal = document.getElementById('kanban-config-modal');
   if(modal) modal.classList.remove('show');
 }}

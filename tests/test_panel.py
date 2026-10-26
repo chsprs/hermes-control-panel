@@ -407,6 +407,20 @@ process.stdout.write(netRenderStatus(st));
             for needle in needles:
                 self.assertIn(needle, segment, f"{function_name}: {needle}")
 
+    def test_profile_soul_and_kanban_config_ignore_stale_responses(self):
+        page = panel.PAGE
+        for function_name, needles in {
+            "openProfileSoulModal": ["var loadGen = ++profileSoulLoadGen", "if(loadGen !== profileSoulLoadGen || currentEditingSoulProfile !== name) return"],
+            "closeProfileSoulModal": ["++profileSoulLoadGen"],
+            "openKanbanConfigModal": ["var loadGen = ++kanbanConfigLoadGen", "if(loadGen !== kanbanConfigLoadGen) return"],
+            "closeKanbanConfigModal": ["++kanbanConfigLoadGen"],
+        }.items():
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            for needle in needles:
+                self.assertIn(needle, segment, f"{function_name}: {needle}")
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_sse_ignores_stale_eventsource_callbacks(self):
         src = panel.SSE_SCRIPT
