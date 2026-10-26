@@ -2574,7 +2574,10 @@ function openCreateProfileModal(){{
           }});
         }}
       }})
-      .catch(function(){{}});
+      .catch(function(err){{
+        sel.innerHTML = '<option value="">-- Tanpa Clone (Mulai Baru) --</option><option value="" disabled>Gagal memuat daftar profil</option>';
+        sel.title = 'Gagal memuat daftar profil: ' + (err && err.message || err);
+      }});
   }}
   modal.classList.add('show');
 }}
@@ -3535,7 +3538,16 @@ setTimeout(function() {{
           fSel.appendChild(opt);
         }});
       }}
-    }}).catch(function(){{}});
+    }}).catch(function(err){{
+      var fSel = document.getElementById('kanban-filter-assignee');
+      if(fSel){{
+        var failed = document.createElement('option');
+        failed.disabled = true;
+        failed.textContent = 'Gagal memuat daftar profil';
+        fSel.appendChild(failed);
+        fSel.title = 'Gagal memuat daftar profil: ' + (err && err.message || err);
+      }}
+    }});
 }}, 500);
 
 function openCreateTaskModal(){{
@@ -3560,7 +3572,10 @@ function openCreateTaskModal(){{
           }});
         }}
       }})
-      .catch(function(){{}});
+      .catch(function(err){{
+        sel.innerHTML = '<option value="">-- Tanpa Assignee --</option><option value="" disabled>Gagal memuat daftar profil</option>';
+        sel.title = 'Gagal memuat daftar profil: ' + (err && err.message || err);
+      }});
   }}
   modal.classList.add('show');
 }}
@@ -5129,6 +5144,10 @@ function selectCatalogPlatform(plat){{
           yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
           populateGwFormFromYaml(yamlEl.value, plat);
         }}
+      }})
+      .catch(function(err){{
+        if(yamlEl) yamlEl.value = '';
+        alert('Gagal memuat konfigurasi gateway: ' + (err && err.message || err));
       }});
   }}
 }}
@@ -5268,6 +5287,9 @@ function toggleGwPlatform(plat, enable){{
       var slot = document.getElementById('gateway-list-slot');
       if(slot) slot.innerHTML = res.html;
     }}
+  }})
+  .catch(function(err){{
+    alert('Gagal mengubah status gateway: ' + (err && err.message || err));
   }});
 }}
 
@@ -5283,6 +5305,9 @@ function deleteGwPlatform(plat, name){{
       var slot = document.getElementById('gateway-list-slot');
       if(slot) slot.innerHTML = res.html;
     }}
+  }})
+  .catch(function(err){{
+    alert('Gagal menghapus konfigurasi gateway: ' + (err && err.message || err));
   }});
 }}
 
@@ -5630,6 +5655,11 @@ function cancelWaPair(){{
       if(qrBox){{
         qrBox.innerHTML = '<div style="color:var(--text-dim);font-size:0.82rem;padding:2rem 1rem">Pairing dibatalkan. Tekan <strong>"Mulai Pairing QR"</strong> untuk memulai kembali.</div>';
       }}
+    }})
+    .catch(function(err){{
+      if(actGen !== _waPairActionGen) return;
+      var statusText = document.getElementById('wa-pair-status-text');
+      if(statusText) statusText.textContent = 'Pembatalan pairing gagal: ' + (err && err.message || err);
     }});
 }}
 

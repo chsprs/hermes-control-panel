@@ -311,6 +311,22 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn(".then(function", segment, function_name)
             self.assertIn(".catch(function", segment, function_name)
 
+    def test_frontend_checked_fetch_consumers_have_rejection_paths(self):
+        page = panel.PAGE
+        for function_name in (
+            "selectCatalogPlatform", "toggleGwPlatform", "deleteGwPlatform", "cancelWaPair",
+        ):
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            self.assertIn("fetchJsonChecked(", segment, function_name)
+            self.assertIn(".catch(", segment, function_name)
+        for marker in (
+            "fetchJsonChecked('/api/profiles')",  # clone profile and Kanban assignees
+        ):
+            self.assertGreaterEqual(page.count(marker), 3, marker)
+        self.assertNotIn(".catch(function(){{}});", page)
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_network_status_renderer_rejects_hostile_numeric_fields(self):
         script = r"""
