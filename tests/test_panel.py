@@ -128,7 +128,8 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertEqual(panel._router_update_result["exit_code"], 124)
         self.assertEqual(killed[0][0], 4242)
         self.assertEqual(killed[0][1], __import__("signal").SIGTERM)
-        self.assertIn("timeout", open(log_path, encoding="utf-8").read())
+        with open(log_path, encoding="utf-8") as lf:
+            self.assertIn("timeout", lf.read())
 
     # --- PR 2: Config write failures propagation ---
     def test_02_aux_model_write_failure_returns_500(self):
