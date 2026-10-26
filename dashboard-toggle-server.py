@@ -4218,6 +4218,7 @@ var isNewGwPlatform = false;
 var currentGwMode = 'ui';
 var _gwPreviewGen = 0;
 var _gwConfigLoadGen = 0;
+var _gwMutationGen = 0;
 var _yamlEditedByUser = false;
 
 function switchGwConfigMode(mode){{
@@ -5346,6 +5347,7 @@ function saveGwConfig(){{
     merge: isUi
   }};
   if(isUi && yamlEl) payload.base_yaml = yamlEl.value;
+  var mutationGen = ++_gwMutationGen;
 
   fetchJsonChecked('/save-gateway-platform', {{
     method: 'POST',
@@ -5353,6 +5355,7 @@ function saveGwConfig(){{
     body: JSON.stringify(payload)
   }})
   .then(function(res){{
+    if(mutationGen !== _gwMutationGen) return;
     if(res.ok){{
       closeGwConfig();
       if(res.html){{
@@ -5365,42 +5368,49 @@ function saveGwConfig(){{
     }}
   }})
   .catch(function(err){{
+    if(mutationGen !== _gwMutationGen) return;
     if(saveBtn){{ saveBtn.textContent = 'Simpan'; saveBtn.disabled = false; }}
     if(errEl){{ errEl.textContent = 'Kesalahan jaringan: ' + err; errEl.style.display = 'block'; }}
   }});
 }}
 
 function toggleGwPlatform(plat, enable){{
+  var mutationGen = ++_gwMutationGen;
   fetchJsonChecked('/toggle-gateway-platform', {{
     method: 'POST',
     headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
     body: JSON.stringify({{ platform: plat, enabled: enable, restart_gw: true }})
   }})
   .then(function(res){{
+    if(mutationGen !== _gwMutationGen) return;
     if(res.ok && res.html){{
       var slot = document.getElementById('gateway-list-slot');
       if(slot) slot.innerHTML = res.html;
     }}
   }})
   .catch(function(err){{
+    if(mutationGen !== _gwMutationGen) return;
     alert('Gagal mengubah status gateway: ' + (err && err.message || err));
   }});
 }}
 
 function deleteGwPlatform(plat, name){{
   if(!confirm('Hapus konfigurasi platform ' + (name || plat) + ' dari config.yaml?')) return;
+  var mutationGen = ++_gwMutationGen;
   fetchJsonChecked('/remove-gateway-platform', {{
     method: 'POST',
     headers: {{ 'Content-Type': 'application/json', 'Accept': 'application/json' }},
     body: JSON.stringify({{ platform: plat, restart_gw: true }})
   }})
   .then(function(res){{
+    if(mutationGen !== _gwMutationGen) return;
     if(res.ok && res.html){{
       var slot = document.getElementById('gateway-list-slot');
       if(slot) slot.innerHTML = res.html;
     }}
   }})
   .catch(function(err){{
+    if(mutationGen !== _gwMutationGen) return;
     alert('Gagal menghapus konfigurasi gateway: ' + (err && err.message || err));
   }});
 }}

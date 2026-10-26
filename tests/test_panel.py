@@ -516,6 +516,23 @@ process.stdout.write(netRenderStatus(st));
         close_end = page.index("function saveGwConfig", close_start)
         self.assertIn("++_gwPreviewGen", page[close_start:close_end])
 
+    def test_gateway_mutations_ignore_stale_slot_responses(self):
+        page = panel.PAGE
+        self.assertIn("var _gwMutationGen = 0;", page)
+        for function_name in ("saveGwConfig", "toggleGwPlatform", "deleteGwPlatform"):
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            self.assertIn("var mutationGen = ++_gwMutationGen", segment, function_name)
+            then_start = segment.index(".then(function(res)")
+            catch_start = segment.index(".catch(function")
+            then_segment = segment[then_start:catch_start]
+            catch_segment = segment[catch_start:]
+            guard = "if(mutationGen !== _gwMutationGen) return;"
+            self.assertIn(guard, then_segment, function_name)
+            self.assertIn(guard, catch_segment, function_name)
+            self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_sse_ignores_stale_eventsource_callbacks(self):
         src = panel.SSE_SCRIPT
