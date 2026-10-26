@@ -5776,7 +5776,8 @@ _openclaw_config_lock = threading.Lock()
 
 def toggle_openclaw_control_ui() -> bool | None:
     """Toggle Control UI atomically; None means read/write failure."""
-    tmp_path = f"{OPENCLAW_CONFIG_PATH}.tmp.{os.getpid()}"
+    tmp_path = None
+    fd = -1
     with _openclaw_config_lock:
         try:
             if not os.path.isfile(OPENCLAW_CONFIG_PATH):
@@ -5790,7 +5791,10 @@ def toggle_openclaw_control_ui() -> bool | None:
                 return None
             new_val = not bool(gui.get("enabled", True))
             gui["enabled"] = new_val
-            with open(tmp_path, "w", encoding="utf-8") as f:
+            parent = os.path.dirname(os.path.abspath(OPENCLAW_CONFIG_PATH))
+            fd, tmp_path = tempfile.mkstemp(dir=parent, prefix=".openclaw.json.tmp.")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                fd = -1
                 json.dump(cfg, f, indent=1)
                 f.write("\n")
                 f.flush()
@@ -5801,8 +5805,11 @@ def toggle_openclaw_control_ui() -> bool | None:
         except (OSError, TypeError, ValueError):
             return None
         finally:
-            with suppress(OSError):
-                if os.path.exists(tmp_path):
+            if fd >= 0:
+                with suppress(OSError):
+                    os.close(fd)
+            if tmp_path:
+                with suppress(OSError):
                     os.unlink(tmp_path)
 
 
@@ -5871,12 +5878,14 @@ def _ttl_cached(key: str, ttl: float, loader):
             generation = _ttl_generation.get(key, 0)
             owner = False
     if not owner:
-        event.wait(timeout=max(1.0, min(float(ttl), 10.0)))
+        # Owner always signals in finally; invoking loader after a timeout
+        # recreates the cold-start stampede this gate is meant to prevent.
+        event.wait()
         with _status_probe_cache_lock:
             published = _status_probe_cache.get(key)
         if published:
             return published["value"]
-        return loader()
+        return None
     try:
         value = loader()
         with _ttl_refreshing_lock:
@@ -6851,6 +6860,8 @@ def _write_config_atomic(cfg: dict | str) -> None:
                     f.write(cfg)
                 else:
                     yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_path, CONFIG_PATH)
         except BaseException:
             try:
@@ -6987,6 +6998,8 @@ def _sync_env_platform_flag(platform: str, enabled: bool, extra_vars: dict = Non
             os.chmod(tmp_path, mode)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write("\n".join(new_lines) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_path, env_file)
         except BaseException:
             try:
@@ -9267,13 +9280,14 @@ def sync_hermes_provider_cache(all_model_ids: list[str]) -> bool:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(cache, f)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_c, cache_path)
             return True
         except Exception:
-            try:
+            with suppress(OSError):
                 os.unlink(tmp_c)
-            except Exception:
-                pass
+            raise
     except Exception as e:
         sys.stderr.write(f"[panel] sync_hermes_provider_cache error: {e}\n")
     return False
@@ -9852,15 +9866,27 @@ def set_active_profile_name(name: str) -> bool:
     target_dir = root / "profiles" / name
     if not target_dir.is_dir():
         return False
+    tmp = None
+    fd = -1
     try:
         root.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(root), prefix=".active_profile.tmp.")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd = -1
             f.write(name + "\n")
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, str(path))
+        tmp = None
         _invalidate_profile_cache(name)
         return True
     except Exception:
+        if fd >= 0:
+            with suppress(OSError):
+                os.close(fd)
+        if tmp:
+            with suppress(OSError):
+                os.unlink(tmp)
         return False
 
 
@@ -10104,7 +10130,7 @@ def _read_profile_cfg(cfg_file: Path) -> dict:
             if isinstance(cfg, dict):
                 with _profile_cfg_cache_lock:
                     _profile_cfg_cache[key] = (st.st_mtime_ns, copy.deepcopy(cfg))
-                return cfg
+                return copy.deepcopy(cfg)
     except Exception:
         pass
     return {}
@@ -10112,14 +10138,18 @@ def _read_profile_cfg(cfg_file: Path) -> dict:
 
 def _write_profile_cfg(cfg_file: Path, cfg: dict) -> None:
     fd, tmp = tempfile.mkstemp(dir=str(cfg_file.parent), prefix=".config.yaml.tmp.")
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, str(cfg_file))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            yaml.safe_dump(cfg, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, str(cfg_file))
+    except BaseException:
+        with suppress(OSError):
+            os.unlink(tmp)
+        raise
     with _profile_cfg_cache_lock:
         _profile_cfg_cache.pop(str(cfg_file), None)
-    with _config_cache_lock:
-        _config_cache["mtime"] = 0.0
+    invalidate_config_cache()
 
 
 def get_profile_skill_inventory(name: str) -> dict:
@@ -10507,15 +10537,27 @@ def save_agent_profile_soul(name: str, content: str) -> tuple[bool, str]:
     if not target_dir.is_dir():
         return False, f"Direktori profil '{name}' tidak ditemukan."
     target_file = target_dir / "SOUL.md"
+    tmp = None
+    fd = -1
     try:
         fd, tmp = tempfile.mkstemp(dir=str(target_dir), prefix=".SOUL.md.tmp.")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd = -1
             f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
         os.chmod(tmp, 0o644)
         os.replace(tmp, str(target_file))
+        tmp = None
         _invalidate_profile_cache(name)
         return True, "SOUL.md berhasil disimpan."
     except Exception as e:
+        if fd >= 0:
+            with suppress(OSError):
+                os.close(fd)
+        if tmp:
+            with suppress(OSError):
+                os.unlink(tmp)
         return False, f"Gagal menyimpan SOUL.md: {e}"
 
 
@@ -10896,17 +10938,36 @@ def set_current_kanban_board(slug: str) -> bool:
     slug = (slug or "").strip().lower()
     if not slug or (slug != "default" and not _KANBAN_SLUG_RE.match(slug)):
         return False
+    if slug != "default":
+        kb = _runtime_kanban_api()
+        if kb is not None:
+            if not kb.board_exists(slug):
+                return False
+        elif not (get_hermes_root() / "kanban" / "boards" / slug / "kanban.db").is_file():
+            return False
     root = get_hermes_root()
     path = root / "kanban" / "current"
+    tmp = None
+    fd = -1
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".current.tmp.")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd = -1
             f.write(slug + "\n")
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, str(path))
+        tmp = None
         _invalidate_status_cache("kanban_board_block", "kanban_board_options")
         return True
     except Exception:
+        if fd >= 0:
+            with suppress(OSError):
+                os.close(fd)
+        if tmp:
+            with suppress(OSError):
+                os.unlink(tmp)
         return False
 
 
@@ -10996,8 +11057,21 @@ def list_kanban_boards() -> list[dict]:
     return boards
 
 
+def _runtime_kanban_api():
+    """Return runtime Kanban API only when it points at this panel's root."""
+    try:
+        if HERMES_LIB_DIR not in sys.path:
+            sys.path.insert(0, HERMES_LIB_DIR)
+        from hermes_cli import kanban_db as kb
+        if kb.kanban_home().resolve() != get_hermes_root().resolve():
+            return None
+        return kb
+    except Exception:
+        return None
+
+
 def create_kanban_board(slug: str, name: str = "") -> tuple[bool, str]:
-    """Create a new named kanban board."""
+    """Create a named board with runtime metadata/schema when available."""
     slug = (slug or "").strip().lower()
     if not slug or slug == "default" or not _KANBAN_SLUG_RE.match(slug):
         return False, "Slug papan tidak valid. Gunakan huruf kecil, angka, '-' atau '_'."
@@ -11006,10 +11080,13 @@ def create_kanban_board(slug: str, name: str = "") -> tuple[bool, str]:
     if board_dir.exists():
         return False, f"Papan '{slug}' sudah ada."
     try:
-        board_dir.mkdir(parents=True, exist_ok=True)
-        db_path = board_dir / "kanban.db"
-        con = ensure_kanban_db(db_path)
-        con.close()
+        kb = _runtime_kanban_api()
+        if kb is not None:
+            kb.create_board(slug, name=(name or slug.replace("-", " ").title()))
+        else:
+            board_dir.mkdir(parents=True, exist_ok=True)
+            with closing(ensure_kanban_db(board_dir / "kanban.db")) as con:
+                pass
         _invalidate_status_cache("kanban_board_block", "kanban_board_options")
         return True, f"Papan '{slug}' berhasil dibuat."
     except Exception as e:
@@ -11425,7 +11502,9 @@ def update_kanban_task(
                 if not fields:
                     return True, "Tidak ada perubahan."
                 vals.append(task_id)
-                con.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?", vals)
+                cur = con.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?", vals)
+                if cur.rowcount != 1:
+                    return False, f"Tugas '{task_id}' tidak ditemukan."
         _invalidate_status_cache("kanban_board_block")
         return True, "Tugas berhasil diperbarui."
     except Exception as e:
@@ -11446,7 +11525,9 @@ def delete_kanban_task(task_id: str, board: str = "") -> tuple[bool, str]:
                     con.execute("DELETE FROM task_attachments WHERE task_id = ?", (task_id,))
                 with suppress(sqlite3.OperationalError):
                     con.execute("DELETE FROM kanban_notify_subs WHERE task_id = ?", (task_id,))
-                con.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+                cur = con.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+                if cur.rowcount != 1:
+                    return False, f"Tugas '{task_id}' tidak ditemukan."
         _invalidate_status_cache("kanban_board_block", "kanban_board_options")
         return True, f"Tugas '{task_id}' berhasil dihapus."
     except Exception as e:
@@ -11460,7 +11541,7 @@ def reclaim_kanban_task(task_id: str, board: str = "") -> tuple[bool, str]:
         with closing(ensure_kanban_db(db_path)) as con:
             now = int(time.time())
             with con:
-                con.execute("""
+                cur = con.execute("""
                     UPDATE tasks SET
                         status = 'ready',
                         claim_lock = NULL,
@@ -11468,6 +11549,8 @@ def reclaim_kanban_task(task_id: str, board: str = "") -> tuple[bool, str]:
                         worker_pid = NULL
                     WHERE id = ?
                 """, (task_id,))
+                if cur.rowcount != 1:
+                    return False, f"Tugas '{task_id}' tidak ditemukan."
                 con.execute("""
                     INSERT INTO task_events (task_id, kind, payload, created_at)
                     VALUES (?, 'reclaimed', ?, ?)
@@ -11488,6 +11571,8 @@ def add_kanban_comment(task_id: str, body: str, author: str = "web-panel", board
         with closing(ensure_kanban_db(db_path)) as con:
             now = int(time.time())
             with con:
+                if con.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone() is None:
+                    return False, f"Tugas '{task_id}' tidak ditemukan."
                 con.execute("""
                     INSERT INTO task_comments (task_id, author, body, created_at)
                     VALUES (?, ?, ?, ?)
@@ -11543,11 +11628,44 @@ def save_kanban_config(updates: dict) -> tuple[bool, str]:
             if not isinstance(kb, dict):
                 kb = cfg["kanban"] = {}
 
-            for k, v in updates.items():
-                if v is None and k in kb:
-                    del kb[k]
+            allowed = {
+                "dispatch_in_gateway": ("bool", 1, 1),
+                "notify_in_gateway": ("bool", 1, 1),
+                "auto_subscribe_on_create": ("bool", 1, 1),
+                "review_dispatch": ("bool", 1, 1),
+                "auto_decompose": ("bool", 1, 1),
+                "dispatch_interval_seconds": ("int", 5, 86400),
+                "failure_limit": ("int", 1, 100),
+                "max_in_progress": ("int_or_none", 1, 10000),
+                "orchestrator_profile": ("str", 0, 64),
+                "default_assignee": ("str", 0, 64),
+            }
+            for k, raw in updates.items():
+                spec = allowed.get(k)
+                if spec is None:
+                    return False, f"Kunci konfigurasi Kanban tidak dikenal: {k}"
+                kind, low, high = spec
+                if raw is None and kind == "int_or_none":
+                    kb[k] = None
+                elif kind == "bool":
+                    if isinstance(raw, bool):
+                        kb[k] = raw
+                    elif isinstance(raw, str) and raw.strip().lower() in ("true", "false", "1", "0", "yes", "no", "on", "off"):
+                        kb[k] = _to_bool(raw)
+                    else:
+                        return False, f"Nilai {k} harus boolean."
+                elif kind in ("int", "int_or_none"):
+                    try:
+                        value = int(raw)
+                    except (TypeError, ValueError):
+                        return False, f"Nilai {k} harus angka."
+                    if not low <= value <= high:
+                        return False, f"Nilai {k} di luar rentang {low}-{high}."
+                    kb[k] = value
                 else:
-                    kb[k] = v
+                    if not isinstance(raw, str) or len(raw) > high:
+                        return False, f"Nilai {k} harus teks maksimal {high} karakter."
+                    kb[k] = raw.strip()
 
             _write_config_atomic(cfg)
             return True, "Konfigurasi Kanban berhasil disimpan."
@@ -12653,13 +12771,28 @@ def _refresh_update_cache() -> None:
                 "tag_update": False,
                 "patch_notes": get_9router_patch_notes(),
             }
+        tmp = None
+        fd = -1
         try:
-            tmp = UPDATE_CACHE_PATH + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
+            parent = os.path.dirname(os.path.abspath(UPDATE_CACHE_PATH))
+            fd, tmp = tempfile.mkstemp(dir=parent, prefix=".update-cache.tmp.")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                fd = -1
                 json.dump(data, f)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp, UPDATE_CACHE_PATH)
+            tmp = None
         except OSError as e:
             sys.stderr.write(f"[panel] update cache save error: {e}\n")
+        finally:
+            if fd >= 0:
+                with suppress(OSError):
+                    os.close(fd)
+            if tmp:
+                with suppress(OSError):
+                    os.unlink(tmp)
     finally:
         with _update_refresh_lock:
             _update_refreshing = False

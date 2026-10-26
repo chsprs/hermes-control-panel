@@ -3087,6 +3087,27 @@ class TestKanbanBoard(unittest.TestCase):
         mode = os.stat(self.cfg_path).st_mode & 0o777
         self.assertEqual(mode, 0o600)
 
+    def test_08c_kanban_mutations_reject_missing_tasks_and_unknown_config(self):
+        for operation in (
+            lambda: panel.update_kanban_task("missing", title="x"),
+            lambda: panel.delete_kanban_task("missing"),
+            lambda: panel.reclaim_kanban_task("missing"),
+            lambda: panel.add_kanban_comment("missing", "orphan"),
+        ):
+            ok, msg = operation()
+            self.assertFalse(ok, msg)
+            self.assertIn("tidak ditemukan", msg)
+        ok, msg = panel.save_kanban_config({"unexpected": True})
+        self.assertFalse(ok)
+        self.assertIn("tidak dikenal", msg)
+        ok, msg = panel.save_kanban_config({"dispatch_interval_seconds": "bad"})
+        self.assertFalse(ok)
+        self.assertIn("harus angka", msg)
+
+    def test_08d_switch_rejects_missing_board(self):
+        self.assertFalse(panel.set_current_kanban_board("does-not-exist"))
+        self.assertEqual(panel.get_current_kanban_board(), "default")
+
     def test_08b_kanban_parallel_writes(self):
         errors = []
         task_ids = []
@@ -3629,6 +3650,35 @@ class TestSubprocessCachingAndOptimization(unittest.TestCase):
             t.join(timeout=1)
         self.assertEqual(call_count, 1)
         self.assertEqual(results, ["cold"] * 6)
+
+    def test_ttl_cached_waiters_do_not_reload_after_slow_owner(self):
+        started = threading.Event()
+        release = threading.Event()
+        calls = 0
+        lock = threading.Lock()
+
+        def loader():
+            nonlocal calls
+            with lock:
+                calls += 1
+            started.set()
+            release.wait(timeout=2)
+            return "slow"
+
+        with panel._status_probe_cache_lock:
+            panel._status_probe_cache.pop("test_slow_coalesce", None)
+        results = []
+        owner = threading.Thread(target=lambda: results.append(panel._ttl_cached("test_slow_coalesce", 0.01, loader)))
+        waiter = threading.Thread(target=lambda: results.append(panel._ttl_cached("test_slow_coalesce", 0.01, loader)))
+        owner.start()
+        self.assertTrue(started.wait(timeout=1))
+        waiter.start()
+        time.sleep(0.05)
+        release.set()
+        owner.join(timeout=2)
+        waiter.join(timeout=2)
+        self.assertEqual(calls, 1)
+        self.assertEqual(sorted(results), ["slow", "slow"])
 
     def test_ttl_cached_invalidation_rejects_stale_worker_result(self):
         import threading
