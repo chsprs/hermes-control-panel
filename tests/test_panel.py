@@ -435,6 +435,15 @@ process.stdout.write(netRenderStatus(st));
         segment = page[start:] if next_function == -1 else page[start:next_function]
         self.assertIn("++auxPickerLoadGen", segment)
 
+    def test_kanban_refresh_ignores_stale_board_responses(self):
+        page = panel.PAGE
+        start = page.index("function refreshKanbanBoard")
+        end = page.index("function manualSyncKanban", start)
+        segment = page[start:end]
+        self.assertIn("var loadGen = ++kanbanBoardLoadGen", segment)
+        self.assertIn("if(loadGen !== kanbanBoardLoadGen) return", segment)
+        self.assertIn("if(board !== (bSel ? bSel.value : 'default')) return", segment)
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_sse_ignores_stale_eventsource_callbacks(self):
         src = panel.SSE_SCRIPT

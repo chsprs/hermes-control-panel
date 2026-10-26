@@ -3025,6 +3025,7 @@ function toggleProfileToolset(toolset, enable){{
 // --- Kanban UI JavaScript ---
 var currentViewingTaskId = '';
 var taskDetailLoadGen = 0;
+var kanbanBoardLoadGen = 0;
 var selectedTaskIds = new Set();
 var kanbanSyncTimer = null;
 var isDraggingKanban = false;
@@ -3520,6 +3521,7 @@ function renderKanbanCards(tasks) {{
 }}
 
 function refreshKanbanBoard(silent) {{
+  var loadGen = ++kanbanBoardLoadGen;
   var bSel = document.getElementById('kanban-board-select');
   var board = bSel ? bSel.value : 'default';
   var btnSync = document.getElementById('btn-sync-kanban');
@@ -3527,6 +3529,8 @@ function refreshKanbanBoard(silent) {{
 
   fetchJsonChecked('/api/kanban/tasks?board=' + encodeURIComponent(board))
     .then(function(res){{
+      if(loadGen !== kanbanBoardLoadGen) return;
+      if(board !== (bSel ? bSel.value : 'default')) return;
       if(!silent && btnSync) btnSync.classList.remove('is-loading');
       if(res && res.ok && Array.isArray(res.tasks)){{
         renderKanbanCards(res.tasks);
@@ -3538,6 +3542,8 @@ function refreshKanbanBoard(silent) {{
       }}
     }})
     .catch(function(err){{
+      if(loadGen !== kanbanBoardLoadGen) return;
+      if(board !== (bSel ? bSel.value : 'default')) return;
       if(!silent && btnSync) btnSync.classList.remove('is-loading');
     }});
 }}
