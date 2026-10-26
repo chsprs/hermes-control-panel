@@ -147,6 +147,22 @@ class TestHermesControlPanel(unittest.TestCase):
         loader_end = page.index("function openAuxPicker", loader_start)
         self.assertIn("fetchJsonChecked('/api/models'", page[loader_start:loader_end])
 
+    def test_frontend_profile_and_kanban_json_fetches_check_http_status(self):
+        page = panel.PAGE
+        for function_name in (
+            "openCreateProfileModal",
+            "submitCreateProfile",
+            "openProfileSoulModal",
+            "refreshKanbanBoard",
+            "openViewTaskModal",
+            "submitCreateTask",
+        ):
+            start = page.index("function " + function_name)
+            next_function = page.find("function ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            self.assertIn("fetchJsonChecked(", segment, function_name)
+            self.assertNotIn(".then(function(r){{ return r.json(); }})", segment, function_name)
+
     def test_02_aux_model_write_failure_returns_500(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "set_aux_task_model", return_value=False):

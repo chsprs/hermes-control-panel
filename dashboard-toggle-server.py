@@ -2564,8 +2564,7 @@ function openCreateProfileModal(){{
   var sel = document.getElementById('create-profile-clone');
   if(sel){{
     sel.innerHTML = '<option value="">-- Tanpa Clone (Mulai Baru) --</option><option value="default">default (Profil Utama)</option>';
-    fetch('/api/profiles')
-      .then(function(r){{ return r.json(); }})
+    fetchJsonChecked('/api/profiles')
       .then(function(res){{
         if(res && res.profiles){{
           sel.innerHTML = '<option value="">-- Tanpa Clone (Mulai Baru) --</option>';
@@ -2594,12 +2593,11 @@ function submitCreateProfile(){{
   var desc = (document.getElementById('create-profile-desc').value || '').trim();
   closeCreateProfileModal();
   var body = new URLSearchParams({{ name: name, clone_from: clone, description: desc, ajax: '1' }});
-  fetch('/create-profile', {{
+  fetchJsonChecked('/create-profile', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
     body: body.toString()
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       window.location.href = '/status?just=profile-created&tab=profiles';
@@ -2691,8 +2689,7 @@ function openProfileSoulModal(name){{
   if(txt) txt.value = 'Memuat SOUL.md…';
   var modal = document.getElementById('soul-modal');
   if(modal) modal.classList.add('show');
-  fetch('/api/profile-soul?profile=' + encodeURIComponent(name))
-    .then(function(r){{ return r.json(); }})
+  fetchJsonChecked('/api/profile-soul?profile=' + encodeURIComponent(name))
     .then(function(res){{
       if(txt) txt.value = (res && res.content) || '';
     }})
@@ -3489,8 +3486,7 @@ function refreshKanbanBoard(silent) {{
   var btnSync = document.getElementById('btn-sync-kanban');
   if(!silent && btnSync) btnSync.classList.add('is-loading');
 
-  fetch('/api/kanban/tasks?board=' + encodeURIComponent(board))
-    .then(function(r){{ return r.json(); }})
+  fetchJsonChecked('/api/kanban/tasks?board=' + encodeURIComponent(board))
     .then(function(res){{
       if(!silent && btnSync) btnSync.classList.remove('is-loading');
       if(res && res.ok && Array.isArray(res.tasks)){{
@@ -3551,8 +3547,7 @@ function openCreateTaskModal(){{
   document.getElementById('kanban-task-status').value = 'todo';
   var sel = document.getElementById('kanban-task-assignee');
   if(sel){{
-    fetch('/api/profiles')
-      .then(function(r){{ return r.json(); }})
+    fetchJsonChecked('/api/profiles')
       .then(function(res){{
         if(res && res.profiles){{
           sel.innerHTML = '<option value="">-- Tanpa Assignee --</option>';
@@ -3586,12 +3581,11 @@ function submitCreateTask(){{
   var board = bSel ? bSel.value : '';
 
   closeCreateTaskModal();
-  fetch('/api/kanban/task/create', {{
+  fetchJsonChecked('/api/kanban/task/create', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ title: title, body: body, assignee: assignee, status: status, priority: priority, model_override: model, board: board }})
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       refreshKanbanBoard(true);
@@ -3663,8 +3657,7 @@ function openViewTaskModal(taskId){{
   var bSel = document.getElementById('kanban-board-select');
   var board = bSel ? bSel.value : '';
 
-  fetch('/api/kanban/task?id=' + encodeURIComponent(taskId) + '&board=' + encodeURIComponent(board))
-    .then(function(r){{ return r.json(); }})
+  fetchJsonChecked('/api/kanban/task?id=' + encodeURIComponent(taskId) + '&board=' + encodeURIComponent(board))
     .then(function(res){{
       if(!res || !res.ok || !res.task){{
         alert('Tugas tidak ditemukan');
