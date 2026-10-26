@@ -4160,6 +4160,7 @@ var currentGwPlatform = '';
 var isNewGwPlatform = false;
 var currentGwMode = 'ui';
 var _gwPreviewGen = 0;
+var _gwConfigLoadGen = 0;
 var _yamlEditedByUser = false;
 
 function switchGwConfigMode(mode){{
@@ -5164,14 +5165,17 @@ function selectCatalogPlatform(plat){{
       populateGwFormFromYaml(yamlEl.value, plat);
     }}
   }} else {{
+    var loadGen = ++_gwConfigLoadGen;
     fetchJsonChecked('/api/gateway-config?platform=' + encodeURIComponent(plat))
       .then(function(d){{
-        if(d.ok && yamlEl && currentGwPlatform === plat){{
+        if(loadGen !== _gwConfigLoadGen || currentGwPlatform !== plat) return;
+        if(d.ok && yamlEl){{
           yamlEl.value = d.yaml || ('enabled: true' + String.fromCharCode(10));
           populateGwFormFromYaml(yamlEl.value, plat);
         }}
       }})
       .catch(function(err){{
+        if(loadGen !== _gwConfigLoadGen || currentGwPlatform !== plat) return;
         if(yamlEl) yamlEl.value = '';
         alert('Gagal memuat konfigurasi gateway: ' + (err && err.message || err));
       }});
@@ -5179,6 +5183,7 @@ function selectCatalogPlatform(plat){{
 }}
 
 function openGwConfig(platform, title){{
+  var loadGen = ++_gwConfigLoadGen;
   currentGwPlatform = platform || '';
   isNewGwPlatform = !platform;
   var modal = document.getElementById('gw-config-modal');
@@ -5221,6 +5226,7 @@ function openGwConfig(platform, title){{
 
     fetchJsonChecked('/api/gateway-config?platform=' + encodeURIComponent(platform))
       .then(function(d){{
+        if(loadGen !== _gwConfigLoadGen || currentGwPlatform !== platform) return;
         if(saveBtn) saveBtn.disabled = false;
         if(d.ok){{
           var yText = d.yaml || ('enabled: true' + String.fromCharCode(10));
@@ -5232,13 +5238,15 @@ function openGwConfig(platform, title){{
         }}
       }})
       .catch(function(e){{
+        if(loadGen !== _gwConfigLoadGen || currentGwPlatform !== platform) return;
         if(saveBtn) saveBtn.disabled = false;
-        if(errEl){{ errEl.textContent = 'Error koneksi: ' + e; errEl.style.display = 'block'; }}
+        if(errEl){{ errEl.textContent = 'Error koneksi: ' + (e && e.message || e); errEl.style.display = 'block'; }}
       }});
   }}
 }}
 
 function closeGwConfig(){{
+  ++_gwConfigLoadGen;
   var modal = document.getElementById('gw-config-modal');
   if(modal) modal.classList.remove('show');
   currentGwPlatform = '';
@@ -5374,6 +5382,7 @@ var _waPairCancelled = false;
 var _waPairActionGen = 0;
 var _lastWaPairStatus = '';
 function openWaPairModal(){{
+  var actGen = ++_waPairActionGen;
   _waPairCancelled = false;
   _lastWaPairStatus = '';
   var m = document.getElementById('wa-pair-modal');
@@ -5387,21 +5396,24 @@ function openWaPairModal(){{
   if(timerEl) timerEl.textContent = '';
   fetchJsonChecked('/api/whatsapp/pair-status')
     .then(function(d){{
+      if(actGen !== _waPairActionGen) return;
       var m = document.getElementById('wa-pair-modal');
       var isOpen = m && (m.classList.contains('show') || m.style.display !== 'none');
       if(!isOpen || _waPairCancelled) return;
       setWaPairStatusUI(d);
       if(d.status === 'starting' || d.status === 'waiting_scan'){{
-        pollWaPairStatus();
+        pollWaPairStatus(actGen);
       }}
     }})
     .catch(function(err){{
-      setWaPairStatusUI({{status: 'error', error: 'Gagal memuat status WhatsApp: ' + err}});
+      if(actGen !== _waPairActionGen) return;
+      setWaPairStatusUI({{status: 'error', error: 'Gagal memuat status WhatsApp: ' + (err && err.message || err)}});
     }});
 }}
 
 function closeWaPairModal(skipCancel){{
   _waPairCancelled = true;
+  var cancelGen = ++_waPairActionGen;
   var m = document.getElementById('wa-pair-modal');
   if(m){{
     m.classList.remove('show');
@@ -5426,6 +5438,7 @@ function closeWaPairModal(skipCancel){{
       headers: {{'Content-Type': 'application/json', 'Accept': 'application/json'}},
       body: JSON.stringify({{}})
     }}).catch(function(err){{
+      if(cancelGen !== _waPairActionGen) return;
       var detail = String(err && err.message || err);
       var statusText = document.getElementById('wa-pair-status-text');
       if(statusText) statusText.textContent = 'Pembatalan pairing gagal: ' + detail;
@@ -5604,27 +5617,33 @@ function setWaPairStatusUI(data){{
 }}
 
 var _waPairPolling = false;
-function pollWaPairStatus(){{
+function pollWaPairStatus(expectedGen){{
+  var actGen = expectedGen == null ? _waPairActionGen : expectedGen;
+  if(actGen !== _waPairActionGen || _waPairCancelled) return;
   if(_waPairPollTimer){{ clearTimeout(_waPairPollTimer); _waPairPollTimer = null; }}
   if(_waPairPolling) return;
   _waPairPolling = true;
   fetchJsonChecked('/api/whatsapp/pair-status')
     .then(function(d){{
       _waPairPolling = false;
+      if(actGen !== _waPairActionGen) return;
       var m = document.getElementById('wa-pair-modal');
       var isOpen = m && (m.classList.contains('show') || m.style.display !== 'none');
       if(!isOpen || _waPairCancelled) return;
       setWaPairStatusUI(d);
       if(d.status === 'starting' || d.status === 'waiting_scan'){{
-        _waPairPollTimer = setTimeout(pollWaPairStatus, 1500);
+        _waPairPollTimer = setTimeout(function(){{ pollWaPairStatus(actGen); }}, 1500);
       }}
     }})
-    .catch(function(){{
+    .catch(function(err){{
       _waPairPolling = false;
+      if(actGen !== _waPairActionGen) return;
       var m = document.getElementById('wa-pair-modal');
       var isOpen = m && (m.classList.contains('show') || m.style.display !== 'none');
       if(isOpen && !_waPairCancelled){{
-        _waPairPollTimer = setTimeout(pollWaPairStatus, 2500);
+        var statusText = document.getElementById('wa-pair-status-text');
+        if(statusText) statusText.textContent = 'Polling WhatsApp gagal: ' + (err && err.message || err);
+        _waPairPollTimer = setTimeout(function(){{ pollWaPairStatus(actGen); }}, 2500);
       }}
     }});
 }}
@@ -5650,11 +5669,15 @@ function startWaPair(clearSession){{
     body: JSON.stringify({{force_new: clearSession !== false}})
   }})
     .then(function(d){{
+      if(actGen !== _waPairActionGen) return;
       setWaPairStatusUI(d);
-      pollWaPairStatus();
+      pollWaPairStatus(actGen);
     }})
-    .catch(function(){{
-      pollWaPairStatus();
+    .catch(function(err){{
+      if(actGen !== _waPairActionGen) return;
+      var statusText = document.getElementById('wa-pair-status-text');
+      if(statusText) statusText.textContent = 'Pairing WhatsApp gagal: ' + (err && err.message || err);
+      pollWaPairStatus(actGen);
     }});
 }}
 

@@ -392,6 +392,21 @@ process.stdout.write(netRenderStatus(st));
         self.assertNotIn("fetch('/api/whatsapp/pair-cancel'", segment)
         self.assertNotIn(".catch(function(){{}})", segment)
 
+    def test_gateway_and_whatsapp_modals_ignore_stale_responses(self):
+        page = panel.PAGE
+        for function_name, needles in {
+            "openGwConfig": ["var loadGen = ++_gwConfigLoadGen", "if(loadGen !== _gwConfigLoadGen || currentGwPlatform !== platform) return"],
+            "closeGwConfig": ["++_gwConfigLoadGen"],
+            "openWaPairModal": ["var actGen = ++_waPairActionGen", "if(actGen !== _waPairActionGen) return"],
+            "pollWaPairStatus": ["var actGen = expectedGen == null ? _waPairActionGen : expectedGen", "if(actGen !== _waPairActionGen) return"],
+            "closeWaPairModal": ["++_waPairActionGen"],
+        }.items():
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            for needle in needles:
+                self.assertIn(needle, segment, f"{function_name}: {needle}")
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_sse_ignores_stale_eventsource_callbacks(self):
         src = panel.SSE_SCRIPT
@@ -1330,7 +1345,7 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
         self.assertIn("QR Code Kedaluwarsa", page)
 
         # 5. WA poll status reschedules on fetch failure
-        self.assertIn("_waPairPollTimer = setTimeout(pollWaPairStatus, 2500);", page)
+        self.assertIn("_waPairPollTimer = setTimeout(function(){{ pollWaPairStatus(actGen); }}, 2500);", page)
 
         # 6. Gateway YAML switch sets readOnly while preview in-flight and guards user edits
         self.assertIn("yamlEl.readOnly = true;", page)
