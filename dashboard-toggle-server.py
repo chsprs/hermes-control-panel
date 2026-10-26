@@ -5805,6 +5805,7 @@ _status_probe_cache_lock = threading.Lock()
 _ttl_refreshing: set[str] = set()
 _ttl_refreshing_lock = threading.Lock()
 _ttl_inflight: dict[str, threading.Event] = {}
+_ttl_generation: dict[str, int] = {}
 
 
 def _ttl_cached(key: str, ttl: float, loader):
@@ -5822,14 +5823,17 @@ def _ttl_cached(key: str, ttl: float, loader):
         with _ttl_refreshing_lock:
             if key not in _ttl_refreshing:
                 _ttl_refreshing.add(key)
+                generation = _ttl_generation.get(key, 0)
                 def _bg_worker():
                     try:
                         v = loader()
-                        with _status_probe_cache_lock:
-                            _status_probe_cache[key] = {
-                                "at": time.monotonic(),
-                                "value": v,
-                            }
+                        with _ttl_refreshing_lock:
+                            if _ttl_generation.get(key, 0) == generation:
+                                with _status_probe_cache_lock:
+                                    _status_probe_cache[key] = {
+                                        "at": time.monotonic(),
+                                        "value": v,
+                                    }
                     except Exception:
                         pass
                     finally:
@@ -5846,8 +5850,10 @@ def _ttl_cached(key: str, ttl: float, loader):
         if event is None:
             event = threading.Event()
             _ttl_inflight[key] = event
+            generation = _ttl_generation.get(key, 0)
             owner = True
         else:
+            generation = _ttl_generation.get(key, 0)
             owner = False
     if not owner:
         event.wait(timeout=max(1.0, min(float(ttl), 10.0)))
@@ -5858,11 +5864,14 @@ def _ttl_cached(key: str, ttl: float, loader):
         return loader()
     try:
         value = loader()
-        with _status_probe_cache_lock:
-            _status_probe_cache[key] = {
-                "at": time.monotonic(),
-                "value": value,
-            }
+        with _ttl_refreshing_lock:
+            current_generation = _ttl_generation.get(key, 0)
+        if current_generation == generation:
+            with _status_probe_cache_lock:
+                _status_probe_cache[key] = {
+                    "at": time.monotonic(),
+                    "value": value,
+                }
         return value
     finally:
         with _ttl_refreshing_lock:
@@ -5872,18 +5881,22 @@ def _ttl_cached(key: str, ttl: float, loader):
 
 
 def _invalidate_status_cache(*keys: str) -> None:
-    with _status_probe_cache_lock:
-        if keys:
-            for key in keys:
-                _status_probe_cache.pop(key, None)
-        else:
-            _status_probe_cache.clear()
+    # Match refresh-worker lock order: generation first, cache second.
+    # Do not clear _ttl_refreshing here; an old worker may still own its
+    # marker, and clearing it lets a late finally block erase a new marker.
     with _ttl_refreshing_lock:
         if keys:
             for key in keys:
-                _ttl_refreshing.discard(key)
+                _ttl_generation[key] = _ttl_generation.get(key, 0) + 1
         else:
-            _ttl_refreshing.clear()
+            for key in set(_ttl_generation) | set(_ttl_refreshing):
+                _ttl_generation[key] = _ttl_generation.get(key, 0) + 1
+        with _status_probe_cache_lock:
+            if keys:
+                for key in keys:
+                    _status_probe_cache.pop(key, None)
+            else:
+                _status_probe_cache.clear()
 
     if not keys or any(k in keys for k in ("processes_table", "gateway_info", "services", "system")):
         if "invalidate_service_cache" in globals():

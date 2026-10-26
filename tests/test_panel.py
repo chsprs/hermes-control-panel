@@ -3573,6 +3573,24 @@ class TestSubprocessCachingAndOptimization(unittest.TestCase):
         self.assertEqual(call_count, 1)
         self.assertEqual(results, ["cold"] * 6)
 
+    def test_ttl_cached_invalidation_rejects_stale_worker_result(self):
+        import threading
+        started = threading.Event()
+        release = threading.Event()
+        with panel._status_probe_cache_lock:
+            panel._status_probe_cache["test_generation"] = {"at": time.monotonic() - 10, "value": "old"}
+        def loader():
+            started.set()
+            release.wait(timeout=1)
+            return "stale-worker"
+        self.assertEqual(panel._ttl_cached("test_generation", 0.05, loader), "old")
+        self.assertTrue(started.wait(timeout=1))
+        panel._invalidate_status_cache("test_generation")
+        release.set()
+        time.sleep(0.08)
+        with panel._status_probe_cache_lock:
+            self.assertNotIn("test_generation", panel._status_probe_cache)
+
     def test_ttl_cached_stale_while_revalidate(self):
         call_count = 0
         def loader():
