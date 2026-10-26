@@ -289,6 +289,19 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("escHtml(err && err.message || err)", attachment)
         self.assertNotIn("' + err.message + '</span>", attachment)
 
+    def test_attachment_loader_ignores_stale_async_responses(self):
+        page = panel.PAGE
+        start = page.index("var currentAttachmentText")
+        end = page.index("function setAttachmentViewMode", start)
+        attachment = page[start:end]
+        self.assertIn("var attachmentLoadGen = 0", attachment)
+        self.assertIn("var loadGen = ++attachmentLoadGen", attachment)
+        self.assertIn("if(loadGen !== attachmentLoadGen) return", attachment)
+        close_start = page.index("function closeAttachmentViewerModal", end)
+        close_end = page.find("function ", close_start + 1)
+        close = page[close_start:] if close_end == -1 else page[close_start:close_end]
+        self.assertIn("++attachmentLoadGen", close)
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_network_status_renderer_rejects_hostile_numeric_fields(self):
         script = r"""

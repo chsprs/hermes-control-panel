@@ -3872,9 +3872,11 @@ var currentAttachmentText = '';
 var currentAttachmentFilename = '';
 var currentAttachmentUrl = '';
 var currentAttachmentMode = 'preview';
+var attachmentLoadGen = 0;
 
 function openKanbanAttachment(aid, filename){{
   if(!aid) return;
+  var loadGen = ++attachmentLoadGen;
   var bSel = document.getElementById('kanban-board-select');
   var board = bSel ? bSel.value : '';
   var url = '/api/kanban/attachment?id=' + encodeURIComponent(aid) + '&board=' + encodeURIComponent(board);
@@ -3906,11 +3908,13 @@ function openKanbanAttachment(aid, filename){{
       return r.text();
     }})
     .then(function(txt){{
+      if(loadGen !== attachmentLoadGen) return;
       currentAttachmentText = txt;
       if(prevEl) prevEl.innerHTML = renderMarkdown(txt);
       if(rawEl) rawEl.textContent = txt;
     }})
     .catch(function(err){{
+      if(loadGen !== attachmentLoadGen) return;
       var safeErr = escHtml(err && err.message || err);
       if(prevEl) prevEl.innerHTML = '<span style="color:var(--danger)">Gagal memuat lampiran: ' + safeErr + '</span>';
       if(rawEl) rawEl.textContent = 'Gagal memuat lampiran: ' + (err && err.message || err);
@@ -3956,6 +3960,7 @@ function downloadAttachmentContent(){{
 }}
 
 function closeAttachmentViewerModal(){{
+  ++attachmentLoadGen;
   var modal = document.getElementById('view-kanban-attachment-modal');
   if(modal) modal.classList.remove('show');
 }}
