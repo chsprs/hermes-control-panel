@@ -421,6 +421,20 @@ process.stdout.write(netRenderStatus(st));
             for needle in needles:
                 self.assertIn(needle, segment, f"{function_name}: {needle}")
 
+    def test_aux_model_picker_ignores_stale_catalog_callbacks(self):
+        page = panel.PAGE
+        self.assertIn("var auxPickerLoadGen = 0;", page)
+        for function_name in ("openAuxPicker", "openFallbackPicker", "openProfileModelPicker"):
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            self.assertIn("var loadGen = ++auxPickerLoadGen", segment, function_name)
+            self.assertIn("if(loadGen !== auxPickerLoadGen) return", segment, function_name)
+        start = page.index("function closeAuxPicker")
+        next_function = page.find("\nfunction ", start + 1)
+        segment = page[start:] if next_function == -1 else page[start:next_function]
+        self.assertIn("++auxPickerLoadGen", segment)
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_sse_ignores_stale_eventsource_callbacks(self):
         src = panel.SSE_SCRIPT

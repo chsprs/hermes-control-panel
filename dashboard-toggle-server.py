@@ -2072,6 +2072,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 var AVAILABLE_MODELS = {available_models_json};
 var currentAuxTask = '';
 var currentFallbackIndex = null;
+var auxPickerLoadGen = 0;
 
 function escapeMdHtml(s){{
   return s.replace(/&/g, '&amp;')
@@ -2307,6 +2308,7 @@ function ensureAvailableModels(callback){{
 }}
 
 function openAuxPicker(taskKey, taskLabel){{
+  var loadGen = ++auxPickerLoadGen;
   currentAuxTask = taskKey;
   currentFallbackIndex = null;
   var title = document.getElementById('aux-picker-title');
@@ -2316,11 +2318,13 @@ function openAuxPicker(taskKey, taskLabel){{
   var modal = document.getElementById('aux-picker-modal');
   if(modal) modal.classList.add('show');
   ensureAvailableModels(function(){{
+    if(loadGen !== auxPickerLoadGen) return;
     renderAuxPickerItems('');
   }});
 }}
 
 function openFallbackPicker(index, label){{
+  var loadGen = ++auxPickerLoadGen;
   currentFallbackIndex = index;
   currentAuxTask = '';
   var title = document.getElementById('aux-picker-title');
@@ -2330,11 +2334,13 @@ function openFallbackPicker(index, label){{
   var modal = document.getElementById('aux-picker-modal');
   if(modal) modal.classList.add('show');
   ensureAvailableModels(function(){{
+    if(loadGen !== auxPickerLoadGen) return;
     renderFallbackPickerItems('');
   }});
 }}
 
 function closeAuxPicker(){{
+  ++auxPickerLoadGen;
   var modal = document.getElementById('aux-picker-modal');
   if(modal) modal.classList.remove('show');
   currentAuxTask = '';
@@ -2730,6 +2736,7 @@ function submitProfileSoul(){{
 }}
 
 function openProfileModelPicker(name){{
+  var loadGen = ++auxPickerLoadGen;
   currentProfileModelTarget = name;
   currentAuxTask = '';
   currentFallbackIndex = null;
@@ -2740,6 +2747,7 @@ function openProfileModelPicker(name){{
   var modal = document.getElementById('aux-picker-modal');
   if(modal) modal.classList.add('show');
   ensureAvailableModels(function(){{
+    if(loadGen !== auxPickerLoadGen) return;
     renderAuxPickerItems('');
   }});
 }}
