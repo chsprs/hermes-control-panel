@@ -537,7 +537,8 @@ def render_markdown(text: str) -> str:
 
     # 5. Restore code blocks
     for idx, (lang, cb) in enumerate(code_blocks):
-        lbl = f'<div class="md-code-header"><span>{lang or "code"}</span><button type="button" class="btn-copy-code" onclick="copyCodeBlock(this)">Salin</button></div>'
+        safe_lang = html.escape(lang or "code")
+        lbl = f'<div class="md-code-header"><span>{safe_lang}</span><button type="button" class="btn-copy-code" onclick="copyCodeBlock(this)">Salin</button></div>'
         block = f'<div class="md-code-wrap">{lbl}<pre class="md-code-block"><code>{cb}</code></pre></div>'
         res = res.replace(f"\x00MD_CB_{idx}\x00", block)
 
@@ -2137,7 +2138,7 @@ function renderMarkdown(text){{
         i++;
       }}
       var escCode = escapeMdHtml(codeLines.join(String.fromCharCode(10)));
-      var header = '<div class="md-code-header"><span>' + (lang || 'code') + '</span><button type="button" class="btn-copy-code" onclick="copyCodeBlock(this)">Salin</button></div>';
+      var header = '<div class="md-code-header"><span>' + escapeMdHtml(lang || 'code') + '</span><button type="button" class="btn-copy-code" onclick="copyCodeBlock(this)">Salin</button></div>';
       out.push('<div class="md-code-wrap">' + header + '<pre class="md-code-block"><code>' + escCode + '</code></pre></div>');
       continue;
     }}

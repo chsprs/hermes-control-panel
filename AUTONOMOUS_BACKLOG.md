@@ -19,6 +19,7 @@ Updated: 2026-10-27
 - [x] Guarded Kanban attachment viewer against stale async responses and invalidated pending loads when viewer closes.
 - [x] Added visible `.catch()` handling for network gateway restart and DNS resolve transport failures; no unhandled rejection or stuck status remains.
 - [x] Added rejection handling for gateway catalog/toggle/delete, WhatsApp cancel, profile clone, Kanban assignee filter, and task assignee loaders; failed controls now show explicit feedback.
+- [x] Escaped fenced Markdown language labels in server and browser renderers, closing raw code-block header HTML injection.
 - [ ] Audit remaining non-JSON fetches, SSE reconnect/error paths, and API-derived `innerHTML` boundaries.
 
 

@@ -3712,6 +3712,14 @@ class TestMarkdownRenderingAndKanbanAttachments(unittest.TestCase):
         self.assertIn('&lt;safe&gt;', html)
         self.assertNotIn('<safe>', html)
 
+    def test_02b_markdown_code_language_is_escaped(self):
+        html = panel.render_markdown('```<img src=x onerror=alert(1)>\ncode\n```')
+        self.assertIn('&lt;img src=x onerror=alert(1)&gt;', html)
+        self.assertNotIn('<span><img', html)
+        self.assertNotIn('onerror="alert(1)"', html)
+        page = panel.PAGE
+        self.assertIn("escapeMdHtml(lang || 'code')", page)
+
     def test_03_markdown_tables_with_alignment_and_responsive_wrap(self):
         src = (
             "| Kolom Kiri | Kolom Tengah | Kolom Kanan |\n"
