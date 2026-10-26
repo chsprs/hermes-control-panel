@@ -2611,12 +2611,11 @@ function submitCreateProfile(){{
 function setActiveProfile(name){{
   if(!confirm('Aktifkan profil "' + name + '" sebagai profil default Hermes?')) return;
   var body = new URLSearchParams({{ profile: name, ajax: '1' }});
-  fetch('/set-active-profile', {{
+  fetchJsonChecked('/set-active-profile', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
     body: body.toString()
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       window.location.href = '/status?just=profile-active&tab=profiles';
@@ -2630,12 +2629,11 @@ function setActiveProfile(name){{
 function deleteProfile(name){{
   if(!confirm('Hapus profil "' + name + '" secara permanen beserta semua datanya?')) return;
   var body = new URLSearchParams({{ profile: name, ajax: '1' }});
-  fetch('/delete-profile', {{
+  fetchJsonChecked('/delete-profile', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
     body: body.toString()
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       window.location.href = '/status?just=profile-deleted&tab=profiles';
@@ -2665,12 +2663,11 @@ function submitRenameProfile(){{
   var oldName = currentRenamingProfile;
   closeRenameProfileModal();
   var body = new URLSearchParams({{ old_name: oldName, new_name: newName, ajax: '1' }});
-  fetch('/rename-profile', {{
+  fetchJsonChecked('/rename-profile', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
     body: body.toString()
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       window.location.href = '/status?just=profile-renamed&tab=profiles';
@@ -2709,12 +2706,11 @@ function submitProfileSoul(){{
   var content = document.getElementById('soul-content').value;
   closeProfileSoulModal();
   var body = new URLSearchParams({{ profile: name, content: content, ajax: '1' }});
-  fetch('/save-profile-soul', {{
+  fetchJsonChecked('/save-profile-soul', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
     body: body.toString()
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       window.location.href = '/status?just=profile-soul&tab=profiles';
@@ -2742,12 +2738,11 @@ function openProfileModelPicker(name){{
 
 function setProfileModel(profileName, provider, model){{
   var body = new URLSearchParams({{ profile: profileName, provider: provider, model: model, ajax: '1' }});
-  fetch('/set-profile-model', {{
+  fetchJsonChecked('/set-profile-model', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
     body: body.toString()
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       window.location.href = '/status?just=profile-model&tab=profiles';
@@ -2868,12 +2863,11 @@ function filterProfileSkills(){{ renderProfileSkillsList(); }}
 
 function toggleProfileSkill(skill, enable){{
   var body = new URLSearchParams({{ profile: currentSkillsProfile, skill: skill, enabled: enable ? '1' : '0', ajax: '1' }});
-  fetch('/toggle-profile-skill', {{
+  fetchJsonChecked('/toggle-profile-skill', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
     body: body.toString()
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       for(var i = 0; i < profileSkillsCache.length; i++){{
@@ -2977,12 +2971,11 @@ function renderProfileToolsList(){{
 
 function toggleProfileToolset(toolset, enable){{
   var body = new URLSearchParams({{ profile: currentSkillsProfile, toolset: toolset, enabled: enable ? '1' : '0', ajax: '1' }});
-  fetch('/toggle-profile-toolset', {{
+  fetchJsonChecked('/toggle-profile-toolset', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
     body: body.toString()
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       var dis = profileToolsCache.disabled || [];
@@ -3105,12 +3098,11 @@ function handleKanbanTrashDrop(e) {{
   var bSel = document.getElementById('kanban-board-select');
   var board = bSel ? bSel.value : '';
 
-  fetch('/api/kanban/task/delete', {{
+  fetchJsonChecked('/api/kanban/task/delete', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ task_id: taskId, board: board }})
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       showKanbanToast('Tugas ' + taskId + ' berhasil dihapus');
@@ -3170,12 +3162,11 @@ function handleKanbanDrop(e, targetStatus) {{
   var bSel = document.getElementById('kanban-board-select');
   var board = bSel ? bSel.value : '';
 
-  fetch('/api/kanban/task/status', {{
+  fetchJsonChecked('/api/kanban/task/status', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ task_id: taskId, status: targetStatus, board: board }})
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       showKanbanToast('Tugas ' + taskId + ' dipindah ke ' + targetStatus);
@@ -3631,12 +3622,11 @@ function submitCreateBoard(){{
   if(!slug){{ alert('Slug papan tidak boleh kosong'); return; }}
   var name = (document.getElementById('create-board-name').value || '').trim();
   closeCreateBoardModal();
-  fetch('/api/kanban/boards/create', {{
+  fetchJsonChecked('/api/kanban/boards/create', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ slug: slug, name: name }})
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       window.location.href = '/status?just=kanban-board-created&tab=kanban';
@@ -3648,12 +3638,11 @@ function submitCreateBoard(){{
 }}
 
 function switchKanbanBoard(slug){{
-  fetch('/api/kanban/boards/switch', {{
+  fetchJsonChecked('/api/kanban/boards/switch', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ board: slug }})
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       clearKanbanSelection();
@@ -3987,12 +3976,11 @@ function moveCurrentTaskStatus(newStatus){{
   var bSel = document.getElementById('kanban-board-select');
   var board = bSel ? bSel.value : '';
 
-  fetch('/api/kanban/task/status', {{
+  fetchJsonChecked('/api/kanban/task/status', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ task_id: currentViewingTaskId, status: newStatus, board: board }})
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       closeViewTaskModal();
@@ -4010,12 +3998,11 @@ function reclaimCurrentTask(){{
   var bSel = document.getElementById('kanban-board-select');
   var board = bSel ? bSel.value : '';
 
-  fetch('/api/kanban/task/reclaim', {{
+  fetchJsonChecked('/api/kanban/task/reclaim', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ task_id: currentViewingTaskId, board: board }})
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       closeViewTaskModal();
@@ -4033,12 +4020,11 @@ function deleteCurrentTask(){{
   var bSel = document.getElementById('kanban-board-select');
   var board = bSel ? bSel.value : '';
 
-  fetch('/api/kanban/task/delete', {{
+  fetchJsonChecked('/api/kanban/task/delete', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ task_id: currentViewingTaskId, board: board }})
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       closeViewTaskModal();
@@ -4059,12 +4045,11 @@ function submitCurrentTaskComment(){{
   var bSel = document.getElementById('kanban-board-select');
   var board = bSel ? bSel.value : '';
 
-  fetch('/api/kanban/task/comment', {{
+  fetchJsonChecked('/api/kanban/task/comment', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ task_id: currentViewingTaskId, body: text, board: board }})
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       if(input) input.value = '';
@@ -4080,8 +4065,7 @@ function submitCurrentTaskComment(){{
 function openKanbanConfigModal(){{
   var modal = document.getElementById('kanban-config-modal');
   if(!modal) return;
-  fetch('/api/kanban/config')
-    .then(function(r){{ return r.json(); }})
+  fetchJsonChecked('/api/kanban/config')
     .then(function(res){{
       if(res && res.ok && res.config){{
         var c = res.config;
@@ -4116,12 +4100,11 @@ function submitKanbanConfig(){{
     default_assignee: (document.getElementById('cfg-kb-default-assignee').value || '').trim()
   }};
   closeKanbanConfigModal();
-  fetch('/api/kanban/config', {{
+  fetchJsonChecked('/api/kanban/config', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
     body: JSON.stringify(payload)
   }})
-  .then(function(r){{ return r.json(); }})
   .then(function(res){{
     if(res && res.ok){{
       window.location.href = '/status?just=kanban-config-saved&tab=kanban';

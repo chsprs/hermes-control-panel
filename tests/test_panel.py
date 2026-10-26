@@ -176,6 +176,33 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn("if(!res || !res.ok) throw new Error", segment, function_name)
             self.assertIn(endpoint, segment, function_name)
 
+    def test_frontend_profile_and_kanban_mutations_check_http_status(self):
+        page = panel.PAGE
+        for function_name in (
+            "setActiveProfile",
+            "deleteProfile",
+            "submitRenameProfile",
+            "submitProfileSoul",
+            "setProfileModel",
+            "toggleProfileSkill",
+            "toggleProfileToolset",
+            "handleKanbanTrashDrop",
+            "handleKanbanDrop",
+            "submitCreateBoard",
+            "switchKanbanBoard",
+            "moveCurrentTaskStatus",
+            "reclaimCurrentTask",
+            "deleteCurrentTask",
+            "submitCurrentTaskComment",
+            "openKanbanConfigModal",
+            "submitKanbanConfig",
+        ):
+            start = page.index("function " + function_name)
+            next_function = page.find("function ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            self.assertIn("fetchJsonChecked(", segment, function_name)
+            self.assertNotIn(".then(function(r){{ return r.json(); }})", segment, function_name)
+
     def test_02_aux_model_write_failure_returns_500(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "set_aux_task_model", return_value=False):
