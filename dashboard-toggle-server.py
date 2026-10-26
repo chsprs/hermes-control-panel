@@ -12514,9 +12514,9 @@ def _refresh_update_cache() -> None:
             digest_known = bool(local and remote)
             digest_differs = bool(digest_known and local != remote)
 
-            installed_ver = release.get("current")
+            installed_ver = get_router_version() if is_native else release.get("current")
             if not installed_ver or installed_ver == "?":
-                installed_ver = get_router_version()
+                installed_ver = release.get("current") if is_native else get_router_version()
             if not installed_ver or installed_ver == "?":
                 installed_ver = get_cached_router_version()
 
@@ -12635,15 +12635,23 @@ def _router_update_command() -> str:
     return (
         # Support native systemd 9router.service first; fall back to Docker Compose / container
         "if [ -f /etc/systemd/system/9router.service ]; then "
+        "export PATH=\"/usr/bin:/usr/sbin:/bin:/sbin:$PATH\"; "
         "echo \"[1/4] host=$(hostname) mode=native-systemd\"; "
-        "before=$(node -p \"require('/usr/lib/node_modules/9router/package.json').version\" 2>/dev/null || echo none); "
+        "before=$(/usr/bin/node -p \"require('/usr/lib/node_modules/9router/package.json').version\" 2>/dev/null || echo none); "
         "echo \"[2/4] before=$before\"; "
-        "echo '[3/4] Memperbarui paket npm 9router@latest...'; "
-        "DATA_DIR=/DATA/AppData/9router npm install -g 9router@latest --no-audit --no-fund 2>&1; pull_rc=$?; "
+        "echo '[3/4] Memperbarui paket npm 9router@latest (prefix /usr)...'; "
+        "rm -rf /usr/local/lib/node_modules/9router /usr/local/bin/9router 2>/dev/null || true; "
+        "DATA_DIR=/DATA/AppData/9router /usr/bin/node /usr/bin/npm install -g --prefix /usr 9router@latest --no-audit --no-fund 2>&1; pull_rc=$?; "
         "DATA_DIR=/DATA/AppData/9router /usr/bin/node -e \"require('/usr/lib/node_modules/9router/hooks/sqliteRuntime').ensureSqliteRuntime({silent:false})\" 2>&1 || true; "
         "echo '[4/4] Me-restart layanan 9router.service...'; "
         "systemctl restart 9router.service 2>&1; up_rc=$?; "
-        "after=$(node -p \"require('/usr/lib/node_modules/9router/package.json').version\" 2>/dev/null || echo none); "
+        "if [ \"$up_rc\" -eq 0 ]; then "
+        "for _w in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do "
+        "if curl -sf http://127.0.0.1:20128/api/version >/dev/null 2>&1; then break; fi; "
+        "sleep 1; "
+        "done; "
+        "fi; "
+        "after=$(/usr/bin/node -p \"require('/usr/lib/node_modules/9router/package.json').version\" 2>/dev/null || echo none); "
         "echo \"after=$after\"; "
         "if [ -n \"$before\" ] && [ \"$before\" = \"$after\" ]; then echo 'changed=false'; else echo 'changed=true'; fi; "
         "[ \"$up_rc\" -eq 0 ] || exit \"$up_rc\"; "
@@ -13019,6 +13027,15 @@ def update_router() -> None:
         finally:
             with _router_update_lock:
                 _router_updating = False
+            with _router_image_date_lock:
+                _router_image_date_cache.update(at=0, val="?")
+            with _router_uptime_lock:
+                _router_uptime_cache["at"] = 0
+            with _router_status_lock:
+                _router_status_cache["at"] = 0
+            invalidate_systemctl_show_cache("9router.service", "9router")
+            invalidate_service_cache("9router.service", "9router")
+            _invalidate_status_cache("processes_table")
             threading.Thread(target=_refresh_update_cache, daemon=True).start()
     threading.Thread(target=_run, daemon=True).start()
 

@@ -4249,5 +4249,12 @@ class TestHermesUpdateFlow(unittest.TestCase):
             self.assertEqual(oc_proc["stop_url"], "/process-action?service=openclaw-gateway&action=stop")
 
 
+    def test_native_9router_update_command_pins_usr_prefix(self):
+        """Native 9router update must pin --prefix /usr and /usr/bin/node so systemd's /usr/local/bin PATH cannot hijack the install target."""
+        cmd = panel._router_update_command()
+        self.assertIn('/usr/bin/node /usr/bin/npm install -g --prefix /usr 9router@latest', cmd)
+        self.assertIn('export PATH="/usr/bin:/usr/sbin:/bin:/sbin:$PATH"', cmd)
+
+
 if __name__ == "__main__":
     unittest.main()
