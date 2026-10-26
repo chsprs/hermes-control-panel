@@ -460,6 +460,16 @@ process.stdout.write(netRenderStatus(st));
             segment = page[start:] if next_function == -1 else page[start:next_function]
             self.assertIn("++" + gen, segment, function_name)
 
+    def test_kanban_board_switch_ignores_stale_responses(self):
+        page = panel.PAGE
+        self.assertIn("var kanbanBoardSwitchGen = 0;", page)
+        start = page.index("function switchKanbanBoard")
+        end = page.index("function openViewTaskModal", start)
+        segment = page[start:end]
+        self.assertIn("var actionGen = ++kanbanBoardSwitchGen", segment)
+        self.assertIn("if(actionGen !== kanbanBoardSwitchGen) return", segment)
+        self.assertIn("if(bSel && bSel.value !== slug) return", segment)
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_sse_ignores_stale_eventsource_callbacks(self):
         src = panel.SSE_SCRIPT

@@ -3032,6 +3032,7 @@ function toggleProfileToolset(toolset, enable){{
 var currentViewingTaskId = '';
 var taskDetailLoadGen = 0;
 var kanbanBoardLoadGen = 0;
+var kanbanBoardSwitchGen = 0;
 var selectedTaskIds = new Set();
 var kanbanSyncTimer = null;
 var isDraggingKanban = false;
@@ -3697,12 +3698,16 @@ function submitCreateBoard(){{
 }}
 
 function switchKanbanBoard(slug){{
+  var actionGen = ++kanbanBoardSwitchGen;
+  var bSel = document.getElementById('kanban-board-select');
   fetchJsonChecked('/api/kanban/boards/switch', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ board: slug }})
   }})
   .then(function(res){{
+    if(actionGen !== kanbanBoardSwitchGen) return;
+    if(bSel && bSel.value !== slug) return;
     if(res && res.ok){{
       clearKanbanSelection();
       refreshKanbanBoard(false);
@@ -3711,7 +3716,11 @@ function switchKanbanBoard(slug){{
       alert('Gagal mengganti papan: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(actionGen !== kanbanBoardSwitchGen) return;
+    if(bSel && bSel.value !== slug) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 function openViewTaskModal(taskId){{
