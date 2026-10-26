@@ -132,6 +132,12 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn("timeout", lf.read())
 
     # --- PR 2: Config write failures propagation ---
+    def test_gateway_lifecycle_launch_failures_are_reported(self):
+        with mock.patch.object(panel.subprocess, "Popen", side_effect=OSError("no systemctl")):
+            self.assertFalse(panel.restart_bot())
+            self.assertFalse(panel.bot_action("start"))
+        self.assertFalse(panel.bot_action("invalid"))
+
     def test_02_aux_model_write_failure_returns_500(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "set_aux_task_model", return_value=False):

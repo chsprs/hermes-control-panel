@@ -11849,46 +11849,49 @@ def render_kanban_board_block(board_slug: str = "") -> str:
     return f'<div class="kanban-board">{"".join(col_htmls)}</div>'
 
 
-def restart_bot() -> None:
+def _watch_gateway_action(proc) -> None:
+    try:
+        code = proc.wait()
+        if code != 0:
+            sys.stderr.write(f"[panel] hermes-gateway lifecycle action failed: exit {code}\\n")
+    finally:
+        _invalidate_status_cache("gateway_platforms", "gateway_info", "processes_table", "profiles_block")
+        invalidate_service_cache("hermes-gateway")
+
+
+def restart_bot() -> bool:
     _invalidate_status_cache("gateway_platforms", "gateway_info", "processes_table", "profiles_block")
     invalidate_service_cache("hermes-gateway")
     env = os.environ.copy()
     env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
-    # Non-blocking: a drain (active task) can make this take a while, and
-    # we don't want the HTTP request itself to hang waiting for it — the
-    # resulting page shows its own countdown instead.
-    p = subprocess.Popen(["systemctl", "--user", "restart", "hermes-gateway"], env=env)
-    def _wait_and_inv():
-        p.wait()
-        _invalidate_status_cache("gateway_platforms", "gateway_info", "processes_table", "profiles_block")
-        invalidate_service_cache("hermes-gateway")
-    threading.Thread(target=_wait_and_inv, daemon=True).start()
+    try:
+        p = subprocess.Popen(["systemctl", "--user", "restart", "hermes-gateway"], env=env)
+    except OSError as e:
+        sys.stderr.write(f"[panel] hermes-gateway restart launch failed: {e}\\n")
+        return False
+    threading.Thread(target=_watch_gateway_action, args=(p,), daemon=True).start()
+    return True
 
 
-def bot_action(action: str) -> None:
+def bot_action(action: str) -> bool:
+    """Start/stop hermes-gateway without blocking HTTP response."""
     _invalidate_status_cache("gateway_platforms", "gateway_info", "processes_table", "profiles_block")
     invalidate_service_cache("hermes-gateway")
-    """start/stop hermes-gateway. Used for the STB-vs-new-server switch:
-    only one hermes instance may poll a given Telegram bot token at a time,
-    Telegram rejects a second concurrent poller (409). Enable/disable, not
-    just stop/start, so it survives a reboot in the chosen state.
-
-    Non-blocking (Popen), same reason as restart_bot() above: stopping can
-    take up to TimeoutStopSec=210 to drain an in-flight message, and a
-    blocking call here would hang the HTTP response for minutes."""
     env = os.environ.copy()
     env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
     if action == "start":
-        p = subprocess.Popen(["systemctl", "--user", "enable", "--now", "hermes-gateway"], env=env)
+        argv = ["systemctl", "--user", "enable", "--now", "hermes-gateway"]
     elif action == "stop":
-        p = subprocess.Popen(["systemctl", "--user", "disable", "--now", "hermes-gateway"], env=env)
+        argv = ["systemctl", "--user", "disable", "--now", "hermes-gateway"]
     else:
-        return
-    def _wait_and_inv():
-        p.wait()
-        _invalidate_status_cache("gateway_platforms", "gateway_info", "processes_table", "profiles_block")
-        invalidate_service_cache("hermes-gateway")
-    threading.Thread(target=_wait_and_inv, daemon=True).start()
+        return False
+    try:
+        p = subprocess.Popen(argv, env=env)
+    except OSError as e:
+        sys.stderr.write(f"[panel] hermes-gateway {action} launch failed: {e}\\n")
+        return False
+    threading.Thread(target=_watch_gateway_action, args=(p,), daemon=True).start()
+    return True
 
 
 # --- Jalur Jaringan Gateway (per-platform proxy routes + "DNS Hermes") ----------------------
@@ -16080,7 +16083,9 @@ class Handler(BaseHTTPRequestHandler):
             if json_data.get("confirm") is not True:
                 self._send_json({"ok": False, "error": "Konfirmasi restart dibutuhkan"}, code=400)
                 return
-            restart_bot()
+            if not restart_bot():
+                self._send_json({"ok": False, "error": "hermes-gateway restart gagal dijalankan"}, code=503)
+                return
             _invalidate_network_cache()
             self._send_json({"ok": True})
             return
@@ -16644,13 +16649,17 @@ class Handler(BaseHTTPRequestHandler):
                         action_error = f"systemctl stop {SERVICE} gagal"
                     target_tab = "control"
                 elif parsed.path == "/restart-bot":
-                    restart_bot()
-                    just = "restart"
+                    if not restart_bot():
+                        action_error = "hermes-gateway restart gagal dijalankan"
+                    else:
+                        just = "restart"
                     target_tab = "control"
                 elif parsed.path == "/bot-toggle":
                     was_active = service_active("hermes-gateway", user=True)
-                    bot_action("stop" if was_active else "start")
-                    just = "bot-off" if was_active else "bot-on"
+                    if not bot_action("stop" if was_active else "start"):
+                        action_error = f"hermes-gateway {'stop' if was_active else 'start'} gagal dijalankan"
+                    else:
+                        just = "bot-off" if was_active else "bot-on"
                     target_tab = "control"
                 elif parsed.path == "/openclaw-toggle":
                     if toggle_openclaw_control_ui() is None:
