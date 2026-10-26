@@ -435,6 +435,19 @@ process.stdout.write(netRenderStatus(st));
         segment = page[start:] if next_function == -1 else page[start:next_function]
         self.assertIn("++auxPickerLoadGen", segment)
 
+    def test_model_catalog_cache_ignores_stale_requests(self):
+        page = panel.PAGE
+        self.assertIn("var availableModelsFetchGen = 0;", page)
+        start = page.index("function ensureAvailableModels")
+        end = page.index("function openAuxPicker", start)
+        segment = page[start:end]
+        request_guard = "if(requestGen !== availableModelsFetchGen) return;"
+        self.assertIn("var requestGen = ++availableModelsFetchGen", segment)
+        self.assertIn(request_guard, segment)
+        self.assertLess(segment.index(request_guard), segment.index("if(typeof data === 'object'"))
+        catch_start = segment.index(".catch(function()")
+        self.assertIn(request_guard, segment[catch_start:])
+
     def test_kanban_refresh_ignores_stale_board_responses(self):
         page = panel.PAGE
         start = page.index("function refreshKanbanBoard")

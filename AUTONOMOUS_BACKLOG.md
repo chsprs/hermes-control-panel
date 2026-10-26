@@ -28,6 +28,7 @@ Updated: 2026-10-27
 - [x] Added generation guards to profile-clone and Kanban assignee modal loaders; stale profile lists cannot overwrite reopened modals.
 - [x] Added generation guards to Kanban board-switch mutations; stale switch responses cannot refresh or toast over newer board selections.
 - [x] Added generation guards to gateway YAML preview mode changes; stale previews cannot mutate reopened or switched gateway editors.
+- [x] Added generation guards to shared model-catalog cache writes; stale `/api/models` responses cannot replace newer picker data.
 - [ ] Audit remaining non-JSON fetches, SSE reconnect/error paths, and API-derived `innerHTML` boundaries.
 
 

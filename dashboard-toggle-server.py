@@ -2070,6 +2070,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 {script}
 <script>
 var AVAILABLE_MODELS = {available_models_json};
+var availableModelsFetchGen = 0;
 var currentAuxTask = '';
 var currentFallbackIndex = null;
 var auxPickerLoadGen = 0;
@@ -2283,6 +2284,7 @@ function fetchJsonChecked(url, options){{
 }}
 
 function ensureAvailableModels(callback){{
+  var requestGen = ++availableModelsFetchGen;
   var hasAny = false;
   if(typeof AVAILABLE_MODELS === 'object' && AVAILABLE_MODELS !== null){{
     for(var k in AVAILABLE_MODELS){{
@@ -2297,12 +2299,14 @@ function ensureAvailableModels(callback){{
   if(container) container.innerHTML = '<div style="padding:1.5rem;color:var(--text-dim);font-size:0.82rem;text-align:center">Memuat daftar model 9router…</div>';
   fetchJsonChecked('/api/models', {{headers: {{'Accept': 'application/json'}}}})
     .then(function(data){{
+      if(requestGen !== availableModelsFetchGen) return;
       if(typeof data === 'object' && data !== null){{
         AVAILABLE_MODELS = data;
       }}
       if(callback) callback();
     }})
     .catch(function(){{
+      if(requestGen !== availableModelsFetchGen) return;
       if(callback) callback();
     }});
 }}
