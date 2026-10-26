@@ -5368,6 +5368,72 @@ function closeWaPairModal(skipCancel){{
   }}
 }}
 
+function renderWaQrSvg(raw, target){{
+  if(!target) return;
+  target.textContent = '';
+  if(typeof raw !== 'string' || !raw.trim()) return;
+  var doc;
+  try {{
+    doc = new DOMParser().parseFromString(raw, 'image/svg+xml');
+  }} catch(e) {{
+    target.textContent = 'QR tidak dapat ditampilkan.';
+    return;
+  }}
+  var root = doc && doc.documentElement;
+  if(!root || String(root.localName || root.nodeName).toLowerCase() !== 'svg' ||
+     (doc.getElementsByTagName('parsererror') || []).length){{
+    target.textContent = 'QR tidak dapat ditampilkan.';
+    return;
+  }}
+  var svgNs = 'http://www.w3.org/2000/svg';
+  var allowed = {{
+    svg: {{'viewBox': 1, 'xmlns': 1, 'shape-rendering': 1}},
+    rect: {{'width': 1, 'height': 1, 'fill': 1}},
+    path: {{'d': 1, 'fill': 1}}
+  }};
+  var validAttr = function(tag, name, value){{
+    if(!allowed[tag] || !allowed[tag][name]) return false;
+    if(tag === 'svg' && name === 'xmlns') return value === svgNs;
+    if(tag === 'svg' && name === 'viewBox') return /^[0-9.+\\-\\s]+$/.test(value);
+    if(tag === 'svg' && name === 'shape-rendering') return value === 'crispEdges';
+    if((tag === 'rect' && (name === 'width' || name === 'height')))
+      return /^(?:100%|[0-9]+(?:\\.[0-9]+)?)$/.test(value);
+    if((tag === 'rect' || tag === 'path') && name === 'fill')
+      return /^(?:#[0-9a-f]{{3,8}}|black|white)$/i.test(value);
+    if(tag === 'path' && name === 'd') return /^[MmHhVvZz0-9,.+\\-\\s]+$/.test(value);
+    return false;
+  }};
+  var clean = function(node){{
+    var tag = String(node.localName || node.nodeName || '').toLowerCase();
+    if(!allowed[tag]){{ node.parentNode.removeChild(node); return; }}
+    for(var i = node.attributes.length - 1; i >= 0; i--){{
+      var attr = node.attributes[i];
+      if(!validAttr(tag, attr.name, attr.value)) node.removeAttribute(attr.name);
+    }}
+    for(var j = node.children.length - 1; j >= 0; j--) clean(node.children[j]);
+  }};
+  if(root.namespaceURI && root.namespaceURI !== svgNs){{
+    target.textContent = 'QR tidak dapat ditampilkan.';
+    return;
+  }}
+  clean(root);
+  var safeSvg = document.importNode(root, true);
+  if(!safeSvg){{
+    target.textContent = 'QR tidak dapat ditampilkan.';
+    return;
+  }}
+  safeSvg.setAttribute('xmlns', svgNs);
+  safeSvg.setAttribute('style', 'width:230px;height:230px;max-width:85vw;max-height:85vw;background:#fff;padding:10px;border-radius:12px;box-shadow:0 4px 18px rgba(0,0,0,0.35);display:block;margin:0 auto');
+  target.appendChild(safeSvg);
+  var footer = document.createElement('div');
+  footer.style.cssText = 'font-size:0.75rem;color:var(--accent-light);font-weight:500;display:flex;align-items:center;gap:6px';
+  var dot = document.createElement('span');
+  dot.style.cssText = 'display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981';
+  footer.appendChild(dot);
+  footer.appendChild(document.createTextNode(' QR Aktif (Auto-refresh)'));
+  target.appendChild(footer);
+}}
+
 function setWaPairStatusUI(data){{
   _lastWaPairStatus = data.status || '';
   var bText = document.getElementById('wa-pair-status-text');
@@ -5419,10 +5485,7 @@ function setWaPairStatusUI(data){{
     if(bText) bText.textContent = 'Menunggu scan dari WhatsApp di HP...';
     if(badge){{ badge.className = 'badge badge-warn'; badge.textContent = 'Scan QR'; }}
     if(qrBox && data.qr_svg){{
-      qrBox.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:8px">' +
-        data.qr_svg +
-        '<div style="font-size:0.75rem;color:var(--accent-light);font-weight:500;display:flex;align-items:center;gap:6px">' +
-        '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981"></span> QR Aktif (Auto-refresh)</div></div>';
+      renderWaQrSvg(data.qr_svg, qrBox);
     }}
     if(btnStart) btnStart.style.display = 'none';
     if(btnCancel) btnCancel.style.display = 'inline-block';

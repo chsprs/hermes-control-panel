@@ -261,6 +261,21 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("netGet('/api/network')", network[load_start:load_end])
         self.assertNotIn(".then(function (r) { return r.json(); })", network)
 
+    def test_frontend_qr_svg_is_sanitized_before_dom_insertion(self):
+        page = panel.PAGE
+        self.assertIn("function renderWaQrSvg", page)
+        start = page.index("function renderWaQrSvg")
+        end = page.index("function setWaPairStatusUI", start)
+        sanitizer = page[start:end]
+        self.assertIn("DOMParser", sanitizer)
+        self.assertIn("removeAttribute", sanitizer)
+        self.assertIn("importNode", sanitizer)
+        status_start = page.index("function setWaPairStatusUI")
+        status_end = page.index("var _waPairPolling", status_start)
+        status = page[status_start:status_end]
+        self.assertIn("renderWaQrSvg(data.qr_svg, qrBox)", status)
+        self.assertNotIn("+ data.qr_svg +", status)
+
     def test_02_aux_model_write_failure_returns_500(self):
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
         with mock.patch.object(panel, "set_aux_task_model", return_value=False):
