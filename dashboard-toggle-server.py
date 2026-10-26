@@ -2071,6 +2071,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 <script>
 var AVAILABLE_MODELS = {available_models_json};
 var availableModelsFetchGen = 0;
+var auxModelSaveGen = 0;
 var currentAuxTask = '';
 var currentFallbackIndex = null;
 var auxPickerLoadGen = 0;
@@ -2391,6 +2392,7 @@ function renderFallbackPickerItems(q){{
 
 function selectFallbackModel(provider, model){{
   if(currentFallbackIndex === null) return;
+  var saveGen = ++auxModelSaveGen;
   var idx = currentFallbackIndex;
   closeAuxPicker();
   
@@ -2412,6 +2414,7 @@ function selectFallbackModel(provider, model){{
     body: body.toString()
   }})
     .then(function(res){{
+      if(saveGen !== auxModelSaveGen) return;
       if(pbar){{ pbar.style.width = '100%'; setTimeout(function(){{ pbar.style.width = '0'; }}, 300); }}
       if(spin) spin.classList.remove('on');
       if(res && res.ok && res.html){{
@@ -2422,6 +2425,7 @@ function selectFallbackModel(provider, model){{
       }}
     }})
     .catch(function(err){{
+      if(saveGen !== auxModelSaveGen) return;
       if(pbar) pbar.style.width = '0';
       if(spin) spin.classList.remove('on');
       alert('Gagal mengganti model backup: ' + err);
@@ -2475,6 +2479,7 @@ function selectAuxModel(provider, model){{
     return;
   }}
   if(!currentAuxTask) return;
+  var saveGen = ++auxModelSaveGen;
   var task = currentAuxTask;
   closeAuxPicker();
   
@@ -2504,6 +2509,7 @@ function selectAuxModel(provider, model){{
     body: body.toString()
   }})
     .then(function(res){{
+      if(saveGen !== auxModelSaveGen) return;
       if(pbar){{ pbar.style.width = '100%'; setTimeout(function(){{ pbar.style.width = '0'; }}, 300); }}
       if(spin) spin.classList.remove('on');
       if(res && res.ok){{
@@ -2521,6 +2527,7 @@ function selectAuxModel(provider, model){{
       }}
     }})
     .catch(function(err){{
+      if(saveGen !== auxModelSaveGen) return;
       if(pbar) pbar.style.width = '0';
       if(spin) spin.classList.remove('on');
       if(valEl){{ valEl.textContent = prevText; valEl.className = prevClass; }}

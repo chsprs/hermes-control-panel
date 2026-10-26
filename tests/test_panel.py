@@ -448,6 +448,24 @@ process.stdout.write(netRenderStatus(st));
         catch_start = segment.index(".catch(function()")
         self.assertIn(request_guard, segment[catch_start:])
 
+    def test_aux_model_saves_ignore_stale_responses(self):
+        page = panel.PAGE
+        self.assertIn("var auxModelSaveGen = 0;", page)
+        for function_name in ("selectFallbackModel", "selectAuxModel"):
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            self.assertIn("var saveGen = ++auxModelSaveGen", segment, function_name)
+            then_guard = "if(saveGen !== auxModelSaveGen) return;"
+            then_start = segment.index(".then(function(res)")
+            catch_start = segment.index(".catch(function")
+            then_segment = segment[then_start:catch_start]
+            catch_segment = segment[catch_start:]
+            self.assertIn(then_guard, then_segment, function_name)
+            self.assertIn(then_guard, catch_segment, function_name)
+            self.assertLess(then_segment.index(then_guard), then_segment.index("if(pbar)"), function_name)
+            self.assertLess(catch_segment.index(then_guard), catch_segment.index("if(pbar)"), function_name)
+
     def test_kanban_refresh_ignores_stale_board_responses(self):
         page = panel.PAGE
         start = page.index("function refreshKanbanBoard")
