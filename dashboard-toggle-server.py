@@ -8984,8 +8984,10 @@ def _find_pid_by_port(port: int) -> str:
     return ""
 
 
-def dashboard_action(action: str) -> None:
-    """start, stop, or restart hermes-dashboard in the correct systemd scope (user first, then system)."""
+def dashboard_action(action: str) -> bool:
+    """Start, stop, or restart dashboard; return False when systemd rejects it."""
+    if action not in ("start", "stop", "restart"):
+        return False
     env = os.environ.copy()
     env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
     is_user = is_dashboard_user_unit()
@@ -8993,9 +8995,10 @@ def dashboard_action(action: str) -> None:
     if is_user:
         cmd.append("--user")
     cmd += [action, SERVICE]
-    subprocess.run(cmd, timeout=15, env=env)
+    result = subprocess.run(cmd, timeout=15, env=env)
     invalidate_service_cache(SERVICE)
     _invalidate_status_cache("services", "processes_table")
+    return result.returncode == 0
 
 
 _config_cache = {"mtime_ns": 0, "val": {}}
@@ -14770,6 +14773,14 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
             f'<div class="hint">{ICON_ALERT_TRIANGLE}Update dibatalkan: versi Hermes terpasang lebih baru dari rilis channel ini, '
             f'jadi <code>hermes update</code> justru akan menurunkan versi.</div>'
         )
+    elif just.startswith("action-failed:"):
+        detail = html.escape(just.split(":", 1)[1], quote=True)
+        countdown_block = (
+            f'<div class="hint">{ICON_ALERT_TRIANGLE}Aksi layanan gagal: '
+            f'<code>{detail}</code></div>'
+        )
+    elif just == "action-done":
+        countdown_block = f'<div class="hint">{ICON_CHECK}Aksi layanan berhasil dijalankan.</div>'
     else:
         countdown_block = ""
 
@@ -16273,38 +16284,51 @@ class Handler(BaseHTTPRequestHandler):
                 if not debounced:
                     _last_action_at = now
             if not debounced and service and action:
+                action_error = ""
                 try:
                     if service == "9router":
                         if os.path.isfile("/etc/systemd/system/9router.service") and action in ("start", "stop", "restart"):
-                            subprocess.run(["systemctl", action, "9router.service"], timeout=15)
+                            r = subprocess.run(["systemctl", action, "9router.service"], timeout=15)
+                            if r.returncode != 0:
+                                action_error = f"systemctl {action} 9router.service exit {r.returncode}"
                             invalidate_systemctl_show_cache("9router.service", "9router")
                             invalidate_service_cache("9router.service", "9router")
                         else:
                             _cf = router_compose_file()
                             if action == "stop":
                                 if _cf:
-                                    subprocess.run(["docker", "compose", "-f", _cf, "stop"], timeout=15)
+                                    r = subprocess.run(["docker", "compose", "-f", _cf, "stop"], timeout=15)
                                 else:
-                                    subprocess.run(["docker", "stop", "9router"], timeout=15)
+                                    r = subprocess.run(["docker", "stop", "9router"], timeout=15)
                             elif action == "start":
                                 if _cf:
-                                    subprocess.run(["docker", "compose", "-f", _cf, "up", "-d"], timeout=15)
+                                    r = subprocess.run(["docker", "compose", "-f", _cf, "up", "-d"], timeout=15)
                                 else:
-                                    subprocess.run(["docker", "start", "9router"], timeout=15)
+                                    r = subprocess.run(["docker", "start", "9router"], timeout=15)
                             elif action == "restart":
-                                subprocess.run(["docker", "restart", "9router"], timeout=15)
+                                r = subprocess.run(["docker", "restart", "9router"], timeout=15)
+                            else:
+                                r = None
+                            if r is not None and r.returncode != 0:
+                                action_error = f"docker {action} 9router exit {r.returncode}"
                     elif service == "cloudflared" and action in ("start", "stop", "restart"):
                         if os.path.isfile("/etc/systemd/system/cloudflared.service"):
-                            subprocess.run(["systemctl", action, "cloudflared.service"], timeout=15)
+                            r = subprocess.run(["systemctl", action, "cloudflared.service"], timeout=15)
+                            if r.returncode != 0:
+                                action_error = f"systemctl {action} cloudflared.service exit {r.returncode}"
                             invalidate_systemctl_show_cache("cloudflared.service", "cloudflared")
                             invalidate_service_cache("cloudflared.service", "cloudflared")
                         else:
-                            subprocess.run(["docker", action, "cloudflared"], timeout=15)
+                            r = subprocess.run(["docker", action, "cloudflared"], timeout=15)
+                            if r.returncode != 0:
+                                action_error = f"docker {action} cloudflared exit {r.returncode}"
                     elif service in ("pihole", "pihole-pihole-1") and action in ("start", "stop", "restart"):
                         target_container = service
                         if service == "pihole-pihole-1" and get_docker_metric("pihole", fresh=True)[0] == "running":
                             target_container = "pihole"
-                        subprocess.run(["docker", action, target_container], timeout=15)
+                        r = subprocess.run(["docker", action, target_container], timeout=15)
+                        if r.returncode != 0:
+                            action_error = f"docker {action} {target_container} exit {r.returncode}"
                     elif service == "casaos" and action in ("start", "stop", "restart"):
                         casaos_units = [
                             "casaos.service",
@@ -16314,13 +16338,18 @@ class Handler(BaseHTTPRequestHandler):
                             "casaos-local-storage.service",
                             "casaos-message-bus.service",
                         ]
-                        subprocess.run(["systemctl", action] + casaos_units, timeout=15)
+                        r = subprocess.run(["systemctl", action] + casaos_units, timeout=15)
+                        if r.returncode != 0:
+                            action_error = f"systemctl {action} casaos exit {r.returncode}"
                     elif service == "openclaw-gateway" and action in ("start", "stop", "restart"):
-                        subprocess.run(["systemctl", "--user", action, "openclaw-gateway.service"], timeout=15)
+                        r = subprocess.run(["systemctl", "--user", action, "openclaw-gateway.service"], timeout=15)
+                        if r.returncode != 0:
+                            action_error = f"systemctl --user {action} openclaw-gateway.service exit {r.returncode}"
                         invalidate_systemctl_show_cache("openclaw-gateway.service", "openclaw-gateway")
                         invalidate_service_cache("openclaw-gateway.service", "openclaw-gateway")
                     elif service == "hermes-dashboard" and action in ("start", "stop", "restart"):
-                        dashboard_action(action)
+                        if not dashboard_action(action):
+                            action_error = f"systemctl {action} {SERVICE} gagal"
                     elif service == "hermes-panel" and action == "restart":
                         def _delayed_restart():
                             time.sleep(0.5)
@@ -16330,18 +16359,25 @@ class Handler(BaseHTTPRequestHandler):
                                 pass
                         threading.Thread(target=_delayed_restart, daemon=True).start()
                     elif action in ("start", "stop", "restart") and re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$", service):
-                        subprocess.run(["docker", action, service], timeout=15)
+                        r = subprocess.run(["docker", action, service], timeout=15)
+                        if r.returncode != 0:
+                            action_error = f"docker {action} {service} exit {r.returncode}"
                 except Exception as ex:
+                    action_error = f"{type(ex).__name__}: {ex}"
                     sys.stderr.write(f"[panel] Process action error for {service} {action}: {ex}\n")
                 finally:
                     with _status_probe_cache_lock:
                         _status_probe_cache.pop("docker_apps_block", None)
                         _status_probe_cache.pop("processes_table", None)
-            target_tab = str(json_data.get("tab") or (qs.get("tab") or ["control"])[0]).strip()
-            if target_tab not in VALID_TABS:
-                target_tab = "control"
-            self._redirect_to_status(tab=target_tab)
-            return
+                target_tab = str(json_data.get("tab") or (qs.get("tab") or ["control"])[0]).strip()
+                if target_tab not in VALID_TABS:
+                    target_tab = "control"
+                if action_error:
+                    # Never report success for a lifecycle command that failed.
+                    self._redirect_to_status(just=f"action-failed:{quote(action_error, safe='')}", tab=target_tab)
+                    return
+                self._redirect_to_status(just="action-done", tab=target_tab)
+                return
 
         # Action route: perform once (debounced against duplicate/prefetch
         # requests), then redirect — never render an action route directly,

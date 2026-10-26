@@ -1843,6 +1843,20 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn("tab=control", headers.get("Location", ""))
             mock_run.assert_called_with(["docker", "restart", "pihole-pihole-1"], timeout=15)
 
+    def test_process_action_reports_nonzero_exit(self):
+        """A failed lifecycle command must not redirect as if action succeeded."""
+        cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
+        panel._last_action_at = 0.0
+        with mock.patch.object(panel.os.path, "isfile", return_value=True), \
+             mock.patch.object(panel.subprocess, "run", return_value=mock.Mock(returncode=1)):
+            code, headers, _ = self._request(
+                "/process-action?service=9router&action=restart&tab=control",
+                method="POST", headers={"Cookie": cookie},
+            )
+        self.assertEqual(code, 302)
+        self.assertIn("action-failed%3Asystemctl%2520restart%25209router.service%2520exit%25201", headers.get("Location", ""))
+        self.assertNotIn("action-done", headers.get("Location", ""))
+
 
 
 class TestGatewayConfigSync(unittest.TestCase):
@@ -3512,6 +3526,15 @@ class TestSubprocessCachingAndOptimization(unittest.TestCase):
              mock.patch.object(panel.subprocess, "run", side_effect=fake_run):
             panel.dashboard_action("stop")
             self.assertIn(["systemctl", "stop", panel.SERVICE], calls)
+
+        # Non-zero exit must be reported as failure, not swallowed.
+        with mock.patch.object(panel, "is_dashboard_user_unit", return_value=False), \
+             mock.patch.object(panel.subprocess, "run", return_value=mock.MagicMock(returncode=3)):
+            self.assertFalse(panel.dashboard_action("restart"))
+        with mock.patch.object(panel, "is_dashboard_user_unit", return_value=False), \
+             mock.patch.object(panel.subprocess, "run", return_value=mock.MagicMock(returncode=0)):
+            self.assertTrue(panel.dashboard_action("restart"))
+        self.assertFalse(panel.dashboard_action("bogus"))
 
     def test_mutations_invalidate_cached_blocks(self):
         """Profile and Kanban mutations must invalidate their _status_probe_cache entries."""
