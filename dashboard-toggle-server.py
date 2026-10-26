@@ -10921,9 +10921,34 @@ CREATE TABLE IF NOT EXISTS task_attachments (
     created_at   INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS kanban_notify_subs (
+    task_id          TEXT NOT NULL,
+    platform         TEXT NOT NULL,
+    chat_id          TEXT NOT NULL,
+    thread_id        TEXT NOT NULL DEFAULT '',
+    user_id          TEXT,
+    user_id_alt      TEXT,
+    chat_type        TEXT,
+    notifier_profile TEXT,
+    delivery_mode    TEXT NOT NULL DEFAULT 'notify',
+    delivery_metadata TEXT,
+    created_at       INTEGER NOT NULL,
+    last_event_id    INTEGER NOT NULL DEFAULT 0,
+    last_ping_event_id INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (task_id, platform, chat_id, thread_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
 CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);
+CREATE INDEX IF NOT EXISTS idx_links_child ON task_links(child_id);
+CREATE INDEX IF NOT EXISTS idx_links_parent ON task_links(parent_id);
+CREATE INDEX IF NOT EXISTS idx_comments_task ON task_comments(task_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_events_task ON task_events(task_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_runs_task ON task_runs(task_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON task_runs(status);
+CREATE INDEX IF NOT EXISTS idx_attachments_task ON task_attachments(task_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_notify_task ON kanban_notify_subs(task_id);
 """
 
 
@@ -10950,7 +10975,7 @@ def set_current_kanban_board(slug: str) -> bool:
         if kb is not None:
             if not kb.board_exists(slug):
                 return False
-        elif not (get_hermes_root() / "kanban" / "boards" / slug / "kanban.db").is_file():
+        elif not (get_hermes_root() / "kanban" / "boards" / slug / "board.json").is_file():
             return False
     root = get_hermes_root()
     path = root / "kanban" / "current"
@@ -11041,8 +11066,7 @@ def list_kanban_boards() -> list[dict]:
         try:
             for entry in sorted(boards_root.iterdir()):
                 if entry.is_dir() and _KANBAN_SLUG_RE.match(entry.name) and entry.name != "default":
-                    kb = _runtime_kanban_api()
-                    if kb is not None and not (entry / "board.json").is_file():
+                    if not (entry / "board.json").is_file():
                         continue
                     b_path = entry / "kanban.db"
                     b_count = 0
@@ -11078,6 +11102,23 @@ def _runtime_kanban_api():
         return None
 
 
+def _write_kanban_board_marker(board_dir: Path, slug: str, name: str) -> None:
+    marker = board_dir / "board.json"
+    fd, tmp = tempfile.mkstemp(dir=str(board_dir), prefix=".board.json.tmp.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"slug": slug, "name": name or slug.replace("-", " ").title(), "description": "", "archived": False, "created_at": int(time.time())}, f, indent=2)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, str(marker))
+    except BaseException:
+        with suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
 def create_kanban_board(slug: str, name: str = "") -> tuple[bool, str]:
     """Create a named board with runtime metadata/schema when available."""
     slug = (slug or "").strip().lower()
@@ -11095,6 +11136,7 @@ def create_kanban_board(slug: str, name: str = "") -> tuple[bool, str]:
             board_dir.mkdir(parents=True, exist_ok=True)
             with closing(ensure_kanban_db(board_dir / "kanban.db")) as con:
                 pass
+            _write_kanban_board_marker(board_dir, slug, name)
         _invalidate_status_cache("kanban_board_block", "kanban_board_options")
         return True, f"Papan '{slug}' berhasil dibuat."
     except Exception as e:
