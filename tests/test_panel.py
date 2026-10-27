@@ -360,6 +360,14 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("btn._copyGeneration = copyGen", segment)
         self.assertIn("if(btn._copyGeneration === copyGen) btn.textContent = orig", segment)
 
+    def test_sse_disconnect_cleans_pending_hidden_timers(self):
+        src = panel.SSE_SCRIPT
+        start = src.index("function disconnect(){")
+        end = src.index("document.addEventListener('visibilitychange'", start)
+        segment = src[start:end]
+        self.assertIn("if(_hiddenTimer){ clearTimeout(_hiddenTimer); _hiddenTimer=null; }", segment)
+        self.assertIn("_pendingUpdate=null;", segment)
+
     def test_network_loader_ignores_stale_async_responses(self):
         network = panel.NETWORK_SCRIPT
         self.assertIn("var netLoadGen = 0;", network)

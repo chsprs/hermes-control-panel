@@ -47,7 +47,12 @@ Updated: 2026-10-27
 - [x] Added generation guards to Network Card route/DNS saves; stale responses and delayed refresh timers cannot overwrite newer save state.
 - [x] Added generation guard to Kanban toast fade/hide callbacks; an old toast timer cannot hide a newer message.
 - [x] Added copy-generation token to Markdown code block copy buttons; rapid repeated clicks cannot prematurely reset button label.
+- [x] Cleaned pending hidden timers and queued SSE updates on disconnect; background tab sleep cannot flush stale DOM updates after disconnect.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
+
+## Wave 61 completed
+
+- SSE disconnect routine now clears `_hiddenTimer` and discards `_pendingUpdate`, preventing stale background updates from rendering after the connection closes.
 
 ## Wave 60 completed
 

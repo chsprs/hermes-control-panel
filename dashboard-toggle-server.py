@@ -7969,6 +7969,8 @@ SSE_SCRIPT = """<script>
   function disconnect(){
     ++esGeneration;
     if(retryTimer){ clearTimeout(retryTimer); retryTimer=null; }
+    if(_hiddenTimer){ clearTimeout(_hiddenTimer); _hiddenTimer=null; }
+    _pendingUpdate=null;
     if(es){ es.close(); es=null; }
   }
   document.addEventListener('visibilitychange', function(){
