@@ -2845,6 +2845,49 @@ class TestGatewayConfigSync(unittest.TestCase):
         self.assertEqual(tg["extra"]["reply_keyboard_welcome"], "Hai")
         self.assertEqual(tg["home_channel"]["chat_id"], "123")
 
+    def test_27b_editor_never_sends_platform_secrets_to_the_browser(self):
+        """The gateway config editor round-trips the whole YAML through the browser, so a
+        bot token / password in the block would be shown on screen and echoed back."""
+        cfg = self._split_cfg()
+        cfg["platforms"]["telegram"]["token"] = "123456789:AARealTelegramBotTokenValue"
+        cfg["platforms"]["telegram"]["api_key"] = "sk-live-abcdef123456"
+        cfg["platforms"]["telegram"]["home_channel"]["webhook_secret"] = "whsec_987654321"
+        self._write_cfg(cfg)
+        shown = panel.yaml.safe_load(panel.get_gateway_platform_config("telegram")["yaml"])
+        self.assertNotEqual(shown.get("token"), "123456789:AARealTelegramBotTokenValue")
+        self.assertNotEqual(shown.get("api_key"), "sk-live-abcdef123456")
+        self.assertNotEqual(shown["home_channel"].get("webhook_secret"), "whsec_987654321")
+        # the key must stay so the user knows a secret exists and the YAML stays valid
+        self.assertIn("token", shown)
+        self.assertIn("api_key", shown)
+        self.assertIn("webhook_secret", shown["home_channel"])
+        # non-secret keys are untouched
+        self.assertEqual(shown["home_channel"]["chat_id"], "123")
+        self.assertTrue(shown["extra"]["rich_messages"])
+
+    def test_27c_saving_a_masked_secret_restores_the_stored_value(self):
+        """Opening the editor then pressing Save must not overwrite the real token with the mask."""
+        cfg = self._split_cfg()
+        cfg["platforms"]["telegram"]["token"] = "123456789:AARealTelegramBotTokenValue"
+        cfg["platforms"]["telegram"]["password"] = "sup3rs3cret"
+        self._write_cfg(cfg)
+        shown = panel.get_gateway_platform_config("telegram")["yaml"]
+        ok, err = panel.save_gateway_platform_config("telegram", shown)
+        self.assertTrue(ok, err)
+        tg = self._read_cfg()["platforms"]["telegram"]
+        self.assertEqual(tg["token"], "123456789:AARealTelegramBotTokenValue")
+        self.assertEqual(tg["password"], "sup3rs3cret")
+
+    def test_27d_masking_a_secret_that_does_not_exist_yet_is_harmless(self):
+        cfg = self._split_cfg()
+        self._write_cfg(cfg)
+        shown = panel.yaml.safe_load(panel.get_gateway_platform_config("telegram")["yaml"])
+        shown["token"] = panel._REDACTED_SENTINEL
+        ok, err = panel.save_gateway_platform_config("telegram", panel.yaml.safe_dump(shown))
+        self.assertTrue(ok, err)
+        tg = self._read_cfg()["platforms"]["telegram"]
+        self.assertNotIn("token", tg, "a mask for a key that never existed must not invent a secret")
+
     def test_28_toggle_preserves_root_block_and_overrides_root_enabled(self):
         cfg = self._split_cfg()
         cfg["discord"] = {"enabled": True, "require_mention": True, "voice_fx": {"enabled": False}}

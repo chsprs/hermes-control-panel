@@ -7361,6 +7361,65 @@ def _write_config_atomic(cfg: dict | str) -> None:
         _invalidate_status_cache("gateway_platforms")
 
 
+_REDACTED_SENTINEL = "__HERMES_PANEL_REDACTED__"
+# Keys whose value is a credential. Matched on the normalised key name, so
+# "token", "bot_token", "app_token", "access_token", "auth_token", "password",
+# "app_password", "secret", "app_secret", "client_secret", "corp_secret",
+# "channel_secret", "api_key", "private_key", "credentials", "session", "cookie"
+# all hit while "home_channel", "require_mention", "send_read_receipts" do not.
+_SECRET_KEY_RE = re.compile(
+    r"(?:^|[^a-z0-9])(?:"
+    r"tokens?|secrets?|passwords?|passwd|api[_-]?keys?|private[_-]?keys?|"
+    r"credentials?|sessions?|cookies?|authorization|auth"
+    r")(?:$|[^a-z0-9])",
+    re.IGNORECASE,
+)
+
+
+def _is_secret_key(key: str) -> bool:
+    return bool(_SECRET_KEY_RE.search(str(key or "")))
+
+
+def _mask_secret_values(node):
+    """Recursively replace credential values with the sentinel, keeping the keys.
+
+    The gateway config editor round-trips the whole YAML through the browser, so a
+    bot token sitting in the block would be rendered on screen and echoed back on
+    every save. Keys stay so the YAML remains valid and the user sees a secret exists.
+    """
+    if isinstance(node, dict):
+        return {
+            k: (_REDACTED_SENTINEL if _is_secret_key(k) and isinstance(v, (str, int)) and str(v) != ""
+                else _mask_secret_values(v))
+            for k, v in node.items()
+        }
+    if isinstance(node, list):
+        return [_mask_secret_values(v) for v in node]
+    return node
+
+
+def _restore_masked_secrets(node, original):
+    """Put the stored credential back where the editor still shows the sentinel.
+
+    Without this, opening the editor and pressing Save would overwrite the real
+    token with the literal mask string and break the platform. A sentinel for a key
+    that has no stored value is dropped rather than written out as a fake secret.
+    """
+    if not isinstance(node, dict) or not isinstance(original, dict):
+        return node
+    out = {}
+    for k, v in node.items():
+        if v == _REDACTED_SENTINEL:
+            if k in original and original[k] != _REDACTED_SENTINEL:
+                out[k] = original[k]
+            # else: nothing stored under this key -> drop it, never persist the mask
+        elif isinstance(v, (dict, list)):
+            out[k] = _restore_masked_secrets(v, original.get(k))
+        else:
+            out[k] = v
+    return out
+
+
 def get_gateway_platform_config(plat: str) -> dict:
     """Retrieve the effective YAML config (platforms.<plat> + root <plat>: block) for a platform."""
     cfg = get_parsed_config()
@@ -7394,7 +7453,7 @@ def get_gateway_platform_config(plat: str) -> dict:
 
     if plat and (isinstance(cfg_platforms.get(plat), dict) or isinstance(cfg.get(plat), dict)):
         plat_data = _effective_platform_block(cfg, plat)
-        yaml_text = yaml.safe_dump(plat_data, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        yaml_text = yaml.safe_dump(_mask_secret_values(plat_data), default_flow_style=False, sort_keys=False, allow_unicode=True)
         return {
             "ok": True,
             "platform": plat,
@@ -7577,7 +7636,7 @@ def preview_gateway_platform_config(platform: str, yaml_str: str, base_yaml: str
     block, err = _resolve_platform_block(cfg, platform, yaml_str, True, base_yaml)
     if block is None:
         return False, err
-    return True, yaml.safe_dump(block, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    return True, yaml.safe_dump(_mask_secret_values(block), default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
 def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override: bool | None = None,
@@ -7599,6 +7658,10 @@ def save_gateway_platform_config(platform: str, yaml_str: str, enabled_override:
         block, err = _resolve_platform_block(cfg, platform, yaml_str, merge, base_yaml)
         if block is None:
             return False, err
+
+        # The editor shows credentials as a sentinel; put the stored value back so a
+        # plain Save never overwrites a live token with the mask.
+        block = _restore_masked_secrets(block, _effective_platform_block(cfg, platform))
 
         if enabled_override is not None:
             block["enabled"] = _to_bool(enabled_override)
