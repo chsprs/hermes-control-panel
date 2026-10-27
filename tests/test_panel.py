@@ -819,6 +819,75 @@ process.stdout.write(netRenderStatus(st));
         self.assertLess(then_segment.index(guard), then_segment.index("if(res"))
         self.assertIn("openViewTaskModal(mutationTaskId)", then_segment)
 
+    def test_kanban_comment_submit_serializes_and_disables_in_flight(self):
+        page = panel.PAGE
+        self.assertIn("var kanbanCommentSubmitting = false;", page)
+        start = page.index("function submitCurrentTaskComment")
+        end = page.index("var kanbanConfigLoadGen", start)
+        segment = page[start:end]
+        self.assertIn("if(!currentViewingTaskId || kanbanCommentSubmitting) return;", segment)
+        self.assertIn("kanbanCommentSubmitting = true;", segment)
+        self.assertIn("btn.disabled = true", segment)
+        self.assertIn("btn.textContent = 'Mengirim…'", segment)
+        self.assertIn("input.disabled = true", segment)
+        then_segment = segment[segment.index(".then("):segment.index(".catch(")]
+        catch_segment = segment[segment.index(".catch("):]
+        self.assertIn("kanbanCommentSubmitting = false;", then_segment)
+        self.assertIn("btn.disabled = false", then_segment)
+        self.assertIn("input.disabled = false", then_segment)
+        self.assertIn("kanbanCommentSubmitting = false;", catch_segment)
+        self.assertIn("btn.disabled = false", catch_segment)
+        self.assertIn("input.disabled = false", catch_segment)
+
+    def test_kanban_comment_input_cleared_on_open_and_close(self):
+        page = panel.PAGE
+        open_start = page.index("function openViewTaskModal")
+        open_end = page.index("function formatKanbanBytes", open_start)
+        open_seg = page[open_start:open_end]
+        self.assertIn("kanbanCommentSubmitting = false;", open_seg)
+        self.assertIn("view-task-new-comment", open_seg)
+
+        close_start = page.index("function closeViewTaskModal")
+        close_end = page.index("function moveCurrentTaskStatus", close_start)
+        close_seg = page[close_start:close_end]
+        self.assertIn("kanbanCommentSubmitting = false;", close_seg)
+        self.assertIn("view-task-new-comment", close_seg)
+
+    def test_kanban_comment_body_style_and_date_guard(self):
+        page = panel.PAGE
+        start = page.index("function openViewTaskModal")
+        end = page.index("function formatKanbanBytes", start)
+        seg = page[start:end]
+        self.assertIn("white-space:pre-wrap", seg)
+        self.assertIn("word-break:break-word", seg)
+        self.assertIn("c.created_at ? new Date", seg)
+
+    def test_aux_picker_model_search_empty_state_and_profile_guard(self):
+        page = panel.PAGE
+        filter_start = page.index("function filterAuxPicker")
+        filter_end = page.index("function renderFallbackPickerItems", filter_start)
+        filter_seg = page[filter_start:filter_end]
+        self.assertIn(".trim().toLowerCase()", filter_seg)
+
+        aux_start = page.index("function renderAuxPickerItems")
+        aux_end = page.index("function selectAuxModel", aux_start)
+        aux_seg = page[aux_start:aux_end]
+        self.assertIn("!currentProfileModelTarget", aux_seg)
+        self.assertIn("Tidak ada model yang cocok", aux_seg)
+
+        fb_start = page.index("function renderFallbackPickerItems")
+        fb_end = page.index("function selectFallbackModel", fb_start)
+        fb_seg = page[fb_start:fb_end]
+        self.assertIn("Tidak ada model yang cocok", fb_seg)
+
+    def test_main_model_filter_trims_query_and_checks_display(self):
+        page = panel.PAGE
+        start = page.index("function filterModels")
+        end = page.index("function toggleLog", start)
+        seg = page[start:end]
+        self.assertIn(".trim().toLowerCase()", seg)
+        self.assertIn("style.display !== 'none'", seg)
+
     def test_kanban_drag_mutations_ignore_stale_responses(self):
         page = panel.PAGE
         self.assertIn("var kanbanMutationGen = 0;", page)

@@ -1632,7 +1632,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <div id="view-task-comments-list" style="display:flex;flex-direction:column;gap:0.4rem;max-height:150px;overflow-y:auto;padding-right:0.3rem"></div>
       <div style="display:flex;gap:0.4rem;margin-top:0.3rem">
         <input type="text" id="view-task-new-comment" class="search-input" placeholder="Tulis komentar atau update progres..." style="flex:1" onkeydown="if(event.key==='Enter')submitCurrentTaskComment()">
-        <button type="button" class="btn btn-on" style="width:auto;min-height:34px;padding:0.25rem 0.75rem;font-size:0.75rem;margin:0" onclick="submitCurrentTaskComment()">Kirim</button>
+        <button type="button" id="view-task-comment-btn" class="btn btn-on" style="width:auto;min-height:34px;padding:0.25rem 0.75rem;font-size:0.75rem;margin:0" onclick="submitCurrentTaskComment()">Kirim</button>
       </div>
     </div>
   </div>
@@ -2395,10 +2395,11 @@ function closeAuxPicker(){{
 }}
 
 function filterAuxPicker(q){{
+  var cleanQ = (q || '').trim().toLowerCase();
   if(currentFallbackIndex !== null){{
-    renderFallbackPickerItems(q.toLowerCase());
+    renderFallbackPickerItems(cleanQ);
   }} else {{
-    renderAuxPickerItems(q.toLowerCase());
+    renderAuxPickerItems(cleanQ);
   }}
 }}
 
@@ -2427,6 +2428,10 @@ function renderFallbackPickerItems(q){{
         }}
       }}
     }}
+  }}
+  if(!out){{
+    var msg = q ? 'Tidak ada model yang cocok dengan pencarian.' : 'Daftar model cadangan kosong atau 9router tidak terhubung.';
+    out = '<div style="padding:1.5rem;color:var(--text-dim);font-size:0.82rem;text-align:center">' + msg + '</div>';
   }}
   container.innerHTML = out;
 }}
@@ -2477,7 +2482,7 @@ function renderAuxPickerItems(q){{
   var container = document.getElementById('aux-picker-list');
   if(!container) return;
   var out = '';
-  if(!q || 'otomatis (pakai model utama)'.indexOf(q) !== -1 || 'model utama'.indexOf(q) !== -1){{
+  if(!currentProfileModelTarget && (!q || 'otomatis (pakai model utama)'.indexOf(q) !== -1 || 'model utama'.indexOf(q) !== -1)){{
     out += '<a class="aux-model-opt" href="javascript:void(0)" onclick="selectAuxModel(\\'auto\\', \\'\\')">' +
            '<div>' +
              '<div class="aux-model-opt-name" style="color:var(--text)">Otomatis (Pakai Model Utama)</div>' +
@@ -2507,6 +2512,10 @@ function renderAuxPickerItems(q){{
         }}
       }}
     }}
+  }}
+  if(!out){{
+    var msg = q ? 'Tidak ada model yang cocok dengan pencarian.' : 'Daftar model kosong atau 9router tidak terhubung.';
+    out = '<div style="padding:1.5rem;color:var(--text-dim);font-size:0.82rem;text-align:center">' + msg + '</div>';
   }}
   container.innerHTML = out;
 }}
@@ -3928,6 +3937,11 @@ function openViewTaskModal(taskId){{
   var loadGen = ++taskDetailLoadGen;
   ++taskMutationGen;
   currentViewingTaskId = taskId;
+  kanbanCommentSubmitting = false;
+  var cInput = document.getElementById('view-task-new-comment');
+  if(cInput){{ cInput.value = ''; cInput.disabled = false; }}
+  var cBtn = document.getElementById('view-task-comment-btn');
+  if(cBtn){{ cBtn.disabled = false; cBtn.textContent = 'Kirim'; }}
   var modal = document.getElementById('view-kanban-task-modal');
   if(!modal) return;
   var bSel = document.getElementById('kanban-board-select');
@@ -4124,10 +4138,11 @@ function openViewTaskModal(taskId){{
             var author = document.createElement('strong');
             author.textContent = c.author || 'system';
             var date = document.createElement('span');
-            date.textContent = new Date(c.created_at * 1000).toLocaleString();
+            date.textContent = c.created_at ? new Date(c.created_at * 1000).toLocaleString() : '';
             header.appendChild(author);
             header.appendChild(date);
             var body = document.createElement('div');
+            body.style.cssText = 'white-space:pre-wrap;word-break:break-word;margin-top:0.2rem';
             body.textContent = c.body || '';
             item.appendChild(header);
             item.appendChild(body);
@@ -4250,6 +4265,11 @@ function closeAttachmentViewerModal(){{
 function closeViewTaskModal(){{
   ++taskDetailLoadGen;
   ++taskMutationGen;
+  kanbanCommentSubmitting = false;
+  var cInput = document.getElementById('view-task-new-comment');
+  if(cInput){{ cInput.value = ''; cInput.disabled = false; }}
+  var cBtn = document.getElementById('view-task-comment-btn');
+  if(cBtn){{ cBtn.disabled = false; cBtn.textContent = 'Kirim'; }}
   var modal = document.getElementById('view-kanban-task-modal');
   if(modal) modal.classList.remove('show');
   currentViewingTaskId = '';
@@ -4339,8 +4359,10 @@ function deleteCurrentTask(){{
   }});
 }}
 
+var kanbanCommentSubmitting = false;
+
 function submitCurrentTaskComment(){{
-  if(!currentViewingTaskId) return;
+  if(!currentViewingTaskId || kanbanCommentSubmitting) return;
   var input = document.getElementById('view-task-new-comment');
   var text = (input ? input.value : '').trim();
   if(!text) return;
@@ -4349,12 +4371,20 @@ function submitCurrentTaskComment(){{
   var mutationBoard = bSel ? bSel.value : '';
   var mutationGen = ++taskMutationGen;
 
+  var btn = document.getElementById('view-task-comment-btn');
+  kanbanCommentSubmitting = true;
+  if(btn){{ btn.disabled = true; btn.textContent = 'Mengirim…'; }}
+  if(input){{ input.disabled = true; }}
+
   fetchJsonChecked('/api/kanban/task/comment', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
     body: JSON.stringify({{ task_id: mutationTaskId, body: text, board: mutationBoard }})
   }})
   .then(function(res){{
+    kanbanCommentSubmitting = false;
+    if(btn){{ btn.disabled = false; btn.textContent = 'Kirim'; }}
+    if(input){{ input.disabled = false; }}
     if(mutationGen !== taskMutationGen || currentViewingTaskId !== mutationTaskId) return;
     if(res && res.ok){{
       if(input) input.value = '';
@@ -4365,6 +4395,9 @@ function submitCurrentTaskComment(){{
     }}
   }})
   .catch(function(err){{
+    kanbanCommentSubmitting = false;
+    if(btn){{ btn.disabled = false; btn.textContent = 'Kirim'; }}
+    if(input){{ input.disabled = false; }}
     if(mutationGen !== taskMutationGen || currentViewingTaskId !== mutationTaskId) return;
     alert('Error: ' + err);
   }});
@@ -4643,7 +4676,7 @@ var GW_PLATFORM_FIELDS = {{
 }};
 
 function escGw(s){{
-  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }}
 
 function renderGwPlatformFields(plat, vals){{
@@ -5109,10 +5142,6 @@ var GW_PLATFORM_GUIDES = {{
     {{ key: "password: '...'", desc: "Password otentikasi API BlueBubbles server." }}
   ]
 }};
-
-function escGw(s){{
-  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}}
 
 function updateGwGuide(plat){{
   var titleEl = document.getElementById('gw-config-guide-title');
@@ -6079,14 +6108,21 @@ function restorePatchPages(){{
   }}
 }}
 function filterModels(q){{
-  q = q.toLowerCase();
+  q = (q || '').trim().toLowerCase();
   var chips = document.querySelectorAll('#model-chips .model-chip');
   chips.forEach(function(c){{
     c.style.display = c.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
   }});
   var groups = document.querySelectorAll('#model-chips .model-group');
   groups.forEach(function(g){{
-    var any = g.querySelectorAll('.model-chip:not([style*="none"])').length > 0;
+    var any = false;
+    var gChips = g.querySelectorAll('.model-chip');
+    for(var i = 0; i < gChips.length; i++){{
+      if(gChips[i].style.display !== 'none'){{
+        any = true;
+        break;
+      }}
+    }}
     g.style.display = any ? '' : 'none';
   }});
 }}
@@ -8576,6 +8612,12 @@ function netLoad(full) {
         // the form as-is and refresh only the live status tiles instead.
         if (statusSlot) statusSlot.innerHTML = netRenderStatus(st);
         netApplyBadge(st);
+        var dirtyWhat = (NET.dirty.routes && NET.dirty.dns) ? 'rute & DNS'
+          : (NET.dirty.routes ? 'rute' : 'DNS');
+        if (netEl('net-dns-msg')) netCallout('net-dns-msg', 'warn',
+          'Perubahan ' + dirtyWhat + ' belum disimpan, jadi daftar tidak dimuat ulang. Tekan Simpan dulu.');
+        if (netEl('net-routes-msg')) netCallout('net-routes-msg', 'warn',
+          'Perubahan ' + dirtyWhat + ' belum disimpan, jadi daftar tidak dimuat ulang. Tekan Simpan dulu.');
         return;
       }
       slot.innerHTML = netRenderCard(st);
