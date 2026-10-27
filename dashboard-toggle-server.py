@@ -8781,7 +8781,7 @@ window.toast = toast;
   var origFetch = window.fetch;
   if(!origFetch) return;
   window.fetch = function(input, init){
-    var method = ((init && init.method) || 'GET').toUpperCase();
+    var method = ((init && init.method) || (input && input.method) || 'GET').toUpperCase();
     var p = origFetch.apply(this, arguments);
     if(method === 'GET') return p;
     return p.then(function(resp){

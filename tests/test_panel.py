@@ -369,6 +369,13 @@ class TestHermesControlPanel(unittest.TestCase):
         segment = page[start:end]
         self.assertIn("scrollAllLogsToBottom()", segment)
 
+    def test_global_fetch_toast_interceptor_inspects_request_object_method(self):
+        script = panel.NAV_SCRIPT
+        start = script.index("/* Setiap fetch non-GET yang balas JSON")
+        end = script.index("/* ---- UX: Esc menutup modal teratas ----", start)
+        segment = script[start:end]
+        self.assertIn("var method = ((init && init.method) || (input && input.method) || 'GET').toUpperCase();", segment)
+
     def test_sse_applies_gateway_log_card_cache_before_dom_dismissal(self):
         src = panel.SSE_SCRIPT
         start = src.index("if(d.gateway_log_card)")

@@ -52,7 +52,12 @@ Updated: 2026-10-27
 - [x] Added generation guards to network gateway restart action; delayed failure callbacks or postponed 45s refresh timers cannot overwrite newer network card operations.
 - [x] Restored instant scroll-to-bottom on log un-dismissal (`toggleLog`); restored logs now consistently scroll to the newest output even if offline or before the next SSE tick.
 - [x] Aligned SSE gateway log card caching with the other three log cards, storing `d.gateway_log_card` before dismissal checks so un-dismissal always restores the freshest payload.
+- [x] Inspected `input.method` in global fetch toast interceptor; mutation requests passed as `Request` instances now trigger automatic toast notifications.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
+
+## Wave 66 completed
+
+- Global fetch toast interceptor now inspects both `init.method` and `input.method`, ensuring automatic toasts display when `fetch()` receives a `Request` object instead of a plain URL string.
 
 ## Wave 65 completed
 
