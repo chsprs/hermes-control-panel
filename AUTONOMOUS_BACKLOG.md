@@ -58,6 +58,13 @@ Updated: 2026-10-27
 - [x] Cleared stale poll and countdown interval timers when re-starting WhatsApp pairing (`startWaPair`); subsequent attempts now start with pristine timer state.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
 
+## Wave 76 completed
+
+- **Kebocoran kredensial di editor konfigurasi gateway.** `GET /api/gateway-config` mengembalikan YAML mentah blok platform ke browser, dan editor memutarnya bolak-balik lewat `<textarea>` (mode YAML) serta mengirimnya kembali saat Simpan. Akibatnya `token`, `bot_token`, `password`, `app_secret`, `client_secret`, `corp_secret`, `channel_secret`, `api_key`, `access_token`, dst. tampil apa adanya di layar — padahal panel bisa jalan tanpa password di LAN. `redact_sensitive_tokens()` yang ada hanya mengenali *bentuk* token (Telegram/Discord/Slack/sk-/AIza/gh*), jadi secret berbasis key seperti `password:` atau `app_secret:` lolos total.
+- Fix: masking berbasis **nama key** (`_SECRET_KEY_RE`) yang rekursif atas dict/list, nilai diganti sentinel `__HERMES_PANEL_REDACTED__` sambil **mempertahankan key** agar YAML tetap valid dan user tahu ada secret. Diterapkan di `get_gateway_platform_config` dan `preview_gateway_platform_config` (jalur switch Form→YAML).
+- Fix sisi tulis: `save_gateway_platform_config` memulihkan nilai asli dari config on-disk untuk setiap key yang masih bernilai sentinel (`_restore_masked_secrets`). Tanpa ini, buka editor lalu tekan Simpan akan menimpa token asli dengan string mask dan mematikan platform. Sentinel pada key yang tidak punya nilai tersimpan **dibuang**, tidak pernah ditulis sebagai secret palsu.
+- Test RED→GREEN: `test_27b_editor_never_sends_platform_secrets_to_the_browser`, `test_27c_saving_a_masked_secret_restores_the_stored_value`, `test_27d_masking_a_secret_that_does_not_exist_yet_is_harmless`. 283 unit + 113 contract pass.
+
 ## Wave 75 completed
 
 - `netLoad(true)` (full network-card re-render) no longer runs while `NET.dirty.routes` or `NET.dirty.dns` is set. A full re-render rebuilds the route/DNS inputs from the server and resets the dirty flag, which silently discarded edits the user never saved (e.g. saving DNS while route edits were pending, or the 45s post-restart reload). It now refreshes only the live status tiles and shows a warning callout naming what is still unsaved.
