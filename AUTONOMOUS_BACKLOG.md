@@ -58,6 +58,19 @@ Updated: 2026-10-27
 - [x] Cleared stale poll and countdown interval timers when re-starting WhatsApp pairing (`startWaPair`); subsequent attempts now start with pristine timer state.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
 
+## Wave 74 completed
+
+- Kanban comment submission (`submitCurrentTaskComment`) now guards against in-flight double submissions (`kanbanCommentSubmitting`), disables input/button with "Mengirim…" label, and re-enables them on completion.
+- `openViewTaskModal` and `closeViewTaskModal` now reset comment input text and state, preventing comment draft leaks across task views.
+- Task comments preserve line breaks with `white-space: pre-wrap; word-break: break-word` and safely guard `created_at` date formatting.
+- `renderAuxPickerItems` hides "Otomatis (Pakai Model Utama)" when configuring agent profile models, preventing config corruption.
+- Model pickers (`renderAuxPickerItems`, `renderFallbackPickerItems`, `filterModels`) now trim search queries and display helpful empty state feedback instead of blank containers.
+- Cleaned up duplicate `escGw` function declaration.
+
+## Wave 73 completed
+
+- Fixed markdown link URL handling in both Python `render_markdown` and client `renderMarkdown` to disallow `\x00` placeholder characters, preventing inline-code placeholders from breaking out of `href` attributes.
+
 ## Wave 72 completed
 
 - Kanban drag and trash drop now record `draggedBoard` on dragstart, aborting cleanly if active board switches before drop.
