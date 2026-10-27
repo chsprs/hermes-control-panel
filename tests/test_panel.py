@@ -311,6 +311,17 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn(".then(function", segment, function_name)
             self.assertIn(".catch(function", segment, function_name)
 
+    def test_network_restart_gateway_ignores_stale_responses(self):
+        network = panel.NETWORK_SCRIPT
+        self.assertIn("var netRestartGen = 0;", network)
+        start = network.index("function netRestartGateway")
+        next_function = network.find("\nfunction ", start + 1)
+        segment = network[start:] if next_function == -1 else network[start:next_function]
+        self.assertIn("var restartGen = ++netRestartGen;", segment)
+        guard = "if (restartGen !== netRestartGen) return;"
+        self.assertEqual(segment.count(guard), 2)
+        self.assertIn("if (restartGen === netRestartGen) netLoad(true);", segment)
+
     def test_network_test_and_resolve_ignore_stale_requests(self):
         network = panel.NETWORK_SCRIPT
         self.assertIn("var netTestGen = {};", network)

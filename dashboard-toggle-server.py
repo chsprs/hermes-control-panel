@@ -8129,6 +8129,7 @@ var netTestGen = {};
 var netResolveGen = 0;
 var netRoutesSaveGen = 0;
 var netDnsSaveGen = 0;
+var netRestartGen = 0;
 var NET_ICONS = __NET_ICONS__;
 var NET_ROUTES = [
   {v: 'relay', label: 'Relay IPv4', icon: 'shield', hint: 'lewat relay :40001 → WARP, selalu IPv4'},
@@ -8504,12 +8505,17 @@ function netSaveRoutes() {
 
 function netRestartGateway() {
   if (!window.confirm('Restart gateway Hermes sekarang? Semua chat (Telegram, dll.) offline sekitar 1 menit.')) return;
+  var restartGen = ++netRestartGen;
   netCallout('net-routes-msg', 'info', 'Me-restart gateway…');
   netPost('/api/network/restart-gateway', {confirm: true}).then(function (d) {
+    if (restartGen !== netRestartGen) return;
     if (!d.ok) { netCallout('net-routes-msg', 'bad', netEsc(d.error || 'Gagal restart')); return; }
     netCallout('net-routes-msg', 'ok', 'Gateway sedang di-restart. Status diperbarui otomatis dalam ±1 menit.');
-    setTimeout(function () { netLoad(true); }, 45000);
+    setTimeout(function () {
+      if (restartGen === netRestartGen) netLoad(true);
+    }, 45000);
   }).catch(function (e) {
+    if (restartGen !== netRestartGen) return;
     netCallout('net-routes-msg', 'bad', netEsc(e.message || e));
   });
 }

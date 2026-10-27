@@ -49,7 +49,12 @@ Updated: 2026-10-27
 - [x] Added copy-generation token to Markdown code block copy buttons; rapid repeated clicks cannot prematurely reset button label.
 - [x] Cleaned pending hidden timers and queued SSE updates on disconnect; background tab sleep cannot flush stale DOM updates after disconnect.
 - [x] Guarded Kanban auto-sync against in-flight request pileup; slow responses no longer stack overlapping board refreshes.
+- [x] Added generation guards to network gateway restart action; delayed failure callbacks or postponed 45s refresh timers cannot overwrite newer network card operations.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
+
+## Wave 63 completed
+
+- Network gateway restart action now uses a generation token (`netRestartGen`), preventing delayed failure messages or trailing 45s timer callbacks from overwriting subsequent network actions.
 
 ## Wave 62 completed
 
