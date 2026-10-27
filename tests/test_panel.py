@@ -414,6 +414,13 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("if(_hiddenTimer){ clearTimeout(_hiddenTimer); _hiddenTimer=null; }", segment)
         self.assertIn("_pendingUpdate=null;", segment)
 
+    def test_sse_retry_timer_suspends_reconnect_when_tab_is_hidden(self):
+        src = panel.SSE_SCRIPT
+        start = src.index("current.onerror=function(){")
+        end = src.index("var hideDisconnectTimer = null;", start)
+        segment = src[start:end]
+        self.assertIn("if(typeof document !== 'undefined' && document.hidden) return;", segment)
+
     def test_network_loader_ignores_stale_async_responses(self):
         network = panel.NETWORK_SCRIPT
         self.assertIn("var netLoadGen = 0;", network)
@@ -5120,6 +5127,20 @@ class TestHermesUpdateFlow(unittest.TestCase):
             with self.subTest(argv=argv[-3:]), mock.patch("pathlib.Path.read_bytes",
                                                           return_value=b"\x00".join(a.encode() for a in argv) + b"\x00"):
                 self.assertEqual(panel._pid_is_hermes_update(99999), expected)
+
+    def test_github_token_env_injects_gh_token_without_overriding(self):
+        base = {"PATH": "/usr/bin"}
+        fake = subprocess.CompletedProcess([], 0, stdout="tok_from_gh\n", stderr="")
+        with mock.patch.object(panel.subprocess, "run", return_value=fake):
+            env = panel._github_token_env(dict(base))
+        self.assertEqual(env["GITHUB_TOKEN"], "tok_from_gh")
+        with mock.patch.object(panel.subprocess, "run") as run:
+            env = panel._github_token_env({"GITHUB_TOKEN": "keep"})
+        self.assertEqual(env["GITHUB_TOKEN"], "keep")
+        run.assert_not_called()
+        with mock.patch.object(panel.subprocess, "run", side_effect=OSError):
+            env = panel._github_token_env(dict(base))
+        self.assertNotIn("GITHUB_TOKEN", env)
 
     def test_hermes_update_timeout_closes_child_pipes(self):
         """On timeout the updater must reap the child and close its pipes, not leak fds."""

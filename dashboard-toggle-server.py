@@ -240,6 +240,20 @@ MODELS_CACHE_TTL = 300  # the model list barely changes; cache it so the SSE
 UPDATE_LOG_TAIL = 40  # lines of the remote docker-compose log shown live
 UPDATE_TIMEOUT = 300  # hard cap for one remote pull/recreate operation
 HERMES_BIN = "/usr/local/bin/hermes"
+
+
+def _github_token_env(env: dict) -> dict:
+    """Add GITHUB_TOKEN from `gh auth token` so GitHub API calls avoid the 60/h anonymous limit."""
+    if env.get("GITHUB_TOKEN") or env.get("GH_TOKEN"):
+        return env
+    try:
+        r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=5)
+        tok = (r.stdout or "").strip()
+        if r.returncode == 0 and tok:
+            env["GITHUB_TOKEN"] = tok
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return env
 HERMES_UPDATE_LOG_PATH = "/root/.hermes/logs/update.log"
 # `hermes update` waits for the gateway to drain (restart_after_turn_timeout + restart_drain_timeout,
 # ~1995s here) on top of dependency install + UI build; killing it earlier leaves a half-done update.
@@ -7975,7 +7989,9 @@ SSE_SCRIPT = """<script>
       setLive('offline', 'Terputus');
       current.close(); es=null;
       retryTimer=setTimeout(function(){
-        if(generation === esGeneration) connect();
+        if(generation !== esGeneration) return;
+        if(typeof document !== 'undefined' && document.hidden) return;
+        connect();
       }, 3000);
     };
   }
@@ -9033,6 +9049,7 @@ def _refresh_hermes_update() -> None:
         env = os.environ.copy()
         env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
         env["COLUMNS"] = "200"
+        _github_token_env(env)
         try:
             p = subprocess.run([HERMES_BIN, "update", "--check"], capture_output=True, text=True,
                                timeout=HERMES_CHECK_TIMEOUT, env=env)
@@ -9047,7 +9064,7 @@ def _refresh_hermes_update() -> None:
             try:
                 req = urllib.request.Request(
                     f"https://api.github.com/repos/NousResearch/hermes-agent/compare/{local_sha}...{quote(info['target'], safe='')}",
-                    headers={"User-Agent": "Hermes-Panel"})
+                    headers={"User-Agent": "Hermes-Panel", **({"Authorization": "Bearer " + env["GITHUB_TOKEN"]} if env.get("GITHUB_TOKEN") else {})})
                 with urllib.request.urlopen(req, timeout=10) as resp:
                     cmp_data = json.loads(resp.read().decode("utf-8"))
                 ahead = int(cmp_data.get("ahead_by") or 0)
@@ -9265,6 +9282,9 @@ def _hermes_update_argv() -> list[str]:
               "LANG": os.environ.get("LANG", "C.UTF-8")}
     if os.environ.get("HERMES_HOME"):
         setenv["HERMES_HOME"] = os.environ["HERMES_HOME"]
+    tok = _github_token_env(dict(os.environ)).get("GITHUB_TOKEN")
+    if tok:
+        setenv["GITHUB_TOKEN"] = tok
     return (["systemd-run", f"--unit=hermes-panel-update-{int(time.time())}", "--collect", "--wait", "--quiet",
              "--description=Hermes update (control panel)",
              f"--property=RuntimeMaxSec={HERMES_UPDATE_TIMEOUT}",
