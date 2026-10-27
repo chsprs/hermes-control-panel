@@ -33,6 +33,7 @@ Updated: 2026-10-27
 - [x] Added generation guards to gateway save/toggle/delete mutations; stale platform responses cannot overwrite the gateway slot or current error state.
 - [x] Added profile-context and load-generation guards to skill/toolset mutations; stale profile responses cannot mutate a reopened profile modal.
 - [x] Added task-context and mutation-generation guards to Kanban status/reclaim/delete actions; stale task responses cannot close or refresh a different task view.
+- [x] Added task-context and mutation-generation guards to Kanban comment submission; stale comment responses cannot reopen or refresh a different task view.
 - [ ] Audit remaining non-JSON fetches, SSE reconnect/error paths, and API-derived `innerHTML` boundaries.
 
 

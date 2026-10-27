@@ -569,6 +569,24 @@ process.stdout.write(netRenderStatus(st));
             self.assertIn(guard, catch_segment, function_name)
             self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
 
+    def test_task_comment_ignores_stale_task_context(self):
+        page = panel.PAGE
+        start = page.index("function submitCurrentTaskComment")
+        end = page.index("var kanbanConfigLoadGen", start)
+        segment = page[start:end]
+        self.assertIn("var mutationTaskId = currentViewingTaskId", segment)
+        self.assertIn("var mutationBoard = bSel ? bSel.value : ''", segment)
+        self.assertIn("var mutationGen = ++taskMutationGen", segment)
+        guard = "if(mutationGen !== taskMutationGen || currentViewingTaskId !== mutationTaskId) return;"
+        then_start = segment.index(".then(function(res)")
+        catch_start = segment.index(".catch(function")
+        then_segment = segment[then_start:catch_start]
+        catch_segment = segment[catch_start:]
+        self.assertIn(guard, then_segment)
+        self.assertIn(guard, catch_segment)
+        self.assertLess(then_segment.index(guard), then_segment.index("if(res"))
+        self.assertIn("openViewTaskModal(mutationTaskId)", then_segment)
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_sse_ignores_stale_eventsource_callbacks(self):
         src = panel.SSE_SCRIPT

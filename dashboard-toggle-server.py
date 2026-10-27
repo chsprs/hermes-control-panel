@@ -4168,23 +4168,29 @@ function submitCurrentTaskComment(){{
   var text = (input ? input.value : '').trim();
   if(!text) return;
   var bSel = document.getElementById('kanban-board-select');
-  var board = bSel ? bSel.value : '';
+  var mutationTaskId = currentViewingTaskId;
+  var mutationBoard = bSel ? bSel.value : '';
+  var mutationGen = ++taskMutationGen;
 
   fetchJsonChecked('/api/kanban/task/comment', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
-    body: JSON.stringify({{ task_id: currentViewingTaskId, body: text, board: board }})
+    body: JSON.stringify({{ task_id: mutationTaskId, body: text, board: mutationBoard }})
   }})
   .then(function(res){{
+    if(mutationGen !== taskMutationGen || currentViewingTaskId !== mutationTaskId) return;
     if(res && res.ok){{
       if(input) input.value = '';
-      openViewTaskModal(currentViewingTaskId);
+      openViewTaskModal(mutationTaskId);
       showKanbanToast('Komentar ditambahkan');
     }} else {{
       alert('Gagal mengirim komentar: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationGen !== taskMutationGen || currentViewingTaskId !== mutationTaskId) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 var kanbanConfigLoadGen = 0;
