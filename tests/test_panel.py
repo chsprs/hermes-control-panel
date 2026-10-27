@@ -673,6 +673,20 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("if(actionGen !== kanbanBoardSwitchGen) return", segment)
         self.assertIn("if(bSel && bSel.value !== slug) return", segment)
 
+    def test_kanban_board_switch_serializes_overlapping_requests(self):
+        """ThreadingHTTPServer can finish switches out of order; only one may be in flight."""
+        page = panel.PAGE
+        self.assertIn("var kanbanSwitchBusy = false;", page)
+        self.assertIn("var kanbanSwitchQueued = null;", page)
+        start = page.index("function switchKanbanBoard")
+        end = page.index("function openViewTaskModal", start)
+        segment = page[start:end]
+        self.assertIn("if(kanbanSwitchBusy){", segment)
+        self.assertIn("kanbanSwitchQueued = slug;", segment)
+        self.assertIn("kanbanSwitchBusy = true;", segment)
+        self.assertIn("kanbanSwitchBusy = false;", segment)
+        self.assertIn("if(queued) switchKanbanBoard(queued);", segment)
+
     def test_gateway_yaml_preview_ignores_stale_mode_changes(self):
         page = panel.PAGE
         start = page.index("function switchGwConfigMode")
@@ -803,6 +817,45 @@ process.stdout.write(netRenderStatus(st));
             self.assertIn(guard, then_segment, function_name)
             self.assertIn(guard, catch_segment, function_name)
             self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
+
+    def test_kanban_drag_and_trash_guard_against_board_switch(self):
+        page = panel.PAGE
+        self.assertIn("var draggedBoard = null;", page)
+
+        # Drag start records board
+        start = page.index("function handleKanbanDragStart")
+        end = page.find("\nfunction ", start + 1)
+        segment = page[start:end]
+        self.assertIn("draggedBoard = bSel ? bSel.value : '';", segment)
+
+        # Drag end clears board
+        start = page.index("function handleKanbanDragEnd")
+        end = page.find("\nfunction ", start + 1)
+        segment = page[start:end]
+        self.assertIn("draggedBoard = null;", segment)
+
+        # Drop guards against board switch during drag
+        start = page.index("function handleKanbanDrop")
+        end = page.find("\nfunction ", start + 1)
+        segment = page[start:end]
+        self.assertIn("if(draggedBoard !== null && draggedBoard !== currentBoard)", segment)
+
+        # Trash drop guards against board switch before and after confirm
+        start = page.index("function handleKanbanTrashDrop")
+        end = page.find("\nfunction ", start + 1)
+        segment = page[start:end]
+        self.assertIn("if(draggedBoard !== null && draggedBoard !== currentBoard)", segment)
+        self.assertIn("if(!card) return;", segment)
+        self.assertIn("if(bSel && bSel.value !== currentBoard)", segment)
+
+        # switchKanbanBoard invalidates pending drag/drop mutations and resets dragging if active
+        start = page.index("function switchKanbanBoard")
+        end = page.find("\nfunction ", start + 1)
+        segment = page[start:end]
+        self.assertIn("++kanbanMutationGen", segment)
+        self.assertIn("++kanbanBoardLoadGen", segment)
+        self.assertIn("if(isDraggingKanban)", segment)
+        self.assertIn("handleKanbanDragEnd(null)", segment)
 
     def test_kanban_bulk_mutations_ignore_stale_selection(self):
         page = panel.PAGE

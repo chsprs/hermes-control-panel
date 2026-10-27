@@ -3148,6 +3148,9 @@ var kanbanSyncTimer = null;
 var isDraggingKanban = false;
 var draggedCardId = null;
 var draggedSourceStatus = null;
+var draggedBoard = null;
+var kanbanSwitchBusy = false;
+var kanbanSwitchQueued = null;
 
 var KANBAN_COLS = [
   {{ id: 'triage', title: 'Triage', bg: 'rgba(168,85,247,0.15)', color: '#c084fc' }},
@@ -3182,6 +3185,8 @@ function showKanbanToast(msg, isError) {{
 function handleKanbanDragStart(e, taskId) {{
   isDraggingKanban = true;
   draggedCardId = taskId;
+  var bSel = document.getElementById('kanban-board-select');
+  draggedBoard = bSel ? bSel.value : '';
   var card = document.getElementById('card-' + taskId);
   if(card) {{
     draggedSourceStatus = card.getAttribute('data-status');
@@ -3211,6 +3216,7 @@ function handleKanbanDragEnd(e) {{
   isDraggingKanban = false;
   draggedCardId = null;
   draggedSourceStatus = null;
+  draggedBoard = null;
 }}
 
 function handleKanbanTrashDragOver(e) {{
@@ -3242,17 +3248,30 @@ function handleKanbanTrashDrop(e) {{
   var taskId = (e.dataTransfer ? e.dataTransfer.getData('text/plain') : '') || draggedCardId;
   if(!taskId) return;
 
-  if(!confirm('Hapus tugas ' + taskId + ' secara permanen?')) {{
+  var bSel = document.getElementById('kanban-board-select');
+  var currentBoard = bSel ? bSel.value : '';
+  if(draggedBoard !== null && draggedBoard !== currentBoard) {{
     refreshKanbanBoard(true);
     return;
   }}
 
   var card = document.getElementById('card-' + taskId);
-  if(card) card.remove();
+  if(!card) return;
+
+  if(!confirm('Hapus tugas ' + taskId + ' secara permanen?')) {{
+    refreshKanbanBoard(true);
+    return;
+  }}
+
+  if(bSel && bSel.value !== currentBoard) {{
+    refreshKanbanBoard(true);
+    return;
+  }}
+
+  card.remove();
   updateColumnCounters();
 
   var mutationTaskId = taskId;
-  var bSel = document.getElementById('kanban-board-select');
   var mutationBoard = bSel ? bSel.value : '';
   var mutationGen = ++kanbanMutationGen;
 
@@ -3305,6 +3324,13 @@ function handleKanbanDrop(e, targetStatus) {{
 
   var taskId = (e.dataTransfer ? e.dataTransfer.getData('text/plain') : '') || draggedCardId;
   if(!taskId) return;
+
+  var bSel = document.getElementById('kanban-board-select');
+  var currentBoard = bSel ? bSel.value : '';
+  if(draggedBoard !== null && draggedBoard !== currentBoard) {{
+    refreshKanbanBoard(true);
+    return;
+  }}
 
   var card = document.getElementById('card-' + taskId);
   if(!card) return;
@@ -3851,7 +3877,17 @@ function submitCreateBoard(){{
 }}
 
 function switchKanbanBoard(slug){{
+  if(kanbanSwitchBusy){{
+    kanbanSwitchQueued = slug;
+    return;
+  }}
+  kanbanSwitchBusy = true;
   var actionGen = ++kanbanBoardSwitchGen;
+  ++kanbanMutationGen;
+  ++kanbanBoardLoadGen;
+  if(isDraggingKanban){{
+    handleKanbanDragEnd(null);
+  }}
   var bSel = document.getElementById('kanban-board-select');
   fetchJsonChecked('/api/kanban/boards/switch', {{
     method: 'POST',
@@ -3859,6 +3895,10 @@ function switchKanbanBoard(slug){{
     body: JSON.stringify({{ board: slug }})
   }})
   .then(function(res){{
+    kanbanSwitchBusy = false;
+    var queued = kanbanSwitchQueued;
+    kanbanSwitchQueued = null;
+    if(queued) switchKanbanBoard(queued);
     if(actionGen !== kanbanBoardSwitchGen) return;
     if(bSel && bSel.value !== slug) return;
     if(res && res.ok){{
@@ -3867,9 +3907,14 @@ function switchKanbanBoard(slug){{
       showKanbanToast('Papan diganti ke ' + slug);
     }} else {{
       alert('Gagal mengganti papan: ' + (res && res.error ? res.error : 'unknown'));
+      if(bSel && res && res.board) {{ bSel.value = res.board; }}
     }}
   }})
   .catch(function(err){{
+    kanbanSwitchBusy = false;
+    var queued = kanbanSwitchQueued;
+    kanbanSwitchQueued = null;
+    if(queued) switchKanbanBoard(queued);
     if(actionGen !== kanbanBoardSwitchGen) return;
     if(bSel && bSel.value !== slug) return;
     alert('Error: ' + err);

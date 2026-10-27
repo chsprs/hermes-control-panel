@@ -58,6 +58,21 @@ Updated: 2026-10-27
 - [x] Cleared stale poll and countdown interval timers when re-starting WhatsApp pairing (`startWaPair`); subsequent attempts now start with pristine timer state.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
 
+## Wave 72 completed
+
+- Kanban drag and trash drop now record `draggedBoard` on dragstart, aborting cleanly if active board switches before drop.
+- `handleKanbanTrashDrop` guards against board switch during blocking `confirm()` modal, verifies card element existence, and avoids cross-board deletion.
+- `switchKanbanBoard` serializes overlapping switch requests (`kanbanSwitchBusy` queue), cancels active dragging, and increments `kanbanMutationGen` and `kanbanBoardLoadGen` to invalidate in-flight drag mutations and stale board loads.
+
+## Wave 71 completed
+
+- Per-action debounce in `dashboard_action` and `bot_action`: distinct actions executed in quick succession now run independently instead of colliding under a global 3-second debounce window.
+
+## Wave 70 completed
+
+- Injected `GITHUB_TOKEN` from CLI into Hermes update check environment and compare requests.
+- Paused SSE EventSource reconnect retry timers when browser tab is hidden to avoid background socket churn.
+
 ## Wave 69 completed
 
 - WhatsApp pairing initialization (`startWaPair`) now cancels any active polling and expiration countdown intervals before starting a new session, avoiding timer leaks and false expiration state.
