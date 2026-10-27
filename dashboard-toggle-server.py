@@ -3730,6 +3730,9 @@ function submitCreateBoard(){{
   var slug = (document.getElementById('create-board-slug').value || '').trim();
   if(!slug){{ alert('Slug papan tidak boleh kosong'); return; }}
   var name = (document.getElementById('create-board-name').value || '').trim();
+  var bSel = document.getElementById('kanban-board-select');
+  var mutationBoard = bSel ? bSel.value : '';
+  var mutationGen = ++kanbanMutationGen;
   closeCreateBoardModal();
   fetchJsonChecked('/api/kanban/boards/create', {{
     method: 'POST',
@@ -3737,13 +3740,17 @@ function submitCreateBoard(){{
     body: JSON.stringify({{ slug: slug, name: name }})
   }})
   .then(function(res){{
+    if(mutationGen !== kanbanMutationGen || mutationBoard !== (bSel ? bSel.value : '')) return;
     if(res && res.ok){{
       window.location.href = '/status?just=kanban-board-created&tab=kanban';
     }} else {{
       alert('Gagal membuat papan: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationGen !== kanbanMutationGen || mutationBoard !== (bSel ? bSel.value : '')) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 function switchKanbanBoard(slug){{

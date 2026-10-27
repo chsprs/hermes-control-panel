@@ -37,6 +37,7 @@ Updated: 2026-10-27
 - [x] Added board-context and mutation-generation guards to Kanban drag status/delete actions; stale drag responses cannot refresh or toast over newer board actions.
 - [x] Added board/selection snapshots and mutation-generation guards to Kanban bulk status/delete actions; stale batches cannot clear newer selections or refresh another board.
 - [x] Added board-context and mutation-generation guards to Kanban task creation; stale create responses cannot refresh or toast over another board.
+- [x] Added board-context and mutation-generation guards to Kanban board creation; stale responses cannot force navigation after board context changes.
 - [ ] Audit remaining non-JSON fetches, SSE reconnect/error paths, and API-derived `innerHTML` boundaries.
 
 

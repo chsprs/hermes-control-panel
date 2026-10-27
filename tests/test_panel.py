@@ -638,6 +638,22 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn(guard, catch_segment, "submitCreateTask")
         self.assertLess(then_segment.index(guard), then_segment.index("if(res"), "submitCreateTask")
 
+    def test_kanban_board_create_ignores_stale_switch_context(self):
+        page = panel.PAGE
+        self.assertIn("var kanbanMutationGen = 0;", page)
+        start = page.index("function submitCreateBoard")
+        next_function = page.find("\nfunction ", start + 1)
+        segment = page[start:] if next_function == -1 else page[start:next_function]
+        self.assertIn("var mutationGen = ++kanbanMutationGen", segment, "submitCreateBoard")
+        guard = "if(mutationGen !== kanbanMutationGen || mutationBoard !== (bSel ? bSel.value : '')) return;"
+        then_start = segment.index(".then(function(res)")
+        catch_start = segment.index(".catch(function")
+        then_segment = segment[then_start:catch_start]
+        catch_segment = segment[catch_start:]
+        self.assertIn(guard, then_segment, "submitCreateBoard")
+        self.assertIn(guard, catch_segment, "submitCreateBoard")
+        self.assertLess(then_segment.index(guard), then_segment.index("if(res"), "submitCreateBoard")
+
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_sse_ignores_stale_eventsource_callbacks(self):
