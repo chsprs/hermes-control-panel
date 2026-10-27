@@ -362,6 +362,13 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("if(toast._generation !== toastGen) return;", segment)
         self.assertIn("if(toast._generation === toastGen) toast.style.display = 'none';", segment)
 
+    def test_toggle_log_scrolls_restored_box_to_bottom(self):
+        page = panel.PAGE
+        start = page.index("function toggleLog")
+        end = page.index("function syncLogUI", start)
+        segment = page[start:end]
+        self.assertIn("scrollAllLogsToBottom()", segment)
+
     def test_copy_code_ignores_stale_restore_callbacks(self):
         page = panel.PAGE
         start = page.index("function copyCodeBlock")

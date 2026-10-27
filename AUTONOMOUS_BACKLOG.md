@@ -50,7 +50,12 @@ Updated: 2026-10-27
 - [x] Cleaned pending hidden timers and queued SSE updates on disconnect; background tab sleep cannot flush stale DOM updates after disconnect.
 - [x] Guarded Kanban auto-sync against in-flight request pileup; slow responses no longer stack overlapping board refreshes.
 - [x] Added generation guards to network gateway restart action; delayed failure callbacks or postponed 45s refresh timers cannot overwrite newer network card operations.
+- [x] Restored instant scroll-to-bottom on log un-dismissal (`toggleLog`); restored logs now consistently scroll to the newest output even if offline or before the next SSE tick.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
+
+## Wave 64 completed
+
+- Restored log boxes now trigger `scrollAllLogsToBottom()` immediately upon un-dismissal, ensuring newest log lines are visible without waiting for a subsequent SSE tick.
 
 ## Wave 63 completed
 

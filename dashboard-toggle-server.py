@@ -6015,6 +6015,7 @@ function toggleLog(flag, wrapId){{
       syncGwLogTabUI();
     }}
   }}
+  scrollAllLogsToBottom();
 }}
 function syncLogUI(){{
   var routerDismissed = safeStore('getItem','logDismissed');
