@@ -10497,7 +10497,7 @@ def create_agent_profile(name: str, clone_from: str = "", description: str = "")
 
 
 def delete_agent_profile(name: str) -> tuple[bool, str]:
-    """Delete a named profile (default cannot be deleted)."""
+    """Delete a named profile via the official CLI so the gateway is stopped cleanly."""
     name = (name or "").strip().lower()
     if not name or name == "default":
         return False, "Profil default tidak dapat dihapus."
@@ -10508,10 +10508,19 @@ def delete_agent_profile(name: str) -> tuple[bool, str]:
     if not target_dir.is_dir():
         return False, f"Profil '{name}' tidak ditemukan."
     try:
-        active = get_active_profile_name()
-        if active == name:
+        if get_active_profile_name() == name:
             set_active_profile_name("default")
-        shutil.rmtree(target_dir)
+        env = os.environ.copy()
+        env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
+        r = subprocess.run(
+            [HERMES_BIN, "profile", "delete", "--yes", name],
+            capture_output=True, text=True, timeout=60, env=env,
+        )
+        output = (r.stdout or "") + (r.stderr or "")
+        if r.returncode != 0:
+            return False, f"Gagal menghapus profil: {output.strip() or f'exit {r.returncode}'}"
+        if target_dir.is_dir():
+            return False, f"Profil '{name}' masih ada setelah perintah delete (mungkin ada proses lain yang menahannya)."
         _invalidate_profile_cache(name)
         return True, f"Profil '{name}' berhasil dihapus."
     except Exception as e:

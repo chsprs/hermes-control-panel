@@ -3549,7 +3549,12 @@ class TestAgentProfiles(unittest.TestCase):
     def test_08_delete_profile_and_active_fallback(self):
         panel.create_agent_profile("temporary")
         panel.set_active_profile_name("temporary")
-        ok, msg = panel.delete_agent_profile("temporary")
+        import shutil as _sh
+        def _fake(argv, **kw):
+            _sh.rmtree(self.root / "profiles" / "temporary")
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+        with mock.patch.object(panel.subprocess, "run", side_effect=_fake):
+            ok, msg = panel.delete_agent_profile("temporary")
         self.assertTrue(ok, msg)
         self.assertFalse((self.root / "profiles" / "temporary").exists())
         # Active profile must fallback to default
@@ -3559,6 +3564,34 @@ class TestAgentProfiles(unittest.TestCase):
         # Cannot delete default
         ok_def, _ = panel.delete_agent_profile("default")
         self.assertFalse(ok_def)
+
+    def test_08b_delete_profile_uses_official_cli_to_stop_gateway(self):
+        panel.create_agent_profile("ghosty")
+        calls = []
+
+        def fake_run(argv, **kw):
+            calls.append(argv)
+            shutil_rm = self.root / "profiles" / "ghosty"
+            import shutil as _sh; _sh.rmtree(shutil_rm)
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+        with mock.patch.object(panel.subprocess, "run", side_effect=fake_run):
+            ok, msg = panel.delete_agent_profile("ghosty")
+        self.assertTrue(ok, msg)
+        self.assertEqual(calls[0][1:], ["profile", "delete", "--yes", "ghosty"])
+
+    def test_08c_delete_profile_reports_cli_failure_and_resurrection(self):
+        panel.create_agent_profile("zombie")
+        bad = subprocess.CompletedProcess([], 1, stdout="", stderr="boom")
+        with mock.patch.object(panel.subprocess, "run", return_value=bad):
+            ok, msg = panel.delete_agent_profile("zombie")
+        self.assertFalse(ok)
+        self.assertIn("boom", msg)
+        # CLI exit 0 but dir still present -> must not claim success
+        okp = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with mock.patch.object(panel.subprocess, "run", return_value=okp):
+            ok, msg = panel.delete_agent_profile("zombie")
+        self.assertFalse(ok)
 
     def test_09_ui_profiles_tab_presence(self):
         self.assertIn("profiles", panel.VALID_TABS)
