@@ -2572,6 +2572,8 @@ var currentEditingSoulProfile = '';
 var profileSoulLoadGen = 0;
 var profileCloneLoadGen = 0;
 var taskAssigneeLoadGen = 0;
+var profileMutationGen = 0;
+var currentProfileMutationTarget = '';
 var currentRenamingProfile = '';
 var currentProfileModelTarget = '';
 
@@ -2617,6 +2619,9 @@ function submitCreateProfile(){{
   if(!name){{ alert('Nama profil tidak boleh kosong'); return; }}
   var clone = document.getElementById('create-profile-clone').value || '';
   var desc = (document.getElementById('create-profile-desc').value || '').trim();
+  var mutationProfile = name;
+  var mutationGen = ++profileMutationGen;
+  currentProfileMutationTarget = mutationProfile;
   closeCreateProfileModal();
   var body = new URLSearchParams({{ name: name, clone_from: clone, description: desc, ajax: '1' }});
   fetchJsonChecked('/create-profile', {{
@@ -2625,17 +2630,24 @@ function submitCreateProfile(){{
     body: body.toString()
   }})
   .then(function(res){{
+    if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
     if(res && res.ok){{
       window.location.href = '/status?just=profile-created&tab=profiles';
     }} else {{
       alert('Gagal membuat profil: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 function setActiveProfile(name){{
   if(!confirm('Aktifkan profil "' + name + '" sebagai profil default Hermes?')) return;
+  var mutationProfile = name;
+  var mutationGen = ++profileMutationGen;
+  currentProfileMutationTarget = mutationProfile;
   var body = new URLSearchParams({{ profile: name, ajax: '1' }});
   fetchJsonChecked('/set-active-profile', {{
     method: 'POST',
@@ -2643,17 +2655,24 @@ function setActiveProfile(name){{
     body: body.toString()
   }})
   .then(function(res){{
+    if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
     if(res && res.ok){{
       window.location.href = '/status?just=profile-active&tab=profiles';
     }} else {{
       alert('Gagal mengaktifkan profil: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 function deleteProfile(name){{
   if(!confirm('Hapus profil "' + name + '" secara permanen beserta semua datanya?')) return;
+  var mutationProfile = name;
+  var mutationGen = ++profileMutationGen;
+  currentProfileMutationTarget = mutationProfile;
   var body = new URLSearchParams({{ profile: name, ajax: '1' }});
   fetchJsonChecked('/delete-profile', {{
     method: 'POST',
@@ -2661,13 +2680,17 @@ function deleteProfile(name){{
     body: body.toString()
   }})
   .then(function(res){{
+    if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
     if(res && res.ok){{
       window.location.href = '/status?just=profile-deleted&tab=profiles';
     }} else {{
       alert('Gagal menghapus profil: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 function openRenameProfileModal(name){{
@@ -2687,6 +2710,9 @@ function submitRenameProfile(){{
   var newName = (document.getElementById('rename-profile-new-name').value || '').trim();
   if(!newName || newName === currentRenamingProfile){{ closeRenameProfileModal(); return; }}
   var oldName = currentRenamingProfile;
+  var mutationProfile = oldName;
+  var mutationGen = ++profileMutationGen;
+  currentProfileMutationTarget = mutationProfile;
   closeRenameProfileModal();
   var body = new URLSearchParams({{ old_name: oldName, new_name: newName, ajax: '1' }});
   fetchJsonChecked('/rename-profile', {{
@@ -2695,13 +2721,17 @@ function submitRenameProfile(){{
     body: body.toString()
   }})
   .then(function(res){{
+    if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
     if(res && res.ok){{
       window.location.href = '/status?just=profile-renamed&tab=profiles';
     }} else {{
       alert('Gagal mengubah nama profil: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 function openProfileSoulModal(name){{
@@ -2735,6 +2765,9 @@ function closeProfileSoulModal(){{
 function submitProfileSoul(){{
   var name = currentEditingSoulProfile;
   var content = document.getElementById('soul-content').value;
+  var mutationProfile = name;
+  var mutationGen = ++profileMutationGen;
+  currentProfileMutationTarget = mutationProfile;
   closeProfileSoulModal();
   var body = new URLSearchParams({{ profile: name, content: content, ajax: '1' }});
   fetchJsonChecked('/save-profile-soul', {{
@@ -2743,13 +2776,17 @@ function submitProfileSoul(){{
     body: body.toString()
   }})
   .then(function(res){{
+    if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
     if(res && res.ok){{
       window.location.href = '/status?just=profile-soul&tab=profiles';
     }} else {{
       alert('Gagal menyimpan SOUL.md: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 function openProfileModelPicker(name){{
@@ -2770,6 +2807,9 @@ function openProfileModelPicker(name){{
 }}
 
 function setProfileModel(profileName, provider, model){{
+  var mutationProfile = profileName;
+  var mutationGen = ++profileMutationGen;
+  currentProfileMutationTarget = mutationProfile;
   var body = new URLSearchParams({{ profile: profileName, provider: provider, model: model, ajax: '1' }});
   fetchJsonChecked('/set-profile-model', {{
     method: 'POST',
@@ -2777,13 +2817,17 @@ function setProfileModel(profileName, provider, model){{
     body: body.toString()
   }})
   .then(function(res){{
+    if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
     if(res && res.ok){{
       window.location.href = '/status?just=profile-model&tab=profiles';
     }} else {{
       alert('Gagal memperbarui model profil: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 // --- Profile Skills & Tools manager ---

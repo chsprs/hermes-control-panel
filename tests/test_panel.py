@@ -550,6 +550,32 @@ process.stdout.write(netRenderStatus(st));
             self.assertIn(guard, catch_segment, function_name)
             self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
 
+    def test_profile_mutations_ignore_stale_modal_responses(self):
+        page = panel.PAGE
+        self.assertIn("var profileMutationGen = 0;", page)
+        cases = {
+            "submitCreateProfile": "var mutationProfile = name",
+            "setActiveProfile": "var mutationProfile = name",
+            "deleteProfile": "var mutationProfile = name",
+            "submitRenameProfile": "var mutationProfile = oldName",
+            "submitProfileSoul": "var mutationProfile = name",
+            "setProfileModel": "var mutationProfile = profileName",
+        }
+        for function_name, snapshot in cases.items():
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            self.assertIn(snapshot, segment, function_name)
+            self.assertIn("var mutationGen = ++profileMutationGen", segment, function_name)
+            guard = "if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;"
+            then_start = segment.index(".then(function(res)")
+            catch_start = segment.index(".catch(function")
+            then_segment = segment[then_start:catch_start]
+            catch_segment = segment[catch_start:]
+            self.assertIn(guard, then_segment, function_name)
+            self.assertIn(guard, catch_segment, function_name)
+            self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
+
     def test_task_detail_mutations_ignore_stale_task_context(self):
         page = panel.PAGE
         self.assertIn("var taskMutationGen = 0;", page)
