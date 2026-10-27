@@ -8106,6 +8106,7 @@ NETWORK_CSS = """.net-tiles{display:grid;grid-template-columns:repeat(auto-fit,m
 """
 
 NETWORK_SCRIPT = r"""var NET = {state: null, timer: null, dirty: {routes: false, dns: false}};
+var netLoadGen = 0;
 var NET_ICONS = __NET_ICONS__;
 var NET_ROUTES = [
   {v: 'relay', label: 'Relay IPv4', icon: 'shield', hint: 'lewat relay :40001 → WARP, selalu IPv4'},
@@ -8388,9 +8389,11 @@ function netApplyBadge(st) {
 function netLoad(full) {
   var slot = netEl('gateway-network-slot');
   if (!slot) return;
+  var loadGen = ++netLoadGen;
   var btn = netEl('net-reload-btn');
   if (btn) btn.classList.add('loading');
   netGet('/api/network').then(function (st) {
+    if (loadGen !== netLoadGen) return;
     if (!st || !st.ok) throw new Error((st && st.error) || 'gagal memuat');
     NET.state = st;
     var statusSlot = netEl('net-status-slot');
@@ -8402,10 +8405,13 @@ function netLoad(full) {
     }
     netApplyBadge(st);
   }).catch(function (e) {
+    if (loadGen !== netLoadGen) return;
     if (full || !netEl('net-status-slot')) {
       slot.innerHTML = '<div class="net-callout bad">' + netIcon('x', 15) + '<div>Gagal memuat pengaturan jaringan: ' + netEsc(e.message || e) + '</div></div>';
     }
-  }).then(function () { if (btn) btn.classList.remove('loading'); });
+  }).then(function () {
+    if (loadGen === netLoadGen && btn) btn.classList.remove('loading');
+  });
 }
 
 function netPickRoute(btn) {

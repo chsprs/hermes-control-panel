@@ -311,6 +311,25 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn(".then(function", segment, function_name)
             self.assertIn(".catch(function", segment, function_name)
 
+    def test_network_loader_ignores_stale_async_responses(self):
+        network = panel.NETWORK_SCRIPT
+        self.assertIn("var netLoadGen = 0;", network)
+        start = network.index("function netLoad")
+        next_function = network.find("\nfunction ", start + 1)
+        segment = network[start:] if next_function == -1 else network[start:next_function]
+        self.assertIn("var loadGen = ++netLoadGen;", segment)
+        guard = "if (loadGen !== netLoadGen) return;"
+        then_start = segment.index(".then(function (st) {")
+        catch_start = segment.index(".catch(function (e) {")
+        tail_start = segment.index(".then(function () {", catch_start)
+        then_segment = segment[then_start:catch_start]
+        catch_segment = segment[catch_start:tail_start]
+        tail_segment = segment[tail_start:]
+        self.assertIn(guard, then_segment)
+        self.assertIn(guard, catch_segment)
+        self.assertIn("if (loadGen === netLoadGen && btn)", tail_segment)
+        self.assertLess(then_segment.index(guard), then_segment.index("slot.innerHTML"), "netLoad")
+
     def test_frontend_checked_fetch_consumers_have_rejection_paths(self):
         page = panel.PAGE
         for function_name in (
