@@ -8570,6 +8570,14 @@ function netLoad(full) {
     NET.state = st;
     var statusSlot = netEl('net-status-slot');
     if (full || !statusSlot) {
+      if (NET.dirty && (NET.dirty.routes || NET.dirty.dns)) {
+        // A full re-render rebuilds the route/DNS inputs from the server and clears
+        // the dirty flag, which silently discards edits the user never saved. Keep
+        // the form as-is and refresh only the live status tiles instead.
+        if (statusSlot) statusSlot.innerHTML = netRenderStatus(st);
+        netApplyBadge(st);
+        return;
+      }
       slot.innerHTML = netRenderCard(st);
       NET.dirty = {routes: false, dns: false};
     } else {

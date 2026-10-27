@@ -440,6 +440,26 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("if (loadGen === netLoadGen && btn)", tail_segment)
         self.assertLess(then_segment.index(guard), then_segment.index("slot.innerHTML"), "netLoad")
 
+    def test_network_full_reload_never_wipes_unsaved_edits(self):
+        """A full re-render replaces the route/DNS inputs; doing it with unsaved
+        edits silently discards them and clears the dirty flag, so the user
+        believes the edits were saved."""
+        network = panel.NETWORK_SCRIPT
+        start = network.index("function netLoad")
+        next_function = network.find("\nfunction ", start + 1)
+        segment = network[start:] if next_function == -1 else network[start:next_function]
+        then_start = segment.index(".then(function (st) {")
+        catch_start = segment.index(".catch(function (e) {")
+        then_segment = segment[then_start:catch_start]
+        self.assertIn("NET.dirty.routes || NET.dirty.dns", then_segment)
+        self.assertIn("statusSlot.innerHTML = netRenderStatus(st);", then_segment)
+        # the dirty guard must run before the destructive full re-render
+        self.assertLess(
+            then_segment.index("NET.dirty.routes || NET.dirty.dns"),
+            then_segment.index("slot.innerHTML = netRenderCard(st);"),
+            "netLoad full reload must be guarded",
+        )
+
     def test_frontend_checked_fetch_consumers_have_rejection_paths(self):
         page = panel.PAGE
         for function_name in (
