@@ -53,7 +53,12 @@ Updated: 2026-10-27
 - [x] Restored instant scroll-to-bottom on log un-dismissal (`toggleLog`); restored logs now consistently scroll to the newest output even if offline or before the next SSE tick.
 - [x] Aligned SSE gateway log card caching with the other three log cards, storing `d.gateway_log_card` before dismissal checks so un-dismissal always restores the freshest payload.
 - [x] Inspected `input.method` in global fetch toast interceptor; mutation requests passed as `Request` instances now trigger automatic toast notifications.
+- [x] Sanitized Kanban comment author inputs, falling back cleanly to `web-panel` on blank/whitespace strings across both SQL insertion and event logs.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
+
+## Wave 67 completed
+
+- Kanban comment submission now strips and coerces blank/whitespace author strings to `web-panel` in both the comments table and task events payload.
 
 ## Wave 66 completed
 

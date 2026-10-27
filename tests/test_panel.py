@@ -3842,6 +3842,18 @@ class TestKanbanBoard(unittest.TestCase):
         self.assertIn("events", t)
         self.assertTrue(len(t["events"]) >= 1)
 
+    def test_05b_task_comment_whitespace_author_falls_back_to_default(self):
+        _, _, task_id = panel.create_kanban_task(title="Comment Whitespace Test", status="todo")
+        ok, msg = panel.add_kanban_comment(task_id, "Note with blank author", author="   \t\n  ")
+        self.assertTrue(ok, msg)
+
+        t = panel.get_kanban_task(task_id)
+        self.assertEqual(t["comments"][0]["author"], "web-panel")
+        events = [e for e in t["events"] if e.get("kind") == "commented"]
+        self.assertTrue(events)
+        payload = json.loads(events[0]["payload"]) if isinstance(events[0]["payload"], str) else events[0]["payload"]
+        self.assertEqual(payload.get("author"), "web-panel")
+
     def test_06_delete_task(self):
         _, _, task_id = panel.create_kanban_task(title="Delete Me")
         panel.add_kanban_comment(task_id, "temporary note")

@@ -12036,6 +12036,7 @@ def add_kanban_comment(task_id: str, body: str, author: str = "web-panel", board
     body = (body or "").strip()
     if not body:
         return False, "Komentar tidak boleh kosong."
+    clean_author = (author or "").strip() or "web-panel"
     db_path = get_kanban_db_path(board)
     try:
         with closing(ensure_kanban_db(db_path)) as con:
@@ -12046,11 +12047,11 @@ def add_kanban_comment(task_id: str, body: str, author: str = "web-panel", board
                 con.execute("""
                     INSERT INTO task_comments (task_id, author, body, created_at)
                     VALUES (?, ?, ?, ?)
-                """, (task_id, (author or "web-panel").strip(), body, now))
+                """, (task_id, clean_author, body, now))
                 con.execute("""
                     INSERT INTO task_events (task_id, kind, payload, created_at)
                     VALUES (?, 'commented', ?, ?)
-                """, (task_id, json.dumps({"author": author}), now))
+                """, (task_id, json.dumps({"author": clean_author}), now))
         _invalidate_status_cache("kanban_board_block")
         return True, "Komentar berhasil ditambahkan."
     except Exception as e:
@@ -16766,7 +16767,8 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/kanban/task/comment":
             tid = str(json_data.get("task_id") or (qs.get("task_id") or [""])[0]).strip()
             body = str(json_data.get("body") or (qs.get("body") or [""])[0]).strip()
-            author = str(json_data.get("author") or (qs.get("author") or ["web-panel"])[0]).strip()
+            raw_author = json_data.get("author") if "author" in json_data else (qs.get("author") or ["web-panel"])[0]
+            author = (str(raw_author or "").strip()) or "web-panel"
             board = str(json_data.get("board") or (qs.get("board") or [""])[0]).strip()
             ok, msg = add_kanban_comment(tid, body, author=author, board=board)
             self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
