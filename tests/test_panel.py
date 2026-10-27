@@ -48,7 +48,7 @@ class TestHermesControlPanel(unittest.TestCase):
         cls.server.server_close()
 
     def setUp(self):
-        panel._last_action_at = 0.0
+        panel._last_action_at.clear()
         panel._last_aux_model_at = 0.0
         panel._last_model_switch_at = 0.0
         with panel._router_update_lock:
@@ -1227,7 +1227,7 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
             mock_restart.assert_called_once()
 
             # 3. GET shortcut with token (CasaOS compat) -> allowed (302)
-            panel._last_action_at = 0.0
+            panel._last_action_at.clear()
             code, headers, _ = self._request(f"/toggle?token={panel.TOKEN}", method="GET")
             self.assertEqual(code, 302)
             mock_dash.assert_called()
@@ -2520,7 +2520,7 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
             "casaos-message-bus.service",
         ]
         for action in ("stop", "start", "restart"):
-            panel._last_action_at = 0.0
+            panel._last_action_at.clear()
             with mock.patch.object(panel.subprocess, "run") as mock_sub:
                 code, _, _ = self._request(
                     f"/process-action?service=casaos&action={action}",
@@ -2617,7 +2617,7 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
     def test_process_action_reports_nonzero_exit(self):
         """A failed lifecycle command must not redirect as if action succeeded."""
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
-        panel._last_action_at = 0.0
+        panel._last_action_at.clear()
         with mock.patch.object(panel.os.path, "isfile", return_value=True), \
              mock.patch.object(panel.subprocess, "run", return_value=mock.Mock(returncode=1)):
             code, headers, _ = self._request(
@@ -4751,7 +4751,7 @@ class TestGatewayNetwork(unittest.TestCase):
             self.addCleanup(p.stop)
         panel.invalidate_config_cache()
         panel._invalidate_network_cache()
-        panel._last_action_at = 0.0
+        panel._last_action_at.clear()
         with panel._hermes_update_lock:  # rendering /status must not spawn a real `hermes update --check`
             panel._hermes_update_cache["at"] = time.time()
 
@@ -5106,7 +5106,7 @@ class TestHermesUpdateFlow(unittest.TestCase):
         cls.server.server_close()
 
     def setUp(self):
-        panel._last_action_at = 0.0
+        panel._last_action_at.clear()
         with panel._hermes_update_lock:  # a background refresh left over from an earlier test
             panel._hermes_check_running = False  # would make _refresh_hermes_update() return early
         with panel._update_scan_lock:
@@ -5385,7 +5385,7 @@ class TestHermesUpdateFlow(unittest.TestCase):
             self.assertEqual(r_proc["mem_mb"], 88.5)
 
         cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
-        panel._last_action_at = 0.0
+        panel._last_action_at.clear()
         req = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/process-action?service=9router&action=restart",
             data=b"", method="POST",
@@ -5422,7 +5422,7 @@ class TestHermesUpdateFlow(unittest.TestCase):
 
                 # Test POST /openclaw-toggle
                 cookie = f"{panel.SESSION_COOKIE_NAME}={panel.SESSION_VALUE}"
-                panel._last_action_at = 0.0
+                panel._last_action_at.clear()
                 req = urllib.request.Request(
                     f"http://127.0.0.1:{self.port}/openclaw-toggle",
                     data=b"", method="POST",
@@ -5487,6 +5487,42 @@ class TestHermesUpdateFlow(unittest.TestCase):
                     f.write("model:\n  default: changed\n"); f.flush(); os.fsync(f.fileno())
                 os.utime(path, ns=(time.time_ns(), time.time_ns()))
                 self.assertEqual(panel.get_parsed_config()["model"]["default"], "changed")
+
+
+class TestActionDebounce(unittest.TestCase):
+    """Debounce must be per-action: two different actions in quick succession both run."""
+
+    def setUp(self):
+        panel._last_action_at.clear()
+
+    def test_same_action_within_window_is_debounced(self):
+        t = 1000.0
+        self.assertFalse(panel._debounce_hit("/toggle", t))
+        self.assertTrue(panel._debounce_hit("/toggle", t + 1.0))
+
+    def test_same_action_after_window_runs_again(self):
+        t = 1000.0
+        self.assertFalse(panel._debounce_hit("/toggle", t))
+        self.assertFalse(panel._debounce_hit("/toggle", t + panel.DEBOUNCE_SECONDS + 0.1))
+
+    def test_different_actions_both_run(self):
+        t = 1000.0
+        self.assertFalse(panel._debounce_hit("/toggle", t))
+        self.assertFalse(panel._debounce_hit("/restart-bot", t + 0.1))
+        self.assertFalse(panel._debounce_hit("process:9router:stop", t + 0.2))
+
+    def test_process_action_key_includes_service_and_action(self):
+        t = 1000.0
+        self.assertFalse(panel._debounce_hit("process:9router:stop", t))
+        self.assertTrue(panel._debounce_hit("process:9router:stop", t + 0.5))
+        self.assertFalse(panel._debounce_hit("process:9router:start", t + 0.6))
+        self.assertFalse(panel._debounce_hit("process:cloudflared:stop", t + 0.7))
+
+    def test_debounce_map_is_pruned(self):
+        t = 1000.0
+        for i in range(200):
+            panel._debounce_hit(f"/k{i}", t + i)
+        self.assertLessEqual(len(panel._last_action_at), 64)
 
 
 if __name__ == "__main__":

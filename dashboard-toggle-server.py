@@ -260,7 +260,26 @@ HERMES_UPDATE_LOG_PATH = "/root/.hermes/logs/update.log"
 HERMES_UPDATE_TIMEOUT = _env_int("HERMES_UPDATE_TIMEOUT", 3600, 120, 86400)
 
 _last_action_lock = threading.Lock()
-_last_action_at = 0.0
+_last_action_at: dict[str, float] = {}
+
+
+def _debounce_hit(key: str, now: float | None = None) -> bool:
+    """True when *key* fired within DEBOUNCE_SECONDS. Records the hit otherwise.
+
+    Keyed per action so two different actions in quick succession both run; only a
+    duplicate of the same action (double-click, prefetch, refresh replay) is dropped.
+    """
+    now = time.monotonic() if now is None else now
+    with _last_action_lock:
+        last = _last_action_at.get(key, 0.0)
+        if now - last < DEBOUNCE_SECONDS:
+            return True
+        _last_action_at[key] = now
+        if len(_last_action_at) > 64:
+            cutoff = now - DEBOUNCE_SECONDS * 10
+            for k in [k for k, v in _last_action_at.items() if v < cutoff]:
+                del _last_action_at[k]
+        return False
 _last_model_switch_lock = threading.Lock()
 _last_model_switch_at = 0.0
 _last_aux_model_lock = threading.Lock()
@@ -16450,7 +16469,6 @@ class Handler(BaseHTTPRequestHandler):
         self._handle_mutation(parsed, qs, json_data=json_data)
 
     def do_GET(self):
-        global _last_action_at, _last_model_switch_at, _last_aux_model_at
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
 
@@ -17037,9 +17055,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": ok, "message": msg, "config": get_kanban_config(), "error": "" if ok else msg}, code=200 if ok else 400)
             return
         """Execute an already-authenticated action route, then redirect."""
-        global _last_action_at, _last_model_switch_at, _last_aux_model_at, _update_refreshing
 
         if parsed.path == "/switch-model":
+            global _last_model_switch_at
             requested = str(json_data.get("model") or (qs.get("model") or [""])[0]).strip()
             now = time.monotonic()
             with _last_model_switch_lock:
@@ -17084,6 +17102,7 @@ class Handler(BaseHTTPRequestHandler):
             provider = str(json_data.get("provider") or (qs.get("provider") or [""])[0]).strip()
             model = str(json_data.get("model") or (qs.get("model") or [""])[0]).strip()
             is_ajax = bool(json_data) or bool((qs.get("ajax") or [""])[0]) or "application/json" in self.headers.get("Accept", "")
+            global _last_aux_model_at
             now = time.monotonic()
             with _last_aux_model_lock:
                 debounced = (now - _last_aux_model_at) < 0.3
@@ -17111,11 +17130,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/reset-aux":
-            now = time.monotonic()
-            with _last_action_lock:
-                debounced = (now - _last_action_at) < DEBOUNCE_SECONDS
-                if not debounced:
-                    _last_action_at = now
+            debounced = _debounce_hit(parsed.path)
             if not debounced:
                 if not reset_all_aux_tasks():
                     self._send_html("<h1>500 — gagal mereset konfigurasi auxiliary model</h1>", 500)
@@ -17134,11 +17149,7 @@ class Handler(BaseHTTPRequestHandler):
             provider = str(json_data.get("provider") or (qs.get("provider") or ["9router"])[0]).strip()
             model = str(json_data.get("model") or (qs.get("model") or [""])[0]).strip()
             is_ajax = bool(json_data) or bool((qs.get("ajax") or [""])[0]) or "application/json" in self.headers.get("Accept", "")
-            now = time.monotonic()
-            with _last_action_lock:
-                debounced = (now - _last_action_at) < DEBOUNCE_SECONDS
-                if not debounced:
-                    _last_action_at = now
+            debounced = _debounce_hit(parsed.path)
             if not debounced and model:
                 saved = set_fallback_model(index, provider, model)
                 if is_ajax:
@@ -17166,11 +17177,7 @@ class Handler(BaseHTTPRequestHandler):
                 index = int(index_raw)
             except (ValueError, TypeError):
                 index = -1
-            now = time.monotonic()
-            with _last_action_lock:
-                debounced = (now - _last_action_at) < DEBOUNCE_SECONDS
-                if not debounced:
-                    _last_action_at = now
+            debounced = _debounce_hit(parsed.path)
             if not debounced and index >= 0:
                 if not remove_fallback_model(index):
                     self._send_html("<h1>500 — gagal menghapus fallback model</h1>", 500)
@@ -17183,11 +17190,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/process-action":
             service = str(json_data.get("service") or (qs.get("service") or [""])[0]).strip()
             action = str(json_data.get("action") or (qs.get("action") or [""])[0]).strip()
-            now = time.monotonic()
-            with _last_action_lock:
-                debounced = (now - _last_action_at) < DEBOUNCE_SECONDS
-                if not debounced:
-                    _last_action_at = now
+            debounced = _debounce_hit(f"process:{service}:{action}")
             if not debounced and service and action:
                 action_error = ""
                 try:
@@ -17297,11 +17300,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_html("<h1>404</h1>", 404)
             return
 
-        now = time.monotonic()
-        with _last_action_lock:
-            debounced = (now - _last_action_at) < DEBOUNCE_SECONDS
-            if not debounced:
-                _last_action_at = now
+        debounced = _debounce_hit(parsed.path)
 
         just = ""
         target_tab = ""
@@ -17351,6 +17350,7 @@ class Handler(BaseHTTPRequestHandler):
                     target_tab = "control"
                 elif parsed.path == "/check-update":
                     # Force a fresh check: drop cache and kick off background refresh
+                    global _update_refreshing
                     try:
                         os.remove(UPDATE_CACHE_PATH)
                     except OSError:
