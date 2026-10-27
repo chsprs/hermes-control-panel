@@ -3689,15 +3689,17 @@ function submitCreateTask(){{
   var priority = parseInt(document.getElementById('kanban-task-priority').value || '0', 10);
   var model = (document.getElementById('kanban-task-model').value || '').trim();
   var bSel = document.getElementById('kanban-board-select');
-  var board = bSel ? bSel.value : '';
+  var mutationBoard = bSel ? bSel.value : '';
+  var mutationGen = ++kanbanMutationGen;
 
   closeCreateTaskModal();
   fetchJsonChecked('/api/kanban/task/create', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
-    body: JSON.stringify({{ title: title, body: body, assignee: assignee, status: status, priority: priority, model_override: model, board: board }})
+    body: JSON.stringify({{ title: title, body: body, assignee: assignee, status: status, priority: priority, model_override: model, board: mutationBoard }})
   }})
   .then(function(res){{
+    if(mutationGen !== kanbanMutationGen || mutationBoard !== (bSel ? bSel.value : '')) return;
     if(res && res.ok){{
       refreshKanbanBoard(true);
       showKanbanToast('Tugas baru berhasil dibuat (' + res.task_id + ')');
@@ -3705,7 +3707,10 @@ function submitCreateTask(){{
       alert('Gagal membuat tugas: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(mutationGen !== kanbanMutationGen || mutationBoard !== (bSel ? bSel.value : '')) return;
+    alert('Error: ' + err);
+  }});
 }}
 
 function openCreateBoardModal(){{
