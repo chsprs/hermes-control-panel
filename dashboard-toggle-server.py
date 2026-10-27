@@ -1448,7 +1448,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <textarea id="soul-content" class="search-input" style="flex:1;min-height:280px;max-height:55vh;width:100%;font-family:var(--font-mono);font-size:0.8rem;line-height:1.45;resize:vertical;background:#0d1117;color:#f0f6fc;padding:0.75rem"></textarea>
       <div style="display:flex;justify-content:flex-end;gap:0.5rem">
         <button type="button" class="btn" style="width:auto" onclick="closeProfileSoulModal()">Batal</button>
-        <button type="button" class="btn btn-on" style="width:auto" onclick="submitProfileSoul()">Simpan SOUL.md</button>
+        <button type="button" id="btn-submit-profile-soul" class="btn btn-on" style="width:auto" onclick="submitProfileSoul()">Simpan SOUL.md</button>
       </div>
     </div>
   </div>
@@ -1466,7 +1466,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       </div>
       <div style="display:flex;justify-content:flex-end;gap:0.5rem">
         <button type="button" class="btn" style="width:auto" onclick="closeRenameProfileModal()">Batal</button>
-        <button type="button" class="btn btn-on" style="width:auto" onclick="submitRenameProfile()">Simpan</button>
+        <button type="button" id="btn-submit-rename-profile" class="btn btn-on" style="width:auto" onclick="submitRenameProfile()">Simpan</button>
       </div>
     </div>
   </div>
@@ -2752,18 +2752,32 @@ function openRenameProfileModal(name){{
 }}
 
 function closeRenameProfileModal(){{
+  profileRenameSubmitting = false;
+  var btn = document.getElementById('btn-submit-rename-profile');
+  if(btn){{ btn.disabled = false; btn.textContent = 'Simpan'; }}
+  var inp = document.getElementById('rename-profile-new-name');
+  if(inp){{ inp.disabled = false; }}
   var modal = document.getElementById('rename-profile-modal');
   if(modal) modal.classList.remove('show');
 }}
 
+var profileRenameSubmitting = false;
+
 function submitRenameProfile(){{
-  var newName = (document.getElementById('rename-profile-new-name').value || '').trim();
+  if(profileRenameSubmitting) return;
+  var inp = document.getElementById('rename-profile-new-name');
+  var newName = (inp ? inp.value : '').trim();
   if(!newName || newName === currentRenamingProfile){{ closeRenameProfileModal(); return; }}
   var oldName = currentRenamingProfile;
   var mutationProfile = oldName;
   var mutationGen = ++profileMutationGen;
   currentProfileMutationTarget = mutationProfile;
-  closeRenameProfileModal();
+
+  var btn = document.getElementById('btn-submit-rename-profile');
+  profileRenameSubmitting = true;
+  if(btn){{ btn.disabled = true; btn.textContent = 'Menyimpan…'; }}
+  if(inp){{ inp.disabled = true; }}
+
   var body = new URLSearchParams({{ old_name: oldName, new_name: newName, ajax: '1' }});
   fetchJsonChecked('/rename-profile', {{
     method: 'POST',
@@ -2771,16 +2785,23 @@ function submitRenameProfile(){{
     body: body.toString()
   }})
   .then(function(res){{
+    profileRenameSubmitting = false;
+    if(btn){{ btn.disabled = false; btn.textContent = 'Simpan'; }}
+    if(inp){{ inp.disabled = false; }}
     if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
     if(res && res.ok){{
+      closeRenameProfileModal();
       window.location.href = '/status?just=profile-renamed&tab=profiles';
     }} else {{
-      alert('Gagal mengubah nama profil: ' + (res && res.error ? res.error : 'unknown'));
+      toast('Gagal mengubah nama profil: ' + (res && res.error ? res.error : 'unknown'), 'err');
     }}
   }})
   .catch(function(err){{
+    profileRenameSubmitting = false;
+    if(btn){{ btn.disabled = false; btn.textContent = 'Simpan'; }}
+    if(inp){{ inp.disabled = false; }}
     if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
-    alert('Error: ' + err);
+    toast('Error: ' + err, 'err');
   }});
 }}
 
@@ -2806,19 +2827,33 @@ function openProfileSoulModal(name){{
 }}
 
 function closeProfileSoulModal(){{
+  profileSoulSubmitting = false;
+  var btn = document.getElementById('btn-submit-profile-soul');
+  if(btn){{ btn.disabled = false; btn.textContent = 'Simpan SOUL.md'; }}
+  var txt = document.getElementById('soul-content');
+  if(txt){{ txt.disabled = false; }}
   ++profileSoulLoadGen;
   currentEditingSoulProfile = '';
   var modal = document.getElementById('soul-modal');
   if(modal) modal.classList.remove('show');
 }}
 
+var profileSoulSubmitting = false;
+
 function submitProfileSoul(){{
+  if(profileSoulSubmitting) return;
   var name = currentEditingSoulProfile;
-  var content = document.getElementById('soul-content').value;
+  var txt = document.getElementById('soul-content');
+  var content = txt ? txt.value : '';
   var mutationProfile = name;
   var mutationGen = ++profileMutationGen;
   currentProfileMutationTarget = mutationProfile;
-  closeProfileSoulModal();
+
+  var btn = document.getElementById('btn-submit-profile-soul');
+  profileSoulSubmitting = true;
+  if(btn){{ btn.disabled = true; btn.textContent = 'Menyimpan…'; }}
+  if(txt){{ txt.disabled = true; }}
+
   var body = new URLSearchParams({{ profile: name, content: content, ajax: '1' }});
   fetchJsonChecked('/save-profile-soul', {{
     method: 'POST',
@@ -2826,16 +2861,23 @@ function submitProfileSoul(){{
     body: body.toString()
   }})
   .then(function(res){{
+    profileSoulSubmitting = false;
+    if(btn){{ btn.disabled = false; btn.textContent = 'Simpan SOUL.md'; }}
+    if(txt){{ txt.disabled = false; }}
     if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
     if(res && res.ok){{
+      closeProfileSoulModal();
       window.location.href = '/status?just=profile-soul&tab=profiles';
     }} else {{
-      alert('Gagal menyimpan SOUL.md: ' + (res && res.error ? res.error : 'unknown'));
+      toast('Gagal menyimpan SOUL.md: ' + (res && res.error ? res.error : 'unknown'), 'err');
     }}
   }})
   .catch(function(err){{
+    profileSoulSubmitting = false;
+    if(btn){{ btn.disabled = false; btn.textContent = 'Simpan SOUL.md'; }}
+    if(txt){{ txt.disabled = false; }}
     if(mutationGen !== profileMutationGen || currentProfileMutationTarget !== mutationProfile) return;
-    alert('Error: ' + err);
+    toast('Error: ' + err, 'err');
   }});
 }}
 
@@ -2998,30 +3040,40 @@ function renderProfileSkillsList(){{
 
 function filterProfileSkills(){{ renderProfileSkillsList(); }}
 
+var profileSkillSubmitting = {{}};
+
 function toggleProfileSkill(skill, enable){{
+  if(profileSkillSubmitting[skill]) return;
+  profileSkillSubmitting[skill] = true;
+  var btn = document.querySelector('button[data-skill-name="' + escHtml(skill) + '"]');
+  if(btn){{ btn.disabled = true; btn.textContent = '...'; }}
   var mutationProfile = currentSkillsProfile;
   var mutationLoadGen = profileSkillsLoadGen;
   var body = new URLSearchParams({{ profile: mutationProfile, skill: skill, enabled: enable ? '1' : '0', ajax: '1' }});
-  var mutationGuard = function(){{ return mutationProfile === currentSkillsProfile && mutationLoadGen === profileSkillsLoadGen; }};
   fetchJsonChecked('/toggle-profile-skill', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
     body: body.toString()
   }})
   .then(function(res){{
+    delete profileSkillSubmitting[skill];
     if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
     if(res && res.ok){{
       for(var i = 0; i < profileSkillsCache.length; i++){{
         if(profileSkillsCache[i].name === skill) profileSkillsCache[i].enabled = !!enable;
       }}
       renderProfileSkillsList();
+      toast(res.message || ('Skill ' + skill + (enable ? ' diaktifkan' : ' dinonaktifkan')), 'ok');
     }} else {{
-      alert('Gagal: ' + (res && res.error ? res.error : 'unknown'));
+      renderProfileSkillsList();
+      toast('Gagal: ' + (res && res.error ? res.error : 'unknown'), 'err');
     }}
   }})
   .catch(function(err){{
+    delete profileSkillSubmitting[skill];
     if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
-    alert('Error: ' + err);
+    renderProfileSkillsList();
+    toast('Error: ' + err, 'err');
   }});
 }}
 
@@ -3118,7 +3170,13 @@ function renderProfileToolsList(){{
   list.innerHTML = rows.join('');
 }}
 
+var profileToolSubmitting = {{}};
+
 function toggleProfileToolset(toolset, enable){{
+  if(profileToolSubmitting[toolset]) return;
+  profileToolSubmitting[toolset] = true;
+  var btn = document.querySelector('button[data-ts-name="' + escHtml(toolset) + '"]');
+  if(btn){{ btn.disabled = true; btn.textContent = '...'; }}
   var mutationProfile = currentSkillsProfile;
   var mutationLoadGen = profileSkillsLoadGen;
   var body = new URLSearchParams({{ profile: mutationProfile, toolset: toolset, enabled: enable ? '1' : '0', ajax: '1' }});
@@ -3128,6 +3186,7 @@ function toggleProfileToolset(toolset, enable){{
     body: body.toString()
   }})
   .then(function(res){{
+    delete profileToolSubmitting[toolset];
     if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
     if(res && res.ok){{
       var dis = profileToolsCache.disabled || [];
@@ -3136,13 +3195,17 @@ function toggleProfileToolset(toolset, enable){{
       if(!enable && ix === -1) dis.push(toolset);
       profileToolsCache.disabled = dis;
       renderProfileToolsList();
+      toast(res.message || ('Toolset ' + toolset + (enable ? ' diaktifkan' : ' dimatikan')), 'ok');
     }} else {{
-      alert('Gagal: ' + (res && res.error ? res.error : 'unknown'));
+      renderProfileToolsList();
+      toast('Gagal: ' + (res && res.error ? res.error : 'unknown'), 'err');
     }}
   }})
   .catch(function(err){{
+    delete profileToolSubmitting[toolset];
     if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
-    alert('Error: ' + err);
+    renderProfileToolsList();
+    toast('Error: ' + err, 'err');
   }});
 }}
 
@@ -8065,14 +8128,34 @@ SSE_SCRIPT = """<script>
       if(d.cells.gw_platforms) set('cell-gw-platforms', d.cells.gw_platforms); }
     // Static controls stay untouched: replacing them resets scroll/focus.
     // SSE updates only live metrics, process data, and active update logs.
-    if(d.processes_table) set('process-table-slot',d.processes_table);
+    if(d.processes_table){
+      var pts = document.getElementById('process-table-slot');
+      var isInteracting = false;
+      if(pts){
+        try{
+          if(pts.contains(document.activeElement) && document.activeElement !== document.body) isInteracting = true;
+          else if(pts.matches && (pts.matches(':focus-within') || pts.matches(':active'))) isInteracting = true;
+          else if(pts.querySelector && pts.querySelector('a:hover, button:hover, a:active, button:active')) isInteracting = true;
+          else {
+            var sel = window.getSelection ? window.getSelection() : null;
+            if(sel && !sel.isCollapsed && pts.contains(sel.anchorNode)) isInteracting = true;
+          }
+        }catch(e){}
+      }
+      if(!isInteracting){
+        set('process-table-slot', d.processes_table);
+      }
+    }
     if(d.gateway_list_block) set('gateway-list-slot', d.gateway_list_block);
     if(d.profiles_block) set('profiles-slot', d.profiles_block);
-    if(d.gw_summary_text) set('gw-summary-badge', d.gw_summary_text);
-    if(d.gw_summary_badge_class) {{
+    if(d.gw_summary_text){
+      var gwb = document.getElementById('gw-summary-badge');
+      if(gwb && gwb.textContent !== d.gw_summary_text) gwb.textContent = d.gw_summary_text;
+    }
+    if(d.gw_summary_badge_class) {
       var gwb = document.getElementById('gw-summary-badge');
       if(gwb) gwb.className = 'badge ' + d.gw_summary_badge_class;
-    }}
+    }
     if(d.cpu_pct !== undefined) {{
       updateSparkline('cpu-sparkline', d.cpu_pct, cpuHistory);
       var cval = document.getElementById('perf-cpu-val');
@@ -9008,7 +9091,8 @@ var CONFIRM_ROUTES = [
 function isMutatingPath(url) {
   var path = (url || '').split('?')[0];
   for (var i = 0; i < MUTATING_PREFIXES.length; i++) {
-    if (path === MUTATING_PREFIXES[i]) return true;
+    var prefix = MUTATING_PREFIXES[i];
+    if (path === prefix || (prefix.slice(-1) === '/' && path.indexOf(prefix) === 0)) return true;
   }
   return false;
 }

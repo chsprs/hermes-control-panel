@@ -58,6 +58,16 @@ Updated: 2026-10-27
 - [x] Cleared stale poll and countdown interval timers when re-starting WhatsApp pairing (`startWaPair`); subsequent attempts now start with pristine timer state.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
 
+## Wave 77 completed
+
+- **Finite backlog audit verification & hardening (Wave 21 candidates closure):**
+  1. *Centralized fetch error/status handling:* diverifikasi seluruh 46 pemanggilan AJAX/fetch menggunakan helper terstandarisasi (`fetchJsonChecked()`, `netGet()`, dan `netPost()`); seluruhnya memeriksa status HTTP `response.ok` (atau melempar status error) dan tidak ada pemanggilan mentah `r.json()` tanpa penanganan status error.
+  2. *Frontend rendering boundaries & escaping:* slot teks dinamis `gw_summary_text` pada handler SSE `apply()` dimigrasikan dari `set()` (`innerHTML`) ke text node (`textContent`), menutup potensi rendering injection pada badge ringkasan gateway. Rendering boundary modal profil dan komponen lain diverifikasi menggunakan DOM text node atau escaping ketat (`escHtml`/`escGw`).
+  3. *In-flight mutation submission guards:* menambahkan flag guard dan disable tombol/input selama pengiriman untuk form profil yang tersisa: `submitRenameProfile` (`profileRenameSubmitting`, label tombol 'Menyimpan…'), `submitProfileSoul` (`profileSoulSubmitting`, label tombol 'Menyimpan…'), `toggleProfileSkill` (`profileSkillSubmitting[skill]`), dan `toggleProfileToolset` (`profileToolSubmitting[toolset]`), disertai feedback notifikasi toast sukses/error yang konsisten.
+  4. *SSE interaction guard processes_table:* penimpaan slot `process-table-slot` pada setiap tick SSE kini memeriksa interaksi aktif pengguna (`contains(document.activeElement)`, `:focus-within`, `:active`, hover pada tombol aksi tugas/layanan, atau seleksi teks) agar tabel proses tidak di-replace secara destruktif saat pengguna sedang mengklik atau memilih baris.
+  5. *Static checks inline JS & route/API parity:* memperluas cakupan audit sintaks JavaScript ke seluruh blok `<script>` inline dan `NETWORK_SCRIPT` via `node --check`. Menambahkan verifikasi paritas route mutasi backend `do_POST` dengan `MUTATING_PATHS`, serta memperbaiki pencocokan awalan `isMutatingPath` untuk prefix direktori (seperti `/api/kanban/`).
+- Test RED→GREEN: 289 unit tests (maju & mundur) lulus 100%. Node check lolos 4/4 scripts.
+
 ## Wave 76 completed
 
 - **Kebocoran kredensial di editor konfigurasi gateway.** `GET /api/gateway-config` mengembalikan YAML mentah blok platform ke browser, dan editor memutarnya bolak-balik lewat `<textarea>` (mode YAML) serta mengirimnya kembali saat Simpan. Akibatnya `token`, `bot_token`, `password`, `app_secret`, `client_secret`, `corp_secret`, `channel_secret`, `api_key`, `access_token`, dst. tampil apa adanya di layar — padahal panel bisa jalan tanpa password di LAN. `redact_sensitive_tokens()` yang ada hanya mengenali *bentuk* token (Telegram/Discord/Slack/sk-/AIza/gh*), jadi secret berbasis key seperti `password:` atau `app_secret:` lolos total.
@@ -163,11 +173,11 @@ Updated: 2026-10-27
 
 ## Wave 21 candidates
 
-- [ ] Centralize frontend fetch error/status handling; several fetch chains call `response.json()` without checking `response.ok`.
-- [ ] Audit frontend rendering boundaries where API-derived strings reach `innerHTML`; use escaping or text nodes where required.
-- [ ] Verify mutation controls disable during submission and show consistent success/error toast feedback.
-- [ ] Audit SSE reconnect/error behavior and stale fragment replacement.
-- [ ] Add lightweight static checks for inline JavaScript syntax and route/API parity.
+- [x] Centralize frontend fetch error/status handling; several fetch chains call `response.json()` without checking `response.ok`.
+- [x] Audit frontend rendering boundaries where API-derived strings reach `innerHTML`; use escaping or text nodes where required.
+- [x] Verify mutation controls disable during submission and show consistent success/error toast feedback.
+- [x] Audit SSE reconnect/error behavior and stale fragment replacement.
+- [x] Add lightweight static checks for inline JavaScript syntax and route/API parity.
 
 ## Deferred / needs separate decision
 

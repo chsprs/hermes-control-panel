@@ -5775,5 +5775,103 @@ class TestActionDebounce(unittest.TestCase):
         self.assertLessEqual(len(panel._last_action_at), 64)
 
 
+class TestWave77Audit(unittest.TestCase):
+    """Wave 77 finite checklist verification: mutation guards, SSE rendering, JS syntax, route parity."""
+
+    def test_wave77_profile_mutation_controls_disable_during_submission(self):
+        page = panel.PAGE
+        # 1. Rename profile submission guard & controls
+        self.assertIn("var profileRenameSubmitting = false;", page)
+        rename_start = page.index("function submitRenameProfile")
+        rename_end = page.index("function openProfileSoulModal", rename_start)
+        rename_fn = page[rename_start:rename_end]
+        self.assertIn("if(profileRenameSubmitting) return;", rename_fn)
+        self.assertIn("profileRenameSubmitting = true;", rename_fn)
+        self.assertIn("btn.disabled = true;", rename_fn)
+
+        # 2. Soul profile submission guard & controls
+        self.assertIn("var profileSoulSubmitting = false;", page)
+        soul_start = page.index("function submitProfileSoul")
+        soul_end = page.index("function openProfileModelPicker", soul_start)
+        soul_fn = page[soul_start:soul_end]
+        self.assertIn("if(profileSoulSubmitting) return;", soul_fn)
+        self.assertIn("profileSoulSubmitting = true;", soul_fn)
+        self.assertIn("btn.disabled = true;", soul_fn)
+
+        # 3. Toggle profile skill in-flight guard & disable
+        skill_start = page.index("function toggleProfileSkill")
+        skill_end = page.index("var currentProfileSkillRaw", skill_start)
+        skill_fn = page[skill_start:skill_end]
+        self.assertIn("profileSkillSubmitting", skill_fn)
+        self.assertIn(".disabled = true", skill_fn)
+
+        # 4. Toggle profile toolset in-flight guard & disable
+        tool_start = page.index("function toggleProfileToolset")
+        tool_end = page.index("// --- Kanban UI JavaScript ---", tool_start)
+        tool_fn = page[tool_start:tool_end]
+        self.assertIn("profileToolSubmitting", tool_fn)
+        self.assertIn(".disabled = true", tool_fn)
+
+    def test_wave77_sse_processes_table_interaction_guard(self):
+        script = panel.SSE_SCRIPT
+        apply_start = script.index("function apply(d){")
+        apply_end = script.index("function setLive", apply_start)
+        apply_fn = script[apply_start:apply_end]
+        self.assertIn("process-table-slot", apply_fn)
+        self.assertIn("activeElement", apply_fn)
+        self.assertIn(":focus-within", apply_fn)
+
+    def test_wave77_sse_gw_summary_badge_uses_text_node(self):
+        script = panel.SSE_SCRIPT
+        apply_start = script.index("function apply(d){")
+        apply_end = script.index("function setLive", apply_start)
+        apply_fn = script[apply_start:apply_end]
+        self.assertNotIn("set('gw-summary-badge'", apply_fn)
+        self.assertIn("textContent = d.gw_summary_text", apply_fn)
+
+    def test_wave77_nav_script_is_mutating_path_prefix_matching(self):
+        script = panel.NAV_SCRIPT
+        nav_start = script.index("function isMutatingPath")
+        nav_end = script.index("function postNavigate", nav_start)
+        nav_fn = script[nav_start:nav_end]
+        self.assertTrue(
+            "prefix.slice(-1) === '/'" in nav_fn or "endsWith('/')" in nav_fn or "indexOf" in nav_fn,
+            "isMutatingPath must support prefix matching for entries ending with /"
+        )
+
+    def test_wave77_route_api_parity(self):
+        import inspect, re
+        source = inspect.getsource(panel.Handler.do_POST)
+        post_paths = set(re.findall(r'parsed\.path\s*==\s*["\']([^"\']+)["\']', source))
+        action_post_paths = {p for p in post_paths if p not in ("/login", "/logout")}
+        for p in action_post_paths:
+            self.assertIn(p, panel.MUTATING_PATHS, f"Route '{p}' in do_POST must be registered in MUTATING_PATHS")
+
+        arr_text = panel.NAV_SCRIPT.split("MUTATING_PREFIXES = [")[1].split("];")[0]
+        for clean in re.findall(r"['\"]([^'\"]+)['\"]", arr_text):
+            if clean.endswith("/"):
+                matching = [mp for mp in panel.MUTATING_PATHS if mp.startswith(clean)]
+                self.assertGreater(len(matching), 0, f"Prefix '{clean}' in NAV_SCRIPT has no matching routes in MUTATING_PATHS")
+            else:
+                self.assertIn(clean, panel.MUTATING_PATHS, f"Path '{clean}' in NAV_SCRIPT must be in MUTATING_PATHS")
+
+    def test_wave77_static_inline_js_syntax_including_network_script(self):
+        import shutil, subprocess, tempfile
+        node_bin = shutil.which("node")
+        if not node_bin:
+            self.skipTest("node not installed")
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as tf:
+            tf.write(panel.NETWORK_SCRIPT)
+            tmp_name = tf.name
+        try:
+            res = subprocess.run([node_bin, "--check", tmp_name], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"NETWORK_SCRIPT has JS SyntaxError:\n{res.stderr}")
+        finally:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+
+
 if __name__ == "__main__":
     unittest.main()
