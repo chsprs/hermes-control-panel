@@ -45,7 +45,12 @@ Updated: 2026-10-27
 - [x] Added generation guards to Network connection test and DNS resolution; stale test/resolve responses cannot overwrite newer test cards or chips.
 - [x] Audited remaining non-JSON fetches, SSE reconnect/error paths, and API-derived `innerHTML` boundaries; verified strict escaping and generation guards across all rendering sinks.
 - [x] Added generation guards to Network Card route/DNS saves; stale responses and delayed refresh timers cannot overwrite newer save state.
+- [x] Added generation guard to Kanban toast fade/hide callbacks; an old toast timer cannot hide a newer message.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
+
+## Wave 59 completed
+
+- Kanban toast callbacks now carry a generation token. Replaced messages cancel old timers, preventing stale fade/hide callbacks from hiding current feedback.
 
 ## Wave 58 completed
 

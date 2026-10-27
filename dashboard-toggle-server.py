@@ -3122,14 +3122,20 @@ var KANBAN_COLS = [
 function showKanbanToast(msg, isError) {{
   var toast = document.getElementById('kanban-toast');
   if(!toast) return;
+  var toastGen = (toast._generation || 0) + 1;
+  toast._generation = toastGen;
   toast.textContent = msg;
   toast.style.background = isError ? 'rgba(239,68,68,0.92)' : 'rgba(16,185,129,0.92)';
   toast.style.display = 'block';
   toast.style.opacity = '1';
   if(toast._timer) clearTimeout(toast._timer);
+  if(toast._hideTimer) clearTimeout(toast._hideTimer);
   toast._timer = setTimeout(function() {{
+    if(toast._generation !== toastGen) return;
     toast.style.opacity = '0';
-    setTimeout(function() {{ toast.style.display = 'none'; }}, 300);
+    toast._hideTimer = setTimeout(function() {{
+      if(toast._generation === toastGen) toast.style.display = 'none';
+    }}, 300);
   }}, 2500);
 }}
 

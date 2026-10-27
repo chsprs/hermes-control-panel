@@ -341,6 +341,16 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn("if (saveGen !== " + counter + ") return;", segment, function_name)
             self.assertGreaterEqual(segment.count("if (saveGen !== " + counter + ") return;"), 2, function_name)
 
+    def test_kanban_toast_ignores_stale_hide_callbacks(self):
+        page = panel.PAGE
+        start = page.index("function showKanbanToast")
+        end = page.index("function handleKanbanDragStart", start)
+        segment = page[start:end]
+        self.assertIn("toast._hideTimer", segment)
+        self.assertIn("var toastGen =", segment)
+        self.assertIn("if(toast._generation !== toastGen) return;", segment)
+        self.assertIn("if(toast._generation === toastGen) toast.style.display = 'none';", segment)
+
     def test_network_loader_ignores_stale_async_responses(self):
         network = panel.NETWORK_SCRIPT
         self.assertIn("var netLoadGen = 0;", network)
