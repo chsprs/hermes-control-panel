@@ -4280,6 +4280,57 @@ class TestKanbanBoard(unittest.TestCase):
             att_root_valid = panel.get_kanban_attachments_root("my-board")
             self.assertEqual(att_root_valid, self.root / "kanban" / "boards" / "my-board" / "attachments")
 
+    def test_15_completed_status_mapped_to_done(self):
+        ok, msg, tid = panel.create_kanban_task(title="Legacy Completed Task", status="completed")
+        self.assertTrue(ok, msg)
+        task = panel.get_kanban_task(tid)
+        self.assertIsNotNone(task["completed_at"])
+
+        done_tasks = panel.list_kanban_tasks(status="done")
+        self.assertTrue(any(t["id"] == tid for t in done_tasks))
+        todo_tasks = panel.list_kanban_tasks(status="todo")
+        self.assertFalse(any(t["id"] == tid for t in todo_tasks))
+
+        html_board = panel.render_kanban_board_block("default")
+        done_col_start = html_board.find('id="col-cards-done"')
+        todo_col_start = html_board.find('id="col-cards-todo"')
+        card_marker = f'id="card-{tid}"'
+        card_pos = html_board.find(card_marker)
+        self.assertNotEqual(card_pos, -1)
+        # Card must reside in done column, not in todo column
+        self.assertGreater(card_pos, done_col_start)
+        self.assertLess(card_pos, todo_col_start if todo_col_start > done_col_start else len(html_board))
+
+        # Frontend JS checks
+        page = panel.PAGE
+        self.assertIn("if(st === 'completed') st = 'done';", page)
+        self.assertIn("var rawSt = t.status === 'completed' ? 'done' : t.status;", page)
+
+    def test_16_save_kanban_config_cache_invalidation_and_clearing(self):
+        panel._status_probe_cache["kanban_board_block"] = (time.time() + 10, "stale_block")
+        ok, msg = panel.save_kanban_config({
+            "dispatch_in_gateway": False,
+            "default_assignee": None,
+            "orchestrator_profile": None
+        })
+        self.assertTrue(ok, msg)
+        self.assertNotIn("kanban_board_block", panel._status_probe_cache)
+        cfg = panel.get_kanban_config()
+        self.assertEqual(cfg["default_assignee"], "")
+        self.assertEqual(cfg["orchestrator_profile"], "")
+
+    def test_17_frontend_kanban_config_submit_disables_button(self):
+        page = panel.PAGE
+        start = page.index("function submitKanbanConfig")
+        end = page.find("\nfunction ", start + 1)
+        segment = page[start:end]
+        self.assertIn("saveBtn.disabled = true", segment)
+
+        start_open = page.index("function openKanbanConfigModal")
+        end_open = page.find("\nfunction ", start_open + 1)
+        segment_open = page[start_open:end_open]
+        self.assertIn("saveBtn.disabled = false", segment_open)
+
 
 class TestMarkdownRenderingAndKanbanAttachments(unittest.TestCase):
     """Unit tests for Rich Markdown rendering, Kanban attachment modal, and task/skill preview."""
@@ -5261,6 +5312,20 @@ class TestHermesUpdateFlow(unittest.TestCase):
         out = panel.render_markdown('[x](https://a.com/"onmouseover="x)')
         self.assertNotIn('href="https://a.com/"', out)
         self.assertIn("&quot;", out)
+
+    def test_markdown_link_url_cannot_smuggle_inline_code_placeholder(self):
+        """Inline-code placeholders are resolved after the <a> is built; a URL containing one
+        would splice raw HTML into the href attribute and break out of it."""
+        out = panel.render_markdown('[x](https://a.com/`b`)')
+        self.assertNotIn('href="https://a.com/<code', out)
+        self.assertNotIn('<code class="md-inline-code">b</code>"', out)
+        # the link must not be emitted at all rather than emitted malformed
+        self.assertNotIn('<a href="https://a.com/', out)
+
+    def test_markdown_link_url_cannot_smuggle_placeholder_in_relative_path(self):
+        out = panel.render_markdown('[x](/`b`)')
+        self.assertNotIn('href="/<code', out)
+        self.assertNotIn('<a href="/', out)
 
     def test_pid_detection_is_precise(self):
         boot = "import os, re, sys\nimport hermes_bootstrap\nfrom hermes_cli.main import main"

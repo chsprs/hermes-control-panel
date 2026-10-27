@@ -416,6 +416,8 @@ def render_markdown(text: str) -> str:
         # Links: [text](url) - only http, https, mailto, relative anchor
         def _lnk(m):
             t, u = m.group(1), m.group(2).strip()
+            if "\x00" in u:
+                return f"[{t}]({u})"
             if re.match(r"^(?:https?://|mailto:|/|#)", u, re.I):
                 safe_href = u.replace('"', "&quot;")  # text is already HTML-escaped (quote=False)
                 return f'<a href="{safe_href}" target="_blank" rel="noopener noreferrer" class="md-link">{t}</a>'
@@ -2118,7 +2120,7 @@ function escapeMdHtml(s){{
 }}
 
 function inlineFmt(s){{
-  s = s.replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:|\/|#)[^\s"'<>]+)\)/gi, function(_, t, u){{
+  s = s.replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:|\/|#)[^\s"'<>\x00]+)\)/gi, function(_, t, u){{
     return '<a href="' + u + '" target="_blank" rel="noopener noreferrer" class="md-link">' + t + '</a>';
   }});
   s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
@@ -3542,6 +3544,7 @@ function renderKanbanCards(tasks) {{
 
   (tasks || []).forEach(function(t) {{
     var st = t.status || 'todo';
+    if(st === 'completed') st = 'done';
     if(colTasks[st]) {{
       colTasks[st].push(t);
     }} else if(st === 'scheduled') {{
@@ -3948,7 +3951,8 @@ function openViewTaskModal(taskId){{
           bodyEl.innerHTML = '<span style="color:var(--text-dim);font-style:italic">(Tidak ada deskripsi)</span>';
         }}
       }}
-      var st = KANBAN_COLS.some(function(c){{ return c.id === t.status; }}) ? t.status : 'todo';
+      var rawSt = t.status === 'completed' ? 'done' : t.status;
+      var st = KANBAN_COLS.some(function(c){{ return c.id === rawSt; }}) ? rawSt : 'todo';
       document.getElementById('view-task-move-status').value = st;
 
       var bBadge = document.getElementById('view-task-status-badge');
@@ -4371,6 +4375,8 @@ function openKanbanConfigModal(){{
   var loadGen = ++kanbanConfigLoadGen;
   var modal = document.getElementById('kanban-config-modal');
   if(!modal) return;
+  var saveBtn = document.querySelector('#kanban-config-modal .btn.btn-on');
+  if(saveBtn) saveBtn.disabled = false;
   fetchJsonChecked('/api/kanban/config')
     .then(function(res){{
       if(loadGen !== kanbanConfigLoadGen) return;
@@ -4400,6 +4406,8 @@ function closeKanbanConfigModal(){{
 }}
 
 function submitKanbanConfig(){{
+  var saveBtn = document.querySelector('#kanban-config-modal .btn.btn-on');
+  if(saveBtn) saveBtn.disabled = true;
   var payload = {{
     dispatch_in_gateway: document.getElementById('cfg-kb-dispatch-gw').checked,
     notify_in_gateway: document.getElementById('cfg-kb-notify-gw').checked,
@@ -4417,13 +4425,17 @@ function submitKanbanConfig(){{
     body: JSON.stringify(payload)
   }})
   .then(function(res){{
+    if(saveBtn) saveBtn.disabled = false;
     if(res && res.ok){{
       window.location.href = '/status?just=kanban-config-saved&tab=kanban';
     }} else {{
       alert('Gagal menyimpan konfigurasi: ' + (res && res.error ? res.error : 'unknown'));
     }}
   }})
-  .catch(function(err){{ alert('Error: ' + err); }});
+  .catch(function(err){{
+    if(saveBtn) saveBtn.disabled = false;
+    alert('Error: ' + err);
+  }});
 }}
 
 var currentGwPlatform = '';
@@ -11924,7 +11936,9 @@ def list_kanban_tasks(board: str = "", status: str = None, assignee: str = None)
         params = []
         if status:
             if status == "todo":
-                query += " AND status IN ('todo', 'completed', 'scheduled')"
+                query += " AND status IN ('todo', 'scheduled')"
+            elif status == "done":
+                query += " AND status IN ('done', 'completed')"
             else:
                 query += " AND status = ?"
                 params.append(status)
@@ -12084,7 +12098,7 @@ def create_kanban_task(
                 """, (
                     task_id, title, body or None, assignee, status, pri_val, "web-panel", now,
                     now if status == "running" else None,
-                    now if status == "done" else None,
+                    now if status in ("done", "completed") else None,
                     model_override,
                     json.dumps(skills) if skills else None
                 ))
@@ -12124,7 +12138,7 @@ def update_kanban_task_status(
                 started_at = row["started_at"]
                 if new_status == "running" and not started_at:
                     started_at = now
-                completed_at = now if new_status == "done" else None
+                completed_at = now if new_status in ("done", "completed") else None
                 block_kind = kind if new_status == "blocked" else None
 
                 con.execute("""
@@ -12355,11 +12369,13 @@ def save_kanban_config(updates: dict) -> tuple[bool, str]:
                         return False, f"Nilai {k} di luar rentang {low}-{high}."
                     kb[k] = value
                 else:
-                    if not isinstance(raw, str) or len(raw) > high:
+                    raw_str = "" if raw is None else str(raw)
+                    if len(raw_str) > high:
                         return False, f"Nilai {k} harus teks maksimal {high} karakter."
-                    kb[k] = raw.strip()
+                    kb[k] = raw_str.strip()
 
             _write_config_atomic(cfg)
+            _invalidate_status_cache("kanban_board_block")
             return True, "Konfigurasi Kanban berhasil disimpan."
     except Exception as e:
         return False, f"Gagal menyimpan konfigurasi Kanban: {e}"
@@ -12415,6 +12431,8 @@ def render_kanban_board_block(board_slug: str = "") -> str:
         st = t.get("status", "todo")
         if st in col_tasks:
             col_tasks[st].append(t)
+        elif st == "completed":
+            col_tasks["done"].append(t)
         elif st == "scheduled":
             col_tasks["todo"].append(t)
         else:
