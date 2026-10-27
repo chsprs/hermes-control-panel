@@ -55,7 +55,12 @@ Updated: 2026-10-27
 - [x] Inspected `input.method` in global fetch toast interceptor; mutation requests passed as `Request` instances now trigger automatic toast notifications.
 - [x] Sanitized Kanban comment author inputs, falling back cleanly to `web-panel` on blank/whitespace strings across both SQL insertion and event logs.
 - [x] Validated task title in `update_kanban_task` and increased `MODELS_TIMEOUT` to 8.0s; empty/whitespace titles are rejected and upstream model discovery remains resilient under system load.
+- [x] Cleared stale poll and countdown interval timers when re-starting WhatsApp pairing (`startWaPair`); subsequent attempts now start with pristine timer state.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
+
+## Wave 69 completed
+
+- WhatsApp pairing initialization (`startWaPair`) now cancels any active polling and expiration countdown intervals before starting a new session, avoiding timer leaks and false expiration state.
 
 ## Wave 68 completed
 

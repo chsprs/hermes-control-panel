@@ -362,6 +362,15 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("if(toast._generation !== toastGen) return;", segment)
         self.assertIn("if(toast._generation === toastGen) toast.style.display = 'none';", segment)
 
+    def test_whatsapp_start_clears_prior_poll_and_countdown_timers(self):
+        page = panel.PAGE
+        start = page.index("function startWaPair")
+        end = page.index("function cancelWaPair", start)
+        segment = page[start:end]
+        self.assertIn("if(_waPairPollTimer)", segment)
+        self.assertIn("if(_waPairTimerInterval)", segment)
+        self.assertIn("_waPairExpiresAt = null;", segment)
+
     def test_toggle_log_scrolls_restored_box_to_bottom(self):
         page = panel.PAGE
         start = page.index("function toggleLog")

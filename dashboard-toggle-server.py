@@ -5856,6 +5856,15 @@ function pollWaPairStatus(expectedGen){{
 function startWaPair(clearSession){{
   _waPairCancelled = false;
   var actGen = ++_waPairActionGen;
+  if(_waPairPollTimer){{
+    clearTimeout(_waPairPollTimer);
+    _waPairPollTimer = null;
+  }}
+  if(_waPairTimerInterval){{
+    clearInterval(_waPairTimerInterval);
+    _waPairTimerInterval = null;
+  }}
+  _waPairExpiresAt = null;
   var bText = document.getElementById('wa-pair-status-text');
   var badge = document.getElementById('wa-pair-status-badge');
   var qrBox = document.getElementById('wa-pair-qr-container');
