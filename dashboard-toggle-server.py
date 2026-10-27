@@ -3109,6 +3109,7 @@ var taskMutationGen = 0;
 var kanbanBoardLoadGen = 0;
 var kanbanMutationGen = 0;
 var kanbanBoardSwitchGen = 0;
+var isKanbanRefreshing = false;
 var selectedTaskIds = new Set();
 var kanbanSyncTimer = null;
 var isDraggingKanban = false;
@@ -3633,9 +3634,11 @@ function refreshKanbanBoard(silent) {{
   var board = bSel ? bSel.value : 'default';
   var btnSync = document.getElementById('btn-sync-kanban');
   if(!silent && btnSync) btnSync.classList.add('is-loading');
+  isKanbanRefreshing = true;
 
   fetchJsonChecked('/api/kanban/tasks?board=' + encodeURIComponent(board))
     .then(function(res){{
+      isKanbanRefreshing = false;
       if(loadGen !== kanbanBoardLoadGen) return;
       if(board !== (bSel ? bSel.value : 'default')) return;
       if(!silent && btnSync) btnSync.classList.remove('is-loading');
@@ -3649,6 +3652,7 @@ function refreshKanbanBoard(silent) {{
       }}
     }})
     .catch(function(err){{
+      isKanbanRefreshing = false;
       if(loadGen !== kanbanBoardLoadGen) return;
       if(board !== (bSel ? bSel.value : 'default')) return;
       if(!silent && btnSync) btnSync.classList.remove('is-loading');
@@ -3664,7 +3668,7 @@ function startKanbanAutoSync() {{
   if(kanbanSyncTimer) clearInterval(kanbanSyncTimer);
   kanbanSyncTimer = setInterval(function() {{
     var tab = document.getElementById('tab-kanban');
-    if(!tab || !tab.classList.contains('active') || document.hidden || isDraggingKanban) return;
+    if(!tab || !tab.classList.contains('active') || document.hidden || isDraggingKanban || isKanbanRefreshing) return;
     var viewModal = document.getElementById('view-kanban-task-modal');
     if(viewModal && viewModal.classList.contains('show')) return;
     refreshKanbanBoard(true);

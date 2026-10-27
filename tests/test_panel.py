@@ -575,6 +575,25 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("if(loadGen !== kanbanBoardLoadGen) return", segment)
         self.assertIn("if(board !== (bSel ? bSel.value : 'default')) return", segment)
 
+    def test_kanban_auto_sync_avoids_in_flight_overlap(self):
+        page = panel.PAGE
+        self.assertIn("var isKanbanRefreshing = false;", page)
+        start = page.index("function refreshKanbanBoard")
+        end = page.index("function manualSyncKanban", start)
+        segment = page[start:end]
+        self.assertIn("isKanbanRefreshing = true;", segment)
+        then_index = segment.index(".then(function(res)")
+        catch_index = segment.index(".catch(function(err)")
+        then_segment = segment[then_index:catch_index]
+        catch_segment = segment[catch_index:]
+        self.assertIn("isKanbanRefreshing = false;", then_segment)
+        self.assertIn("isKanbanRefreshing = false;", catch_segment)
+        auto_start = page.index("function startKanbanAutoSync")
+        auto_end = page.index("var kanbanAssigneeBootGen", auto_start)
+        auto_segment = page[auto_start:auto_end]
+        self.assertIn("isKanbanRefreshing", auto_segment)
+
+
     def test_profile_and_task_assignee_loaders_ignore_stale_responses(self):
         page = panel.PAGE
         self.assertIn("var profileCloneLoadGen = 0;", page)

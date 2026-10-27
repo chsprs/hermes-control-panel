@@ -48,7 +48,12 @@ Updated: 2026-10-27
 - [x] Added generation guard to Kanban toast fade/hide callbacks; an old toast timer cannot hide a newer message.
 - [x] Added copy-generation token to Markdown code block copy buttons; rapid repeated clicks cannot prematurely reset button label.
 - [x] Cleaned pending hidden timers and queued SSE updates on disconnect; background tab sleep cannot flush stale DOM updates after disconnect.
+- [x] Guarded Kanban auto-sync against in-flight request pileup; slow responses no longer stack overlapping board refreshes.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
+
+## Wave 62 completed
+
+- Kanban auto-sync now checks an `isKanbanRefreshing` lock, preventing interval ticks from firing new requests while a previous board refresh is still in-flight.
 
 ## Wave 61 completed
 
