@@ -3854,6 +3854,14 @@ class TestKanbanBoard(unittest.TestCase):
         payload = json.loads(events[0]["payload"]) if isinstance(events[0]["payload"], str) else events[0]["payload"]
         self.assertEqual(payload.get("author"), "web-panel")
 
+    def test_05c_update_task_rejects_empty_or_whitespace_title(self):
+        _, _, task_id = panel.create_kanban_task(title="Valid Title", status="todo")
+        ok, msg = panel.update_kanban_task(task_id, title="   \n\t  ")
+        self.assertFalse(ok)
+        self.assertIn("Judul tugas tidak boleh kosong", msg)
+        t = panel.get_kanban_task(task_id)
+        self.assertEqual(t["title"], "Valid Title")
+
     def test_06_delete_task(self):
         _, _, task_id = panel.create_kanban_task(title="Delete Me")
         panel.add_kanban_comment(task_id, "temporary note")

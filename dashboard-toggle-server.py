@@ -92,7 +92,7 @@ STARTUP_COUNTDOWN_SECONDS = 15  # systemd reports "active" almost instantly,
 # but the actual web server takes ~10-15s to bind and answer.
 ROUTER_MODELS_URL = "http://{host}:20128/v1/models"
 ROUTER_VERSION_URL = "http://{host}:20128/api/version"
-MODELS_TIMEOUT = 4.0  # 9router /v1/models takes ~2.2s on this box (upstream fan-out); 2.0s always timed out and pinned the cache to the combos-only DB fallback
+MODELS_TIMEOUT = 8.0  # 9router /v1/models upstream fan-out can take 3-5s under load; 4.0s timed out during heavy test suites
 
 ROUTER_HOST_OVERRIDE = os.environ.get("ROUTER_HOST", "").strip()
 HERMES_DASHBOARD_URL = os.environ.get("HERMES_DASHBOARD_URL", "").strip()
@@ -11943,6 +11943,8 @@ def update_kanban_task(
     board: str = ""
 ) -> tuple[bool, str]:
     """Update task fields."""
+    if title is not None and not str(title).strip():
+        return False, "Judul tugas tidak boleh kosong."
     db_path = get_kanban_db_path(board)
     try:
         with closing(ensure_kanban_db(db_path)) as con:
@@ -11951,7 +11953,7 @@ def update_kanban_task(
                 vals = []
                 if title is not None:
                     fields.append("title = ?")
-                    vals.append(title.strip())
+                    vals.append(str(title).strip())
                 if body is not None:
                     fields.append("body = ?")
                     vals.append(body.strip() or None)

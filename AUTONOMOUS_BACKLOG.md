@@ -54,7 +54,13 @@ Updated: 2026-10-27
 - [x] Aligned SSE gateway log card caching with the other three log cards, storing `d.gateway_log_card` before dismissal checks so un-dismissal always restores the freshest payload.
 - [x] Inspected `input.method` in global fetch toast interceptor; mutation requests passed as `Request` instances now trigger automatic toast notifications.
 - [x] Sanitized Kanban comment author inputs, falling back cleanly to `web-panel` on blank/whitespace strings across both SQL insertion and event logs.
+- [x] Validated task title in `update_kanban_task` and increased `MODELS_TIMEOUT` to 8.0s; empty/whitespace titles are rejected and upstream model discovery remains resilient under system load.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
+
+## Wave 68 completed
+
+- `update_kanban_task` now strictly validates `title`, rejecting empty or whitespace-only updates to preserve database integrity.
+- `MODELS_TIMEOUT` raised to 8.0s to accommodate upstream model discovery fan-out during heavy concurrent workloads.
 
 ## Wave 67 completed
 
