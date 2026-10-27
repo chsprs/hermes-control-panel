@@ -3057,6 +3057,7 @@ var currentViewingTaskId = '';
 var taskDetailLoadGen = 0;
 var taskMutationGen = 0;
 var kanbanBoardLoadGen = 0;
+var kanbanMutationGen = 0;
 var kanbanBoardSwitchGen = 0;
 var selectedTaskIds = new Set();
 var kanbanSyncTimer = null;
@@ -3160,17 +3161,21 @@ function handleKanbanTrashDrop(e) {{
   if(card) card.remove();
   updateColumnCounters();
 
+  var mutationTaskId = taskId;
   var bSel = document.getElementById('kanban-board-select');
-  var board = bSel ? bSel.value : '';
+  var mutationBoard = bSel ? bSel.value : '';
+  var mutationGen = ++kanbanMutationGen;
 
   fetchJsonChecked('/api/kanban/task/delete', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
-    body: JSON.stringify({{ task_id: taskId, board: board }})
+    body: JSON.stringify({{ task_id: mutationTaskId, board: mutationBoard }})
   }})
   .then(function(res){{
+    if(mutationGen !== kanbanMutationGen) return;
+    if(mutationBoard !== (bSel ? bSel.value : '')) return;
     if(res && res.ok){{
-      showKanbanToast('Tugas ' + taskId + ' berhasil dihapus');
+      showKanbanToast('Tugas ' + mutationTaskId + ' berhasil dihapus');
       refreshKanbanBoard(true);
     }} else {{
       alert('Gagal menghapus tugas: ' + (res && res.error ? res.error : 'unknown'));
@@ -3178,6 +3183,8 @@ function handleKanbanTrashDrop(e) {{
     }}
   }})
   .catch(function(err){{
+    if(mutationGen !== kanbanMutationGen) return;
+    if(mutationBoard !== (bSel ? bSel.value : '')) return;
     alert('Error: ' + err);
     refreshKanbanBoard(true);
   }});
@@ -3224,23 +3231,29 @@ function handleKanbanDrop(e, targetStatus) {{
     updateColumnCounters();
   }}
 
+  var mutationTaskId = taskId;
   var bSel = document.getElementById('kanban-board-select');
-  var board = bSel ? bSel.value : '';
+  var mutationBoard = bSel ? bSel.value : '';
+  var mutationGen = ++kanbanMutationGen;
 
   fetchJsonChecked('/api/kanban/task/status', {{
     method: 'POST',
     headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
-    body: JSON.stringify({{ task_id: taskId, status: targetStatus, board: board }})
+    body: JSON.stringify({{ task_id: mutationTaskId, status: targetStatus, board: mutationBoard }})
   }})
   .then(function(res){{
+    if(mutationGen !== kanbanMutationGen) return;
+    if(mutationBoard !== (bSel ? bSel.value : '')) return;
     if(res && res.ok){{
-      showKanbanToast('Tugas ' + taskId + ' dipindah ke ' + targetStatus);
+      showKanbanToast('Tugas ' + mutationTaskId + ' dipindah ke ' + targetStatus);
     }} else {{
       alert('Gagal memindahkan tugas: ' + (res && res.error ? res.error : 'unknown'));
       refreshKanbanBoard(true);
     }}
   }})
   .catch(function(err){{
+    if(mutationGen !== kanbanMutationGen) return;
+    if(mutationBoard !== (bSel ? bSel.value : '')) return;
     alert('Error: ' + err);
     refreshKanbanBoard(true);
   }});
