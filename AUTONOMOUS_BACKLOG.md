@@ -39,6 +39,8 @@ Updated: 2026-10-27
 - [x] Added board-context and mutation-generation guards to Kanban task creation; stale create responses cannot refresh or toast over another board.
 - [x] Added board-context and mutation-generation guards to Kanban board creation; stale responses cannot force navigation after board context changes.
 - [x] Added profile-target and mutation-generation guards to profile create/activate/delete/rename/SOUL/model mutations; stale responses cannot navigate or alert over newer profile actions.
+- [x] Added pairing-generation guard to WhatsApp apply; stale apply responses cannot reload or reset a newer pairing modal.
+- [x] Added bootstrap-generation guard to Kanban assignee filter loading; stale initialization cannot duplicate or append outdated profiles.
 - [ ] Audit remaining non-JSON fetches, SSE reconnect/error paths, and API-derived `innerHTML` boundaries.
 
 

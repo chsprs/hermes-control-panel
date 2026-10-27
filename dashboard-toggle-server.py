@@ -3660,10 +3660,13 @@ function startKanbanAutoSync() {{
 }}
 
 // Initialize assignee filter and auto-sync
+var kanbanAssigneeBootGen = 0;
 setTimeout(function() {{
+  var bootGen = ++kanbanAssigneeBootGen;
   startKanbanAutoSync();
   fetchJsonChecked('/api/profiles')
     .then(function(res){{
+      if(bootGen !== kanbanAssigneeBootGen) return;
       var fSel = document.getElementById('kanban-filter-assignee');
       if(fSel && res && res.profiles){{
         res.profiles.forEach(function(p){{
@@ -3674,6 +3677,7 @@ setTimeout(function() {{
         }});
       }}
     }}).catch(function(err){{
+      if(bootGen !== kanbanAssigneeBootGen) return;
       var fSel = document.getElementById('kanban-filter-assignee');
       if(fSel){{
         var failed = document.createElement('option');
@@ -5899,6 +5903,7 @@ function cancelWaPair(){{
 
 function applyWaPair(){{
   var btn = document.getElementById('btn-apply-wa-pair');
+  var applyGen = ++_waPairActionGen;
   if(btn){{ btn.disabled = true; btn.textContent = 'Mengaktifkan...'; }}
   fetchJsonChecked('/api/whatsapp/pair-apply', {{
     method: 'POST',
@@ -5906,6 +5911,7 @@ function applyWaPair(){{
     body: JSON.stringify({{restart_gw: true}})
   }})
     .then(function(d){{
+      if(applyGen !== _waPairActionGen) return;
       if(d && d.ok){{
         closeWaPairModal(true);
         window.location.reload();
@@ -5914,6 +5920,7 @@ function applyWaPair(){{
         alert((d && d.message) || 'Gagal menerapkan pairing WhatsApp');
       }}
     }}).catch(function(err){{
+      if(applyGen !== _waPairActionGen) return;
       if(btn){{ btn.disabled = false; btn.textContent = 'Aktifkan & Mulai Ulang Gateway'; }}
       alert('Kesalahan jaringan: ' + err);
     }});

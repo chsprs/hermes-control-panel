@@ -407,6 +407,30 @@ process.stdout.write(netRenderStatus(st));
             for needle in needles:
                 self.assertIn(needle, segment, f"{function_name}: {needle}")
 
+    def test_whatsapp_apply_ignores_stale_pairing_context(self):
+        page = panel.PAGE
+        start = page.index("function applyWaPair")
+        next_function = page.find("\nfunction ", start + 1)
+        segment = page[start:] if next_function == -1 else page[start:next_function]
+        self.assertIn("var applyGen = ++_waPairActionGen", segment)
+        guard = "if(applyGen !== _waPairActionGen) return;"
+        then_start = segment.index(".then(function(d)")
+        catch_start = segment.index(".catch(function(err)")
+        then_segment = segment[then_start:catch_start]
+        catch_segment = segment[catch_start:]
+        self.assertIn(guard, then_segment)
+        self.assertIn(guard, catch_segment)
+        self.assertLess(then_segment.index(guard), then_segment.index("if(d && d.ok)"))
+
+    def test_kanban_assignee_bootstrap_ignores_reinitialization(self):
+        page = panel.PAGE
+        self.assertIn("var kanbanAssigneeBootGen = 0;", page)
+        start = page.index("setTimeout(function() {{")
+        end = page.index("function openCreateTaskModal", start)
+        segment = page[start:end]
+        self.assertIn("var bootGen = ++kanbanAssigneeBootGen", segment)
+        self.assertIn("if(bootGen !== kanbanAssigneeBootGen) return;", segment)
+
     def test_profile_soul_and_kanban_config_ignore_stale_responses(self):
         page = panel.PAGE
         for function_name, needles in {
