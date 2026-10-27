@@ -8109,6 +8109,8 @@ NETWORK_SCRIPT = r"""var NET = {state: null, timer: null, dirty: {routes: false,
 var netLoadGen = 0;
 var netTestGen = {};
 var netResolveGen = 0;
+var netRoutesSaveGen = 0;
+var netDnsSaveGen = 0;
 var NET_ICONS = __NET_ICONS__;
 var NET_ROUTES = [
   {v: 'relay', label: 'Relay IPv4', icon: 'shield', hint: 'lewat relay :40001 → WARP, selalu IPv4'},
@@ -8459,8 +8461,10 @@ function netCollectRoutes() {
 }
 
 function netSaveRoutes() {
+  var saveGen = ++netRoutesSaveGen;
   netCallout('net-routes-msg', 'info', 'Menyimpan…');
   netPost('/api/network/routes', {routes: netCollectRoutes()}).then(function (d) {
+    if (saveGen !== netRoutesSaveGen) return;
     if (!d.ok) { netCallout('net-routes-msg', 'bad', netEsc(d.error || 'Gagal menyimpan')); return; }
     netDirty('routes', false);
     if (!d.changed || !d.changed.length) { netCallout('net-routes-msg', 'ok', 'Tidak ada perubahan.'); return; }
@@ -8471,8 +8475,13 @@ function netSaveRoutes() {
     } else {
       netCallout('net-routes-msg', 'ok', msg);
     }
-    setTimeout(function () { netLoad(false); }, 500);
-  }).catch(function (e) { netCallout('net-routes-msg', 'bad', netEsc(e.message || e)); });
+    setTimeout(function () {
+      if (saveGen === netRoutesSaveGen) netLoad(false);
+    }, 500);
+  }).catch(function (e) {
+    if (saveGen !== netRoutesSaveGen) return;
+    netCallout('net-routes-msg', 'bad', netEsc(e.message || e));
+  });
 }
 
 function netRestartGateway() {
@@ -8537,16 +8546,24 @@ function netCollectDns() {
 }
 
 function netSaveDns() {
+  var saveGen = ++netDnsSaveGen;
   netCallout('net-dns-msg', 'info', 'Menyimpan…');
   netPost('/api/network/dns', {dns: netCollectDns()}).then(function (d) {
+    if (saveGen !== netDnsSaveGen) return;
     if (!d.ok) { netCallout('net-dns-msg', 'bad', netEsc(d.error || 'Gagal menyimpan')); return; }
     netDirty('dns', false);
     netCallout('net-dns-msg', 'ok', 'Tersimpan. Relay memakai pengaturan baru dalam hitungan detik, tanpa restart gateway.');
     setTimeout(function () {
+      if (saveGen !== netDnsSaveGen) return;
       netLoad(true);
-      setTimeout(function () { netCallout('net-dns-msg', 'ok', 'DNS tersimpan dan aktif.'); }, 400);
+      setTimeout(function () {
+        if (saveGen === netDnsSaveGen) netCallout('net-dns-msg', 'ok', 'DNS tersimpan dan aktif.');
+      }, 400);
     }, 1200);
-  }).catch(function (e) { netCallout('net-dns-msg', 'bad', netEsc(e.message || e)); });
+  }).catch(function (e) {
+    if (saveGen !== netDnsSaveGen) return;
+    netCallout('net-dns-msg', 'bad', netEsc(e.message || e));
+  });
 }
 
 function netResolve() {

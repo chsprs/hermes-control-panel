@@ -326,6 +326,21 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("var actGen = ++netResolveGen;", res_seg)
         self.assertIn("if (actGen !== netResolveGen) return;", res_seg)
 
+    def test_network_saves_ignore_stale_responses(self):
+        network = panel.NETWORK_SCRIPT
+        self.assertIn("var netRoutesSaveGen = 0;", network)
+        self.assertIn("var netDnsSaveGen = 0;", network)
+        for function_name, counter, marker in (
+            ("netSaveRoutes", "netRoutesSaveGen", "var saveGen = ++netRoutesSaveGen;"),
+            ("netSaveDns", "netDnsSaveGen", "var saveGen = ++netDnsSaveGen;"),
+        ):
+            start = network.index("function " + function_name)
+            next_function = network.find("\nfunction ", start + 1)
+            segment = network[start:] if next_function == -1 else network[start:next_function]
+            self.assertIn(marker, segment, function_name)
+            self.assertIn("if (saveGen !== " + counter + ") return;", segment, function_name)
+            self.assertGreaterEqual(segment.count("if (saveGen !== " + counter + ") return;"), 2, function_name)
+
     def test_network_loader_ignores_stale_async_responses(self):
         network = panel.NETWORK_SCRIPT
         self.assertIn("var netLoadGen = 0;", network)

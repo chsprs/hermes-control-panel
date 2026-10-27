@@ -44,8 +44,12 @@ Updated: 2026-10-27
 - [x] Added load-generation guards to Network Card refresh; stale status responses cannot overwrite newer card state or clear its loading indicator.
 - [x] Added generation guards to Network connection test and DNS resolution; stale test/resolve responses cannot overwrite newer test cards or chips.
 - [x] Audited remaining non-JSON fetches, SSE reconnect/error paths, and API-derived `innerHTML` boundaries; verified strict escaping and generation guards across all rendering sinks.
+- [x] Added generation guards to Network Card route/DNS saves; stale responses and delayed refresh timers cannot overwrite newer save state.
+- [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
 
+## Wave 58 completed
 
+- Network Card route and DNS save actions now use separate save-generation counters. Older success/error responses and delayed refresh callbacks are ignored after a newer save starts.
 
 ## Completed
 
