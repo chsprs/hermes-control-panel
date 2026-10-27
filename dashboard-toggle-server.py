@@ -7923,15 +7923,15 @@ SSE_SCRIPT = """<script>
       var cc = document.getElementById('clean-log-card');
       if(cc) {{ window._lastCleanJunkCard = cc.outerHTML; window._hasCleanLog = true; cc.remove(); }}
     }}
+    if(d.gateway_log_card) {
+      window._lastGatewayLogCard = d.gateway_log_card;
+      window._hasGatewayLog = true;
+    }
     if(!safeStore('getItem','gatewayLogDismissed')) {
       if(d.gateway_log_card) stickySet('gateway-log-slot', d.gateway_log_card);
     } else {
       var gc = document.getElementById('gateway-log-card');
       if(gc) { window._lastGatewayLogCard = gc.outerHTML; window._hasGatewayLog = true; gc.remove(); }
-    }
-    if(d.gateway_log_card) {
-      window._lastGatewayLogCard = d.gateway_log_card;
-      window._hasGatewayLog = true;
     }
     syncLogUI();
     restorePatchPages();

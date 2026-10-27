@@ -51,7 +51,12 @@ Updated: 2026-10-27
 - [x] Guarded Kanban auto-sync against in-flight request pileup; slow responses no longer stack overlapping board refreshes.
 - [x] Added generation guards to network gateway restart action; delayed failure callbacks or postponed 45s refresh timers cannot overwrite newer network card operations.
 - [x] Restored instant scroll-to-bottom on log un-dismissal (`toggleLog`); restored logs now consistently scroll to the newest output even if offline or before the next SSE tick.
+- [x] Aligned SSE gateway log card caching with the other three log cards, storing `d.gateway_log_card` before dismissal checks so un-dismissal always restores the freshest payload.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
+
+## Wave 65 completed
+
+- Unified SSE gateway log card caching order with the other log cards. Fresh incoming log card payloads are captured into memory before DOM removal, ensuring instant accurate restore.
 
 ## Wave 64 completed
 
