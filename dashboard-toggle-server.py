@@ -3326,14 +3326,15 @@ function applyBulkStatus() {{
   var sel = document.getElementById('kanban-bulk-status');
   var targetStatus = sel ? sel.value : 'todo';
   var bSel = document.getElementById('kanban-board-select');
-  var board = bSel ? bSel.value : '';
-
+  var mutationBoard = bSel ? bSel.value : '';
+  var mutationGen = ++kanbanMutationGen;
   var ids = Array.from(selectedTaskIds);
+  var selectionSnapshot = ids.slice().sort().join(',');
   var promises = ids.map(function(tid) {{
     return fetchJsonChecked('/api/kanban/task/status', {{
       method: 'POST',
       headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
-      body: JSON.stringify({{ task_id: tid, status: targetStatus, board: board }})
+      body: JSON.stringify({{ task_id: tid, status: targetStatus, board: mutationBoard }})
     }}).then(function(res) {{
       if(!res || !res.ok) throw new Error((res && (res.error || res.message)) || 'status update gagal');
       return {{ok: true, task_id: tid}};
@@ -3343,6 +3344,8 @@ function applyBulkStatus() {{
   }});
 
   Promise.all(promises).then(function(results) {{
+    var currentSelection = Array.from(selectedTaskIds).sort().join(',');
+    if(mutationGen !== kanbanMutationGen || mutationBoard !== (bSel ? bSel.value : '') || selectionSnapshot !== currentSelection) return;
     clearKanbanSelection();
     refreshKanbanBoard(true);
     var failed = results.filter(function(result) {{ return !result.ok; }});
@@ -3359,14 +3362,15 @@ function applyBulkDelete() {{
   if(selectedTaskIds.size === 0) return;
   if(!confirm('Hapus ' + selectedTaskIds.size + ' tugas terpilih secara permanen?')) return;
   var bSel = document.getElementById('kanban-board-select');
-  var board = bSel ? bSel.value : '';
-
+  var mutationBoard = bSel ? bSel.value : '';
+  var mutationGen = ++kanbanMutationGen;
   var ids = Array.from(selectedTaskIds);
+  var selectionSnapshot = ids.slice().sort().join(',');
   var promises = ids.map(function(tid) {{
     return fetchJsonChecked('/api/kanban/task/delete', {{
       method: 'POST',
       headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/json' }},
-      body: JSON.stringify({{ task_id: tid, board: board }})
+      body: JSON.stringify({{ task_id: tid, board: mutationBoard }})
     }}).then(function(res) {{
       if(!res || !res.ok) throw new Error((res && (res.error || res.message)) || 'delete gagal');
       return {{ok: true, task_id: tid}};
@@ -3376,6 +3380,8 @@ function applyBulkDelete() {{
   }});
 
   Promise.all(promises).then(function(results) {{
+    var currentSelection = Array.from(selectedTaskIds).sort().join(',');
+    if(mutationGen !== kanbanMutationGen || mutationBoard !== (bSel ? bSel.value : '') || selectionSnapshot !== currentSelection) return;
     clearKanbanSelection();
     refreshKanbanBoard(true);
     var failed = results.filter(function(result) {{ return !result.ok; }});

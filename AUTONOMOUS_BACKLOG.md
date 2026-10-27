@@ -35,6 +35,7 @@ Updated: 2026-10-27
 - [x] Added task-context and mutation-generation guards to Kanban status/reclaim/delete actions; stale task responses cannot close or refresh a different task view.
 - [x] Added task-context and mutation-generation guards to Kanban comment submission; stale comment responses cannot reopen or refresh a different task view.
 - [x] Added board-context and mutation-generation guards to Kanban drag status/delete actions; stale drag responses cannot refresh or toast over newer board actions.
+- [x] Added board/selection snapshots and mutation-generation guards to Kanban bulk status/delete actions; stale batches cannot clear newer selections or refresh another board.
 - [ ] Audit remaining non-JSON fetches, SSE reconnect/error paths, and API-derived `innerHTML` boundaries.
 
 

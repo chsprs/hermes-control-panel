@@ -606,6 +606,23 @@ process.stdout.write(netRenderStatus(st));
             self.assertIn(guard, catch_segment, function_name)
             self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
 
+    def test_kanban_bulk_mutations_ignore_stale_selection(self):
+        page = panel.PAGE
+        self.assertIn("var kanbanMutationGen = 0;", page)
+        for function_name in ("applyBulkStatus", "applyBulkDelete"):
+            start = page.index("function " + function_name)
+            next_function = page.find("\nfunction ", start + 1)
+            segment = page[start:] if next_function == -1 else page[start:next_function]
+            self.assertIn("var mutationGen = ++kanbanMutationGen", segment, function_name)
+            self.assertIn("var selectionSnapshot = ids.slice().sort().join", segment, function_name)
+            self.assertIn("var currentSelection = Array.from(selectedTaskIds).sort().join", segment, function_name)
+            guard = "if(mutationGen !== kanbanMutationGen || mutationBoard !== (bSel ? bSel.value : '') || selectionSnapshot !== currentSelection) return;"
+            promise_start = segment.index("Promise.all(promises).then(function(results)")
+            promise_segment = segment[promise_start:]
+            self.assertIn(guard, promise_segment, function_name)
+            self.assertLess(promise_segment.index(guard), promise_segment.index("clearKanbanSelection()"), function_name)
+
+    @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     @unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
     def test_sse_ignores_stale_eventsource_callbacks(self):
         src = panel.SSE_SCRIPT
