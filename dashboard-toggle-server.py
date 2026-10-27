@@ -8107,6 +8107,8 @@ NETWORK_CSS = """.net-tiles{display:grid;grid-template-columns:repeat(auto-fit,m
 
 NETWORK_SCRIPT = r"""var NET = {state: null, timer: null, dirty: {routes: false, dns: false}};
 var netLoadGen = 0;
+var netTestGen = {};
+var netResolveGen = 0;
 var NET_ICONS = __NET_ICONS__;
 var NET_ROUTES = [
   {v: 'relay', label: 'Relay IPv4', icon: 'shield', hint: 'lewat relay :40001 → WARP, selalu IPv4'},
@@ -8486,9 +8488,11 @@ function netRestartGateway() {
 }
 
 function netTest(pid) {
+  var actGen = (netTestGen[pid] = (netTestGen[pid] || 0) + 1);
   var sel = netEl('net-route-' + pid), inp = netEl('net-url-' + pid), out = netEl('net-test-' + pid);
   if (out) { out.className = 'net-result'; out.innerHTML = '<span class="net-spin" style="display:inline-flex">' + netIcon('refresh', 13) + '</span>Menguji 3× …'; }
   netPost('/api/network/test', {platform: pid, route: sel ? sel.value : '', url: inp ? inp.value.trim() : ''}).then(function (d) {
+    if (actGen !== netTestGen[pid]) return;
     if (!out) return;
     if (!d.ok) { out.className = 'net-result bad'; out.innerHTML = netIcon('x', 13) + netEsc(d.error || 'Tes gagal'); return; }
     var bad = (d.results || []).filter(function (r) { return !r.ok; });
@@ -8500,7 +8504,10 @@ function netTest(pid) {
       + ' · ' + netEsc(NET_ROUTE_LABELS[d.route] || d.route)
       + (bad.length ? ' · ' + netEsc(bad[0].error) : '');
     out.title = (d.proxy || 'tanpa proxy') + ' → ' + (d.url || '');
-  }).catch(function (e) { if (out) { out.className = 'net-result bad'; out.textContent = String(e.message || e); } });
+  }).catch(function (e) {
+    if (actGen !== netTestGen[pid]) return;
+    if (out) { out.className = 'net-result bad'; out.textContent = String(e.message || e); }
+  });
 }
 
 function netAddHost() {
@@ -8543,10 +8550,12 @@ function netSaveDns() {
 }
 
 function netResolve() {
+  var actGen = ++netResolveGen;
   var host = (netEl('net-resolve-host') || {}).value || '';
   var out = netEl('net-resolve-result');
   if (out) { out.style.marginTop = '.55rem'; out.innerHTML = '<span class="net-chips-label"><span class="net-spin" style="display:inline-flex">' + netIcon('refresh', 13) + '</span>Mencari…</span>'; }
   netPost('/api/network/resolve', {host: host.trim()}).then(function (d) {
+    if (actGen !== netResolveGen) return;
     if (!out) return;
     if (!d.ok) { out.innerHTML = '<span class="net-result bad">' + netIcon('x', 13) + netEsc(d.error || 'Gagal') + '</span>'; return; }
     var ips = d.ips || [];
@@ -8556,6 +8565,7 @@ function netResolve() {
         : '<span class="net-result bad">tidak ada IPv4</span>')
       + (d.config_error ? '<span class="net-result warn">' + netIcon('alert', 13) + 'config relay error: ' + netEsc(d.config_error) + '</span>' : '');
   }).catch(function (e) {
+    if (actGen !== netResolveGen) return;
     if (out) out.innerHTML = '<span class="net-result bad">' + netIcon('x', 13) + netEsc(e.message || e) + '</span>';
   });
 }

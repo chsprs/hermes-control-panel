@@ -311,6 +311,21 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn(".then(function", segment, function_name)
             self.assertIn(".catch(function", segment, function_name)
 
+    def test_network_test_and_resolve_ignore_stale_requests(self):
+        network = panel.NETWORK_SCRIPT
+        self.assertIn("var netTestGen = {};", network)
+        self.assertIn("var netResolveGen = 0;", network)
+        test_start = network.index("function netTest")
+        test_end = network.index("function netAddHost", test_start)
+        test_seg = network[test_start:test_end]
+        self.assertIn("var actGen = (netTestGen[pid] = (netTestGen[pid] || 0) + 1);", test_seg)
+        self.assertIn("if (actGen !== netTestGen[pid]) return;", test_seg)
+        res_start = network.index("function netResolve")
+        res_end = network.index("(function () {", res_start)
+        res_seg = network[res_start:res_end]
+        self.assertIn("var actGen = ++netResolveGen;", res_seg)
+        self.assertIn("if (actGen !== netResolveGen) return;", res_seg)
+
     def test_network_loader_ignores_stale_async_responses(self):
         network = panel.NETWORK_SCRIPT
         self.assertIn("var netLoadGen = 0;", network)
