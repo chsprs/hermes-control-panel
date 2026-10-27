@@ -46,7 +46,12 @@ Updated: 2026-10-27
 - [x] Audited remaining non-JSON fetches, SSE reconnect/error paths, and API-derived `innerHTML` boundaries; verified strict escaping and generation guards across all rendering sinks.
 - [x] Added generation guards to Network Card route/DNS saves; stale responses and delayed refresh timers cannot overwrite newer save state.
 - [x] Added generation guard to Kanban toast fade/hide callbacks; an old toast timer cannot hide a newer message.
+- [x] Added copy-generation token to Markdown code block copy buttons; rapid repeated clicks cannot prematurely reset button label.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
+
+## Wave 60 completed
+
+- Markdown code copy feedback now tracks per-button generation tokens, ignoring stale text-restore callbacks from older copy clicks.
 
 ## Wave 59 completed
 

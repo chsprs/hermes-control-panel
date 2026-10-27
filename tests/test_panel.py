@@ -351,6 +351,15 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("if(toast._generation !== toastGen) return;", segment)
         self.assertIn("if(toast._generation === toastGen) toast.style.display = 'none';", segment)
 
+    def test_copy_code_ignores_stale_restore_callbacks(self):
+        page = panel.PAGE
+        start = page.index("function copyCodeBlock")
+        end = page.index("function fetchJsonChecked", start)
+        segment = page[start:end]
+        self.assertIn("var copyGen = (btn._copyGeneration || 0) + 1", segment)
+        self.assertIn("btn._copyGeneration = copyGen", segment)
+        self.assertIn("if(btn._copyGeneration === copyGen) btn.textContent = orig", segment)
+
     def test_network_loader_ignores_stale_async_responses(self):
         network = panel.NETWORK_SCRIPT
         self.assertIn("var netLoadGen = 0;", network)

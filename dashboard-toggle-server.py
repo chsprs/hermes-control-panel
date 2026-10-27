@@ -2267,11 +2267,17 @@ function copyCodeBlock(btn){{
   if(!wrap) return;
   var codeEl = wrap.querySelector('pre code');
   if(!codeEl) return;
+  var copyGen = (btn._copyGeneration || 0) + 1;
+  btn._copyGeneration = copyGen;
   navigator.clipboard.writeText(codeEl.textContent).then(function(){{
+    if(btn._copyGeneration !== copyGen) return;
     var orig = btn.textContent;
     btn.textContent = 'Tersalin!';
-    setTimeout(function(){{ btn.textContent = orig; }}, 1500);
+    setTimeout(function(){{
+      if(btn._copyGeneration === copyGen) btn.textContent = orig;
+    }}, 1500);
   }}).catch(function(){{
+    if(btn._copyGeneration !== copyGen) return;
     alert('Gagal menyalin kode');
   }});
 }}
