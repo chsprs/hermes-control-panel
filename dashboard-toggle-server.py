@@ -177,7 +177,7 @@ MUTATING_PATHS = frozenset({
     "/api/kanban/task/reclaim", "/api/kanban/task/comment",
     "/api/kanban/config",
     "/api/network/routes", "/api/network/dns", "/api/network/test", "/api/network/resolve",
-    "/api/network/restart-gateway",
+    "/api/network/restart-gateway", "/api/network/warp-service",
 })
 MAX_BODY_SIZE = 5 * 1024 * 1024  # 5 MB max POST body (SEC-DOS-01)
 LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off", "/openclaw-toggle"})
@@ -8261,18 +8261,19 @@ function netGet(path) {
 function netHealth(st) {
   var r = st.relay || {}, g = st.gateway || {};
   var usesRelay = (st.platforms || []).some(function (p) { return p.route === 'relay' && p.enabled; });
+  var usesWarp = usesRelay || (st.platforms || []).some(function (p) { return p.route === 'warp' && p.enabled; });
   if (usesRelay && r.service !== 'active') return ['badge-down', 'Relay mati'];
-  if (r.warp_service && r.warp_service !== 'active') return ['badge-down', 'WARP mati'];
+  if (usesWarp && r.warp_service && r.warp_service !== 'active') return ['badge-down', 'WARP mati'];
   if ((g.proxy_errors || 0) >= 10) return ['badge-warn', g.proxy_errors + ' error proxy'];
   if ((st.warnings || []).length) return ['badge-warn', 'Perlu dicek'];
   return ['badge-up', 'Sehat'];
 }
 
-function netTile(box, icon, label, dot, value, sub, title) {
+function netTile(box, icon, label, dot, value, sub, title, action) {
   return '<div class="net-tile"' + (title ? ' title="' + netEsc(title) + '"' : '') + '><div class="cc-icon-box ' + box + '">' + netIcon(icon, 16) + '</div>'
     + '<div class="net-tile-body"><div class="net-tile-label">' + netEsc(label) + '</div>'
     + '<div class="net-tile-value"><span class="net-dot ' + dot + '"></span>' + value + '</div>'
-    + '<div class="net-tile-sub">' + sub + '</div></div></div>';
+    + '<div class="net-tile-sub">' + sub + '</div>' + (action || '') + '</div></div>';
 }
 
 function netRenderStatus(st) {
@@ -8285,8 +8286,13 @@ function netRenderStatus(st) {
   var h = '<div class="net-tiles">';
   h += netTile(relayOn ? 'cc-icon-green' : 'cc-icon-red', 'shield', 'Relay IPv4', relayOn ? 'ok' : 'bad',
     relayOn ? 'Aktif' : netEsc(r.service || 'mati'), ':' + netPort(ports.relay, 40001) + (r.enabled === 'enabled' ? ' · auto saat boot' : ' · <span style="color:var(--warning)">tidak auto saat boot</span>'));
+  var warpNeeded = (st.platforms || []).filter(function (p) { return p.enabled && (p.route === 'relay' || p.route === 'warp'); });
+  var warpBtn = '<button type="button" class="btn-action-sm' + (warpOn ? ' btn-action-danger' : ' btn-action-primary') + '" id="net-warp-btn"'
+    + (warpOn && warpNeeded.length ? ' disabled title="Masih dipakai: ' + netEsc(warpNeeded.map(function (p) { return p.label; }).join(', ')) + '"' : '')
+    + ' onclick="netWarpToggle(' + (warpOn ? "'stop'" : "'start'") + ')" style="margin-top:.4rem">'
+    + netIcon('power', 13) + (warpOn ? 'Matikan WARP' : 'Nyalakan WARP') + '</button>';
   h += netTile(warpOn ? 'cc-icon-orange' : 'cc-icon-red', 'cloud', 'WARP', warpOn ? 'ok' : 'bad',
-    warpOn ? 'Aktif' : netEsc(r.warp_service || 'mati'), netEsc(r.warp || ':' + netPort(ports.warp, 40000)), r.warp);
+    warpOn ? 'Aktif' : netEsc(r.warp_service || 'mati'), netEsc(r.warp || ':' + netPort(ports.warp, 40000)), r.warp, warpBtn);
   h += netTile(g.active ? 'cc-icon-blue' : 'cc-icon-red', 'bot', 'Gateway', g.active ? 'ok' : 'bad',
     g.active ? 'Aktif' : 'Mati', g.since ? 'sejak ' + netEsc(netShortDate(g.since)) : '-', g.since);
   h += netTile(errs || fails ? 'cc-icon-orange' : 'cc-icon-green', errs || fails ? 'alert' : 'check', 'Error',
@@ -8526,6 +8532,26 @@ function netSaveRoutes() {
   }).catch(function (e) {
     if (saveGen !== netRoutesSaveGen) return;
     netCallout('net-routes-msg', 'bad', netEsc(e.message || e));
+  });
+}
+
+var netWarpGen = 0;
+function netWarpToggle(action) {
+  var msg = action === 'stop'
+    ? 'Matikan WARP + Relay IPv4? Hemat ±275 MB RAM. Tidak ada platform aktif yang memakainya.'
+    : 'Nyalakan WARP + Relay IPv4?';
+  if (!window.confirm(msg)) return;
+  var gen = ++netWarpGen;
+  var btn = netEl('net-warp-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Memproses…'; }
+  netPost('/api/network/warp-service', {action: action}).then(function (d) {
+    if (gen !== netWarpGen) return;
+    if (!d.ok) { alert(d.error || 'Gagal'); }
+    netLoad(true);
+  }).catch(function (e) {
+    if (gen !== netWarpGen) return;
+    alert(e.message || e);
+    netLoad(true);
   });
 }
 
@@ -12727,6 +12753,56 @@ def _relay_status() -> dict:
     return status
 
 
+
+WARP_SERVICE = "warp-svc"
+
+
+def warp_service_action(action: str) -> tuple[bool, str, dict]:
+    """Start or stop warp-svc (and the relay that depends on it).
+
+    Stopping is refused when any platform still routes via relay or warp.
+    Order on stop: relay first, then warp-svc (prevents reconnect race).
+    Order on start: warp-svc first, then relay (relay needs WARP socket up).
+    """
+    if action not in ("start", "stop"):
+        return False, f"Aksi tidak dikenal: {action!r}", {}
+    # Check which platforms still need WARP (relay or warp route on an enabled platform).
+    env = _read_hermes_env()
+    cfg = get_parsed_config()
+    needs_warp = []
+    for spec in NETWORK_PLATFORMS:
+        block = _effective_platform_block(cfg, spec["id"])
+        if not (block and _to_bool(block.get("enabled"))):
+            continue
+        value = env.get(spec["env"], "").strip()
+        yaml_proxy = _yaml_proxy_url(block) if block else ""
+        effective = value or yaml_proxy
+        route = _route_from_proxy_url(effective)
+        if route in ("relay", "warp"):
+            needs_warp.append(spec["label"])
+    if action == "stop" and needs_warp:
+        return False, (
+            "Tidak bisa mematikan WARP: masih dipakai oleh platform aktif: "
+            + ", ".join(needs_warp) + ". Ubah rute ke 'Langsung' atau nonaktifkan platform tersebut dulu."
+        ), {}
+    try:
+        verb = "enable" if action == "start" else "disable"
+        if action == "start":
+            order = [(WARP_SERVICE, verb), (RELAY_SERVICE, verb)]
+        else:
+            order = [(RELAY_SERVICE, verb), (WARP_SERVICE, verb)]
+        for svc, v in order:
+            r = subprocess.run(["systemctl", v, "--now", svc],
+                               capture_output=True, text=True, timeout=30)
+            if r.returncode != 0:
+                out = ((r.stdout or "") + (r.stderr or "")).strip()
+                return False, f"systemctl {v} {svc} gagal: {out or f'exit {r.returncode}'}", {}
+        _invalidate_network_cache()
+        return True, "", {}
+    except Exception as e:
+        return False, f"Gagal mengubah layanan WARP: {e}", {}
+
+
 def get_gateway_network_state() -> dict:
     env = _read_hermes_env()
     cfg = get_parsed_config()
@@ -16538,6 +16614,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/network/resolve":
             res = resolve_gateway_host(str(json_data.get("host") or ""))
             self._send_json(res, code=200 if res.get("ok") else 400)
+            return
+
+        if parsed.path == "/api/network/warp-service":
+            action = str(json_data.get("action") or "").strip().lower()
+            ok, err, _res = warp_service_action(action)
+            self._send_json({"ok": ok, "error": err}, code=200 if ok else 400)
             return
 
         if parsed.path == "/api/network/restart-gateway":
