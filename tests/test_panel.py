@@ -4940,12 +4940,25 @@ class TestGatewayNetwork(unittest.TestCase):
         rb.assert_called_once()
 
     def test_warp_service_stop_refused_while_platform_needs_it(self):
-        # setUp .env: TELEGRAM_PROXY -> relay :40001, so WARP must stay up
+        self._post("/api/network/routes", {"routes": {"telegram": {"route": "warp"}}})
         with mock.patch.object(panel.subprocess, "run") as run:
-            ok, err, _ = panel.warp_service_action("stop")
+            ok, err, res = panel.warp_service_action("stop")
         self.assertFalse(ok)
         self.assertIn("Telegram", err)
+        self.assertTrue(res.get("logs"))
         run.assert_not_called()
+
+    def test_warp_service_stop_while_relay_active_stops_only_warp_and_returns_logs(self):
+        # setUp .env: TELEGRAM_PROXY -> relay :40001; relay works via direct IPv4 without warp-svc
+        calls = []
+        def fake(argv, **kw):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+        with mock.patch.object(panel.subprocess, "run", side_effect=fake):
+            ok, err, res = panel.warp_service_action("stop")
+        self.assertTrue(ok, err)
+        self.assertEqual(calls, [["systemctl", "disable", "--now", "warp-svc"]])
+        self.assertTrue(any("systemctl disable --now warp-svc" in line for line in res.get("logs", [])))
 
     def test_warp_service_stop_stops_relay_then_warp_when_unused(self):
         self._post("/api/network/routes", {"routes": {"telegram": {"route": "direct"}}})
@@ -4954,10 +4967,11 @@ class TestGatewayNetwork(unittest.TestCase):
             calls.append(argv)
             return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
         with mock.patch.object(panel.subprocess, "run", side_effect=fake):
-            ok, err, _ = panel.warp_service_action("stop")
+            ok, err, res = panel.warp_service_action("stop")
         self.assertTrue(ok, err)
         self.assertEqual(calls, [["systemctl", "disable", "--now", panel.RELAY_SERVICE],
                                  ["systemctl", "disable", "--now", "warp-svc"]])
+        self.assertTrue(res.get("logs"))
 
     def test_warp_service_start_enables_warp_then_relay(self):
         calls = []
@@ -4965,24 +4979,30 @@ class TestGatewayNetwork(unittest.TestCase):
             calls.append(argv)
             return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
         with mock.patch.object(panel.subprocess, "run", side_effect=fake):
-            ok, err, _ = panel.warp_service_action("start")
+            ok, err, res = panel.warp_service_action("start")
         self.assertTrue(ok, err)
         self.assertEqual(calls, [["systemctl", "enable", "--now", "warp-svc"],
                                  ["systemctl", "enable", "--now", panel.RELAY_SERVICE]])
+        self.assertTrue(res.get("logs"))
 
     def test_warp_service_rejects_bad_action_and_endpoint(self):
         ok, err, _ = panel.warp_service_action("rm -rf")
         self.assertFalse(ok)
         code, body = self._post("/api/network/warp-service", {"action": "bogus"})
         self.assertEqual(code, 400)
-        with mock.patch.object(panel, "warp_service_action", return_value=(True, "", {})) as w:
+        with mock.patch.object(panel, "warp_service_action", return_value=(True, "", {"logs": ["ok"]})) as w:
             code, body = self._post("/api/network/warp-service", {"action": "start"})
         self.assertEqual(code, 200, body)
+        self.assertEqual(body.get("logs"), ["ok"])
         w.assert_called_once_with("start")
 
     def test_network_ui_has_warp_toggle(self):
         self.assertIn("netWarpToggle", panel.NETWORK_SCRIPT)
         self.assertIn("/api/network/warp-service", panel.NETWORK_SCRIPT)
+        self.assertIn("net-warp-op-slot", panel.NETWORK_SCRIPT)
+        self.assertIn("net-warp-logbox", panel.NETWORK_SCRIPT)
+        self.assertIn("net-warp-progress-bar", panel.NETWORK_SCRIPT)
+        self.assertNotIn("warpOn && warpNeeded.length ? ' disabled", panel.NETWORK_SCRIPT)
 
     def test_passwordless_mode_still_rejects_cross_site_posts(self):
         """Passwordless LAN mode must not disable CSRF checks (any web page could drive the panel)."""
