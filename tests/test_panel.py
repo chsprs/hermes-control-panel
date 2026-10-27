@@ -5820,6 +5820,7 @@ class TestWave77Audit(unittest.TestCase):
         self.assertIn("process-table-slot", apply_fn)
         self.assertIn("activeElement", apply_fn)
         self.assertIn(":focus-within", apply_fn)
+        self.assertIn("set('process-table-slot',d.processes_table)", apply_fn)
 
     def test_wave77_sse_gw_summary_badge_uses_text_node(self):
         script = panel.SSE_SCRIPT

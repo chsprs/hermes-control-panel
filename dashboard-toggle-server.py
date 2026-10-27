@@ -8143,7 +8143,7 @@ SSE_SCRIPT = """<script>
         }catch(e){}
       }
       if(!isInteracting){
-        set('process-table-slot', d.processes_table);
+        set('process-table-slot',d.processes_table);
       }
     }
     if(d.gateway_list_block) set('gateway-list-slot', d.gateway_list_block);
