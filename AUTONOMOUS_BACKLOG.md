@@ -58,6 +58,11 @@ Updated: 2026-10-27
 - [x] Cleared stale poll and countdown interval timers when re-starting WhatsApp pairing (`startWaPair`); subsequent attempts now start with pristine timer state.
 - [ ] Continue audit of remaining delayed UI callbacks and shared status/log refresh paths.
 
+## Wave 75 completed
+
+- `netLoad(true)` (full network-card re-render) no longer runs while `NET.dirty.routes` or `NET.dirty.dns` is set. A full re-render rebuilds the route/DNS inputs from the server and resets the dirty flag, which silently discarded edits the user never saved (e.g. saving DNS while route edits were pending, or the 45s post-restart reload). It now refreshes only the live status tiles and shows a warning callout naming what is still unsaved.
+- The dirty guard runs before the destructive `slot.innerHTML = netRenderCard(st)` and returns early; `netSaveRoutes`/`netSaveDns` clear their own dirty flag first, so their own reloads are unaffected.
+
 ## Wave 74 completed
 
 - Kanban comment submission (`submitCurrentTaskComment`) now guards against in-flight double submissions (`kanbanCommentSubmitting`), disables input/button with "Mengirim…" label, and re-enables them on completion.
