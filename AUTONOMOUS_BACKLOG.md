@@ -183,3 +183,9 @@ Updated: 2026-10-27
 
 - [ ] Runtime Hermes Kanban import from panel system Python: embedded runtime dependencies are not available to `/usr/bin/python3`; fallback path is schema-compatible and guarded.
 - [ ] Remove or migrate production orphan board directory `kanban/boards/test-board-val` only with explicit cleanup authorization.
+
+## Wave 78 — mobile & accessibility polish (task t_8946e3d3)
+
+Baseline: HEAD 107407c, 289 unit + 113 contract GREEN, runtime IDENTICAL, panel active :1000.
+
+- [x] 1. `lang="id"` on PAGE — FIXED. `<html>` had no lang attribute (screen readers could not pick pronunciation language); login page already had `lang="id"`. Commit 29ceae7, deployed + restarted hermes-panel.service, runtime IDENTICAL. Test: `test_page_declares_lang_attribute`.
