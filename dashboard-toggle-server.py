@@ -297,6 +297,32 @@ _router_image_date_lock = threading.Lock()
 _router_uptime_cache = {"at": 0, "val": ""}
 _router_uptime_lock = threading.Lock()
 
+# Rate-limited logging for `except: pass` sites. These handlers exist so one dead
+# probe never breaks a whole fragment, but silently dropping a row means the user
+# sees a service vanish from the panel with no way to tell "dead" from "panel
+# failed to read it". One line per context per minute keeps that diagnosable
+# without flooding the journal on a per-second fragment build.
+_swallow_log_at: dict[str, float] = {}
+_swallow_log_lock = threading.Lock()
+_SWALLOW_LOG_INTERVAL = 60.0
+
+
+def _log_swallow(context: str, exc: BaseException) -> None:
+    """Log a deliberately swallowed exception, at most once a minute per context."""
+    now = time.monotonic()
+    with _swallow_log_lock:
+        last = _swallow_log_at.get(context, 0.0)
+        if now - last < _SWALLOW_LOG_INTERVAL:
+            return
+        _swallow_log_at[context] = now
+        if len(_swallow_log_at) > 64:
+            for k in [k for k, v in _swallow_log_at.items() if v < now - _SWALLOW_LOG_INTERVAL]:
+                _swallow_log_at.pop(k, None)
+    try:
+        sys.stderr.write(f"[panel] {context}: {type(exc).__name__}: {exc}\n")
+    except Exception:
+        pass
+
 CLEAN_JUNK_JSON = "/root/.hermes/logs/clean-junk.json"
 CLEAN_JUNK_LOG = "/root/.hermes/logs/clean-junk.log"
 _clean_junk_result = {"status": "idle", "freed_bytes": 0, "freed_human": "0 B", "freed_mb": 0.0, "files_count": 0, "log": "", "at": 0.0}
@@ -316,6 +342,14 @@ def _icon(inner: str, size: int = 18) -> str:
             f'fill="none" stroke="currentColor" stroke-width="2" '
             f'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" '
             f'focusable="false">{inner}</svg>')
+
+
+def _svg_data_uri(inner: str, color: str = "#94a3b8") -> str:
+    """Monochrome inline SVG as data URI for <img src> — zero external requests."""
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" '
+           f'viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" '
+           f'stroke-linecap="round" stroke-linejoin="round">{inner}</svg>')
+    return "data:image/svg+xml," + quote(svg)
 
 
 ICON_MONITOR = _icon(
@@ -366,7 +400,18 @@ ICON_TRASH = _icon('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1
 ICON_SHIELD = _icon('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', size=16)
 ICON_BOX = _icon('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>', size=16)
 
-ICON_HERMES_LOGO = '<img src="https://cdn.jsdelivr.net/gh/selfhst/icons/webp/hermes-agent-light.webp" width="28" height="28" style="vertical-align:middle;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.4))" alt="Hermes Logo">'
+ICON_HERMES_LOGO = (
+    '<svg class="header-logo" width="34" height="34" viewBox="0 0 34 34" '
+    'style="vertical-align:middle;filter:drop-shadow(0 4px 14px rgba(59,130,246,0.35))" '
+    'aria-label="Hermes Logo" role="img">'
+    '<defs><linearGradient id="hlg" x1="0" y1="0" x2="1" y2="1">'
+    '<stop offset="0%" stop-color="#2563eb"/><stop offset="100%" stop-color="#60a5fa"/>'
+    '</linearGradient></defs>'
+    '<circle cx="17" cy="17" r="16" fill="url(#hlg)"/>'
+    '<text x="17" y="23" text-anchor="middle" font-family="system-ui,sans-serif" '
+    'font-size="19" font-weight="700" fill="#fff">H</text>'
+    '</svg>'
+)
 
 
 def render_markdown(text: str) -> str:
@@ -585,10 +630,9 @@ PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
 <title>Hermes Control Panel</title>
 <meta name="theme-color" content="#07090e">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%232563eb'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+@font-face{{font-family:'Geist';src:url('/static/fonts/Geist-400.woff2') format('woff2');font-weight:400 700;font-display:swap}}
+@font-face{{font-family:'Geist Mono';src:url('/static/fonts/GeistMono-400.woff2') format('woff2');font-weight:400 600;font-display:swap}}
 :root{{
   color-scheme:dark;
   --bg:#07090e;
@@ -682,7 +726,7 @@ scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x}}
 .tabs[data-scroll="start"]{{-webkit-mask-image:linear-gradient(to right,#000 86%,transparent 100%);mask-image:linear-gradient(to right,#000 86%,transparent 100%)}}
 .tabs[data-scroll="mid"]{{-webkit-mask-image:linear-gradient(to right,transparent 0,#000 7%,#000 93%,transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 7%,#000 93%,transparent 100%)}}
 .tabs[data-scroll="end"]{{-webkit-mask-image:linear-gradient(to right,transparent 0,#000 14%);mask-image:linear-gradient(to right,transparent 0,#000 14%)}}
-.tab{{flex:1 0 auto;min-height:42px;display:flex;align-items:center;justify-content:center;
+.tab{{flex:1 0 auto;min-height:44px;display:flex;align-items:center;justify-content:center;
 border-radius:12px;text-align:center;gap:.35rem;padding:0 .85rem;
 font-weight:500;font-size:.82rem;cursor:pointer;border:none;white-space:nowrap;font-family:inherit;
 background:transparent;color:var(--text-muted);transition:all .18s var(--ease)}}
@@ -714,7 +758,7 @@ display:flex;align-items:center;gap:.5rem}}
 /* Bento Tile Grid */
 .cc-grid{{display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:.75rem}}
 @media (max-width: 440px){{.cc-grid{{grid-template-columns:1fr}}}}
-@media (max-width:390px){{.tab{{font-size:.78rem;min-height:40px;padding:0 .65rem;gap:.25rem}}.tabs{{gap:.25rem;padding:.25rem}}}}
+@media (max-width:390px){{.tab{{font-size:.78rem;min-height:44px;padding:0 .65rem;gap:.25rem}}.tabs{{gap:.25rem;padding:.25rem}}}}
 
 .cc-tile{{background:rgba(255,255,255,0.025);border:1px solid var(--border-subtle);
 border-radius:var(--radius-lg);padding:1rem;display:flex;flex-direction:column;
@@ -997,11 +1041,11 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .badge-down{{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(239,68,68,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
 .badge-warn{{background:var(--warning-dim);color:var(--warning);border:1px solid rgba(245,158,11,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
 .badge-muted{{background:rgba(255,255,255,0.05);color:var(--text-dim);border:1px solid rgba(255,255,255,0.08);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
-.btn-end-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.12);color:#fca5a5;text-decoration:none;display:inline-block;cursor:pointer;font-weight:500;transition:all .15s ease}}
+.btn-end-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.12);color:#fca5a5;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:32px;cursor:pointer;font-weight:500;transition:all .15s ease}}
 .btn-end-task:hover{{background:rgba(239,68,68,0.28);border-color:var(--danger);color:#fff}}
-.btn-restart-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.06);color:var(--text);text-decoration:none;display:inline-block;cursor:pointer;margin-left:.3rem;transition:all .15s ease}}
+.btn-restart-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.06);color:var(--text);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:32px;cursor:pointer;margin-left:.3rem;transition:all .15s ease}}
 .btn-restart-task:hover{{background:rgba(255,255,255,0.14);color:#fff}}
-.btn-start-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.12);color:#6ee7b7;text-decoration:none;display:inline-block;cursor:pointer;font-weight:500}}
+.btn-start-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.12);color:#6ee7b7;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:32px;cursor:pointer;font-weight:500}}
 .btn-start-task:hover{{background:rgba(16,185,129,0.28);color:#fff}}
 
 .task-table .td-label{{display:none}}
@@ -1046,7 +1090,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .patch-notes-list li{{margin-bottom:.3rem;word-break:break-word}}
 .patch-notes-list li:last-child{{margin-bottom:0}}
 .patch-notes-pages{{display:flex;align-items:center;justify-content:flex-end;gap:.45rem;margin-top:.65rem}}
-.patch-notes-pages button{{width:auto;min-height:30px;padding:.25rem .6rem;font-size:.7rem}}
+.patch-notes-pages button{{width:auto;min-height:32px;padding:.25rem .6rem;font-size:.7rem}}
 .patch-notes-page-label{{min-width:5.5rem;text-align:center;font:600 .68rem var(--font-mono);color:var(--text-dim)}}
 
 /* Responsive Desktop Overrides */
@@ -1163,7 +1207,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.4rem;background:rgba(255,255,255,0.02);padding:0.4rem 0.6rem;border-radius:var(--radius-sm);border:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
         <span style="font-size:0.72rem;color:var(--text-muted);font-weight:600">📋 Template:</span>
-        <select id="gw-template-picker" onchange="applyGwSelectedTemplate(this.value)" class="search-input" style="width:auto;min-height:28px;height:28px;margin:0;padding:0.15rem 0.5rem;font-size:0.72rem;background:rgba(255,255,255,0.06);color:var(--accent-light);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-sm);cursor:pointer">
+        <select id="gw-template-picker" onchange="applyGwSelectedTemplate(this.value)" class="search-input" style="width:auto;min-height:32px;height:32px;margin:0;padding:0.15rem 0.5rem;font-size:0.72rem;background:rgba(255,255,255,0.06);color:var(--accent-light);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-sm);cursor:pointer">
           <option value="">-- Pilih Template Gateway --</option>
           <optgroup label="Populer">
             <option value="telegram">Telegram Bot</option>
@@ -1195,12 +1239,12 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
             <option value="bluebubbles">BlueBubbles</option>
           </optgroup>
         </select>
-        <button type="button" class="btn-action-sm" onclick="applyGwSelectedTemplate(document.getElementById('gw-template-picker').value)" style="min-height:28px;font-size:0.72rem;padding:0.2rem 0.55rem;background:rgba(59,130,246,0.15);border-color:rgba(59,130,246,0.4);color:var(--accent-light)" title="Muat / terapkan template terpilih ke form &amp; YAML">Terapkan</button>
+        <button type="button" class="btn-action-sm" onclick="applyGwSelectedTemplate(document.getElementById('gw-template-picker').value)" style="min-height:32px;font-size:0.72rem;padding:0.2rem 0.55rem;background:rgba(59,130,246,0.15);border-color:rgba(59,130,246,0.4);color:var(--accent-light)" title="Muat / terapkan template terpilih ke form &amp; YAML">Terapkan</button>
       </div>
       <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
         <div style="display:flex;gap:0.25rem;background:rgba(255,255,255,0.04);padding:2px;border-radius:var(--radius-sm);border:1px solid var(--border)">
-          <button type="button" class="btn-action-sm active" id="gw-btn-mode-ui" onclick="switchGwConfigMode('ui')" style="min-height:26px;font-size:0.72rem;padding:0.2rem 0.5rem">🎛 Form Setting (Full UI)</button>
-          <button type="button" class="btn-action-sm" id="gw-btn-mode-yaml" onclick="switchGwConfigMode('yaml')" style="min-height:26px;font-size:0.72rem;padding:0.2rem 0.5rem">📝 Raw YAML (Manual)</button>
+          <button type="button" class="btn-action-sm active" id="gw-btn-mode-ui" onclick="switchGwConfigMode('ui')" style="min-height:32px;font-size:0.72rem;padding:0.2rem 0.5rem">🎛 Form Setting (Full UI)</button>
+          <button type="button" class="btn-action-sm" id="gw-btn-mode-yaml" onclick="switchGwConfigMode('yaml')" style="min-height:32px;font-size:0.72rem;padding:0.2rem 0.5rem">📝 Raw YAML (Manual)</button>
         </div>
         <label style="font-size:0.72rem;display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer;background:rgba(255,255,255,0.04);padding:0.2rem 0.45rem;border-radius:var(--radius-sm);border:1px solid var(--border);margin:0">
           <input type="checkbox" id="gw-config-enabled-chk" checked style="accent-color:var(--accent)">
@@ -1625,7 +1669,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         <option value="archived">Archived</option>
       </select>
       <button type="button" id="btn-reclaim-task" class="btn btn-action-sm" onclick="reclaimCurrentTask()" style="display:none;background:rgba(234,179,8,0.15);color:#facc15;border-color:rgba(234,179,8,0.4)">Reclaim Lock</button>
-      <button type="button" class="btn btn-off" style="width:auto;min-height:28px;padding:0.2rem 0.55rem;font-size:0.7rem;margin-left:auto" onclick="deleteCurrentTask()">Hapus Tugas</button>
+      <button type="button" class="btn btn-off" style="width:auto;min-height:32px;padding:0.2rem 0.55rem;font-size:0.7rem;margin-left:auto" onclick="deleteCurrentTask()">Hapus Tugas</button>
     </div>
     <div style="flex:1;display:flex;flex-direction:column;gap:0.5rem">
       <div style="font-size:0.75rem;font-weight:600;color:var(--text)">Komentar (<span id="view-task-comments-count">0</span>)</div>
@@ -1646,8 +1690,8 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       </div>
       <div style="display:flex;align-items:center;gap:0.4rem">
         <div class="btn-group" style="display:flex;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:4px;overflow:hidden">
-          <button type="button" id="att-btn-preview" class="btn" style="width:auto;min-height:26px;padding:0.2rem 0.6rem;font-size:0.7rem;margin:0;border:none;border-radius:0;background:var(--accent);color:#fff" onclick="setAttachmentViewMode('preview')">Preview</button>
-          <button type="button" id="att-btn-raw" class="btn" style="width:auto;min-height:26px;padding:0.2rem 0.6rem;font-size:0.7rem;margin:0;border:none;border-radius:0;background:transparent;color:var(--text-muted)" onclick="setAttachmentViewMode('raw')">Raw</button>
+          <button type="button" id="att-btn-preview" class="btn" style="width:auto;min-height:32px;padding:0.2rem 0.6rem;font-size:0.7rem;margin:0;border:none;border-radius:0;background:var(--accent);color:#fff" onclick="setAttachmentViewMode('preview')">Preview</button>
+          <button type="button" id="att-btn-raw" class="btn" style="width:auto;min-height:32px;padding:0.2rem 0.6rem;font-size:0.7rem;margin:0;border:none;border-radius:0;background:transparent;color:var(--text-muted)" onclick="setAttachmentViewMode('raw')">Raw</button>
         </div>
         <button type="button" class="btn btn-action-sm" onclick="copyAttachmentContent()">Salin</button>
         <button type="button" class="btn btn-action-sm" onclick="downloadAttachmentContent()">Download</button>
@@ -1710,7 +1754,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 </div>
 <div class="header">
   <div class="header-brand">
-    <img src="https://cdn.jsdelivr.net/gh/selfhst/icons/webp/hermes-agent-light.webp" class="header-logo" alt="Hermes Logo">
+    {icon_hermes_logo}
     <h1>Hermes Control Panel</h1>
     <span id="spin"></span>
   </div>
@@ -4170,7 +4214,7 @@ function openViewTaskModal(taskId){{
             var btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'btn btn-on';
-            btn.style.cssText = 'width:auto;min-height:26px;padding:0.15rem 0.55rem;font-size:0.7rem;margin:0';
+            btn.style.cssText = 'width:auto;min-height:32px;padding:0.15rem 0.55rem;font-size:0.7rem;margin:0';
             btn.textContent = 'Lihat';
             btn.onclick = function(){{ openKanbanAttachment(a.id, a.filename); }};
             row.appendChild(nm);
@@ -6850,6 +6894,21 @@ WHATSAPP_LOG_PATHS = [
 
 _tail_log_cache: dict[tuple[str, int], tuple[int, int, str]] = {}
 _tail_log_lock = threading.Lock()
+# ?n= is client-controlled on /api/gateway-log and /api/whatsapp-log; without a
+# cap every distinct n mints a new cache entry holding up to 40 KB of log text.
+_TAIL_LOG_CACHE_MAX = 16
+# Fixed set of tail sizes: keeps the cache key space small and bounded.
+TAIL_N_ALLOWED = (60, 100, 200, 500, 1000)
+
+
+def _tail_n_from_query(qs: dict, default: int = 100) -> int:
+    """Snap a client-supplied ?n= to the nearest allowed tail size."""
+    raw = (qs.get("n") or [str(default)])[0]
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return min(TAIL_N_ALLOWED, key=lambda a: (abs(a - n), a))
 
 
 def _tail_file_cached(path: str, n: int) -> str | None:
@@ -6871,6 +6930,8 @@ def _tail_file_cached(path: str, n: int) -> str | None:
             val = "\n".join(lines[-n:]) if lines else ""
         with _tail_log_lock:
             _tail_log_cache[key] = (st.st_mtime_ns, st.st_size, val)
+            while len(_tail_log_cache) > _TAIL_LOG_CACHE_MAX:
+                _tail_log_cache.pop(next(iter(_tail_log_cache)))
         return val
     except Exception:
         return None
@@ -8706,7 +8767,7 @@ function netRenderWarpOp() {
   var spin = op.running ? '<span class="net-spin" style="display:inline-flex">' + netIcon('refresh', 14) + '</span>'
     : netIcon(op.status === 'ok' ? 'check' : 'x', 14);
   var barCls = op.running ? '' : (op.status === 'ok' ? ' ok' : ' bad');
-  var closeBtn = op.running ? '' : '<button type="button" class="btn-action-sm" style="min-height:24px;padding:.15rem .5rem;font-size:.68rem" onclick="netClearWarpOp()">Tutup log</button>';
+  var closeBtn = op.running ? '' : '<button type="button" class="btn-action-sm" style="min-height:32px;padding:.15rem .5rem;font-size:.68rem" onclick="netClearWarpOp()">Tutup log</button>';
   return '<div class="net-warp-op">'
     + '<div class="net-warp-op-head"><span style="display:inline-flex;align-items:center;gap:.4rem">' + spin + '<span>' + netEsc(op.title || '') + '</span></span>' + closeBtn + '</div>'
     + '<div class="net-warp-progress-track"><div class="net-warp-progress-bar' + barCls + '" id="net-warp-progress-bar" style="width:' + netNumber(op.pct, 10) + '%"></div></div>'
@@ -9050,6 +9111,10 @@ NETWORK_ASSETS = {
 }
 NETWORK_STYLE_TAG = f'<link rel="stylesheet" href="/assets/network-card.css?v={NETWORK_ASSET_VERSION}">'
 NETWORK_SCRIPT_TAG = f'<script src="/assets/network-card.js?v={NETWORK_ASSET_VERSION}" defer></script>'
+
+# Self-hosted fonts: panel must render fully offline (warp-svc off = no internet).
+FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
+FONT_FILES = {"Geist-400.woff2", "GeistMono-400.woff2"}
 
 
 NAV_SCRIPT = """<script>
@@ -10341,16 +10406,39 @@ def set_current_model(model_id: str) -> bool:
         try:
             with open(CONFIG_PATH, encoding="utf-8") as f:
                 text = f.read()
-            # Handle both 'model:\n  default: ...' and 'model:\n  ...:\n  default: ...'
-            new_text, n = re.subn(
-                r"(\bdefault:\s*)\S+",
-                lambda m: m.group(1) + model_id,
-                text,
-                count=1,
-            )
-            if n == 0:
+            # Scope the rewrite to the top-level `model:` block. A bare
+            # `(\bdefault:\s*)\S+` with count=1 hits whichever `default:` appears
+            # first in the file, so an `agent.default:` (or any platform block)
+            # placed above `model:` would be silently overwritten instead.
+            lines = text.splitlines(keepends=True)
+            start = None
+            for i, line in enumerate(lines):
+                if line.startswith("model:"):
+                    start = i
+                    break
+            if start is None:
                 return False
-            _write_config_atomic(new_text)
+            end = len(lines)
+            for j in range(start + 1, len(lines)):
+                stripped = lines[j].strip()
+                if stripped and not stripped[0].isspace() and not stripped.startswith("#"):
+                    end = j
+                    break
+            replaced = False
+            for j in range(start + 1, end):
+                new_line, n = re.subn(
+                    r"^(\s*default:\s*)\S+",
+                    lambda m: m.group(1) + model_id,
+                    lines[j],
+                    count=1,
+                )
+                if n:
+                    lines[j] = new_line
+                    replaced = True
+                    break
+            if not replaced:
+                return False
+            _write_config_atomic("".join(lines))
             return True
         except Exception as e:
             sys.stderr.write(f"[panel] set_current_model error: {e}\n")
@@ -11600,17 +11688,17 @@ def _render_profiles_block_uncached() -> str:
         soul_badge = '<span class="badge" style="background:rgba(168,85,247,0.15);color:#c084fc;font-size:0.65rem">SOUL.md ✓</span>' if has_soul else '<span class="badge" style="background:rgba(255,255,255,0.04);color:var(--text-dim);font-size:0.65rem">SOUL.md -</span>'
 
         act_btn = (
-            f'<button type="button" class="btn" disabled style="width:auto;min-height:30px;padding:0.25rem 0.65rem;font-size:0.72rem;opacity:0.6;cursor:default">'
+            f'<button type="button" class="btn" disabled style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem;opacity:0.6;cursor:default">'
             f'  Aktif'
             f'</button>'
         ) if is_act else (
-            f'<button type="button" class="btn btn-on" style="width:auto;min-height:30px;padding:0.25rem 0.65rem;font-size:0.72rem" onclick="setActiveProfile(\'{safe_name}\')">'
+            f'<button type="button" class="btn btn-on" style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem" onclick="setActiveProfile(\'{safe_name}\')">'
             f'  Aktifkan'
             f'</button>'
         )
 
-        rename_btn = '' if is_def else f'<button type="button" class="btn" style="width:auto;min-height:30px;padding:0.25rem 0.65rem;font-size:0.72rem" onclick="openRenameProfileModal(\'{safe_name}\')">Rename</button>'
-        delete_btn = '' if is_def else f'<button type="button" class="btn btn-off" style="width:auto;min-height:30px;padding:0.25rem 0.65rem;font-size:0.72rem" onclick="deleteProfile(\'{safe_name}\')">Hapus</button>'
+        rename_btn = '' if is_def else f'<button type="button" class="btn" style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem" onclick="openRenameProfileModal(\'{safe_name}\')">Rename</button>'
+        delete_btn = '' if is_def else f'<button type="button" class="btn btn-off" style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem" onclick="deleteProfile(\'{safe_name}\')">Hapus</button>'
 
         desc_html = f'<div style="font-size:0.75rem;color:var(--text-dim);margin-top:0.4rem;line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">{html.escape(desc)}</div>' if desc else ''
 
@@ -11646,7 +11734,7 @@ def _render_profiles_block_uncached() -> str:
             f'  </div>'
             f'  <div style="display:flex;gap:0.4rem;align-items:center;margin-top:0.85rem;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:0.65rem">'
             f'    {act_btn}'
-            f'    <button type="button" class="btn" style="width:auto;min-height:30px;padding:0.25rem 0.65rem;font-size:0.72rem" onclick="openProfileSoulModal(\'{safe_name}\')">Edit SOUL</button>'
+            f'    <button type="button" class="btn" style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem" onclick="openProfileSoulModal(\'{safe_name}\')">Edit SOUL</button>'
             f'    {rename_btn}'
             f'    {delete_btn}'
             f'  </div>'
@@ -14521,7 +14609,8 @@ def get_process_list(fresh: bool = False) -> list[dict]:
             "start_url": "/bot-toggle",
             "restart_url": "/restart-bot",
         })
-    except Exception:
+    except Exception as _exc:
+        _log_swallow("get_process_list hermes-gateway row", _exc)
         pass
 
     # 2. 9router AI Engine
@@ -14551,7 +14640,8 @@ def get_process_list(fresh: bool = False) -> list[dict]:
             "start_url": "/process-action?service=9router&action=start",
             "restart_url": "/process-action?service=9router&action=restart",
         })
-    except Exception:
+    except Exception as _exc:
+        _log_swallow("get_process_list 9router row", _exc)
         pass
 
     # 3. Hermes Control Panel
@@ -14568,7 +14658,8 @@ def get_process_list(fresh: bool = False) -> list[dict]:
             "mem_mb": panel_mem,
             "restart_url": "/process-action?service=hermes-panel&action=restart",
         })
-    except Exception:
+    except Exception as _exc:
+        _log_swallow("get_process_list hermes-panel row", _exc)
         pass
 
     # 4. Hermes Dashboard (:9119)
@@ -14602,7 +14693,8 @@ def get_process_list(fresh: bool = False) -> list[dict]:
             "start_url": "/on",
             "restart_url": "/process-action?service=hermes-dashboard&action=restart",
         })
-    except Exception:
+    except Exception as _exc:
+        _log_swallow("get_process_list hermes-dashboard row", _exc)
         pass
 
     # 5. Cloudflared Tunnel
@@ -14632,7 +14724,8 @@ def get_process_list(fresh: bool = False) -> list[dict]:
             "start_url": "/process-action?service=cloudflared&action=start",
             "restart_url": "/process-action?service=cloudflared&action=restart",
         })
-    except Exception:
+    except Exception as _exc:
+        _log_swallow("get_process_list cloudflared row", _exc)
         pass
 
     # 6. Pi-hole DNS
@@ -14657,7 +14750,8 @@ def get_process_list(fresh: bool = False) -> list[dict]:
             "start_url": f"/process-action?service={c_id}&action=start",
             "restart_url": f"/process-action?service={c_id}&action=restart",
         })
-    except Exception:
+    except Exception as _exc:
+        _log_swallow("get_process_list docker row", _exc)
         pass
 
     # 7. CasaOS
@@ -14685,7 +14779,8 @@ def get_process_list(fresh: bool = False) -> list[dict]:
             "start_url": "/process-action?service=casaos&action=start",
             "restart_url": "/process-action?service=casaos&action=restart",
         })
-    except Exception:
+    except Exception as _exc:
+        _log_swallow("get_process_list casaos row", _exc)
         pass
 
     # 8. OpenClaw Gateway
@@ -14713,7 +14808,8 @@ def get_process_list(fresh: bool = False) -> list[dict]:
             "start_url": "/process-action?service=openclaw-gateway&action=start",
             "restart_url": "/process-action?service=openclaw-gateway&action=restart",
         })
-    except Exception:
+    except Exception as _exc:
+        _log_swallow("get_process_list openclaw-gateway row", _exc)
         pass
 
     return procs
@@ -14880,7 +14976,7 @@ def get_docker_containers_info() -> list[dict]:
             low_name = name.lower()
             low_img = image.lower()
             if "pihole" in low_name or "pihole" in low_img:
-                icon = "https://cdn.jsdelivr.net/gh/selfhst/icons/webp/pi-hole.webp"
+                icon = _svg_data_uri('<circle cx="12" cy="12" r="10"/><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/>')
                 if not title or title == name:
                     title = "Pi-hole"
                 if not web_port:
@@ -14888,23 +14984,23 @@ def get_docker_containers_info() -> list[dict]:
                 if web_path == "/":
                     web_path = "/admin"
             elif "9router" in low_name or "9router" in low_img:
-                icon = "https://cdn.jsdelivr.net/gh/selfhst/icons/webp/9router.webp"
+                icon = _svg_data_uri('<rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6" y2="14"/><line x1="18" y1="6" x2="18" y2="14"/><line x1="6" y1="18" x2="6.01" y2="18"/><line x1="10" y1="18" x2="10.01" y2="18"/>')
                 if not title or title == name:
                     title = "9router"
                 if not web_port:
                     web_port = "20128"
             elif "cloudflared" in low_name or "cloudflared" in low_img:
-                icon = "https://cdn.jsdelivr.net/gh/selfhst/icons/webp/cloudflare.webp"
+                icon = _svg_data_uri('<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>')
                 if not title or title == name:
                     title = "Cloudflared"
                 if not web_port:
                     web_port = "14333"
             elif "jellyfin" in low_name:
-                icon = "https://cdn.jsdelivr.net/gh/selfhst/icons/webp/jellyfin.webp"
+                icon = _svg_data_uri('<circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>')
             elif "qbittorrent" in low_name:
-                icon = "https://cdn.jsdelivr.net/gh/selfhst/icons/webp/qbittorrent.webp"
+                icon = _svg_data_uri('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>')
             else:
-                icon = "https://cdn.jsdelivr.net/gh/selfhst/icons/webp/docker.webp"
+                icon = _svg_data_uri('<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>')
 
         is_running = (state == "running")
         containers.append({
@@ -14996,7 +15092,7 @@ def _render_docker_apps_block_uncached() -> str:
             f'  <div>'
             f'    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
             f'      <div style="display:flex;align-items:center;gap:10px;min-width:0">'
-            f'        <img src="{icon}" width="38" height="38" style="border-radius:8px;object-fit:contain;background:rgba(255,255,255,0.03);padding:2px;border:1px solid rgba(255,255,255,0.08);flex-shrink:0" onerror="this.src=\'https://cdn.jsdelivr.net/gh/selfhst/icons/webp/docker.webp\'" alt="{title}">'
+            f'        <img src="{icon}" width="38" height="38" style="border-radius:8px;object-fit:contain;background:rgba(255,255,255,0.03);padding:2px;border:1px solid rgba(255,255,255,0.08);flex-shrink:0" alt="{title}">'
             f'        <div style="min-width:0">'
             f'          <div style="font-size:0.92rem;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{title}</div>'
             f'          <div style="font-size:0.68rem;color:var(--text-dim);font-family:var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{image}">{image}</div>'
@@ -16065,12 +16161,34 @@ SSE_CLIENT_KEYS = (
 )
 
 
-def _sse_payload(frag: dict) -> str:
-    return json.dumps({k: frag[k] for k in SSE_CLIENT_KEYS if k in frag})
+def _sse_payload(frag: dict, delta: bool = False) -> str:
+    """Serialize the client-visible subset of ``frag``.
+
+    ``delta=True`` keeps only the keys whose serialized value changed since the
+    previous delta push. Measured on the live panel: gateway_log_card is 18.3 KB
+    and identical on 9/9 consecutive ticks, yet it was re-sent (and re-parsed,
+    and re-diffed against innerHTML) every second because a RAM number moved.
+    Per-key deltas cut ~22 KB/s per connected client on the STB.
+    """
+    if not delta:
+        return json.dumps({k: frag[k] for k in SSE_CLIENT_KEYS if k in frag})
+    out = {}
+    with _sse_last_keys_lock:
+        for k in SSE_CLIENT_KEYS:
+            if k not in frag:
+                continue
+            v = json.dumps(frag[k])
+            if _sse_last_keys.get(k) == v:
+                continue
+            _sse_last_keys[k] = v
+            out[k] = frag[k]
+    return json.dumps(out)
 
 
 _sse_last_data: str = ""  # last serialized fragments, for change detection
 _sse_last_data_lock = threading.Lock()
+_sse_last_keys: dict[str, str] = {}  # per-key last-sent serialization, for delta pushes
+_sse_last_keys_lock = threading.Lock()
 
 def _sse_push_loop():
     """Background worker thread:
@@ -16478,6 +16596,28 @@ class Handler(BaseHTTPRequestHandler):
             pass
         return data, None
 
+    def _serve_font(self, path: str):
+        """Serve self-hosted woff2 with immutable cache. Public — no auth required."""
+        name = os.path.basename(path)
+        if name not in FONT_FILES:
+            self._send_json({"ok": False, "error": "not found"}, code=404)
+            return
+        font_path = os.path.join(FONT_DIR, name)
+        try:
+            with open(font_path, "rb") as f:
+                data = f.read()
+        except OSError:
+            self._send_json({"ok": False, "error": "not found"}, code=404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "font/woff2")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(data)
+
     def _send_asset(self, body: str, content_type: str):
         """Static UI asset behind a versioned URL (?v=<hash>): cache it for good in this browser."""
         data, encoding = self._compress_payload(body.encode("utf-8"))
@@ -16512,9 +16652,9 @@ class Handler(BaseHTTPRequestHandler):
             "Content-Security-Policy",
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com data:; "
-            "img-src 'self' data: https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline'; "
+            "font-src 'self' data:; "
+            "img-src 'self' data:; "
             "connect-src 'self'; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "
@@ -16739,6 +16879,11 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
 
+        # Self-hosted fonts: public, no auth needed (login page may reference them).
+        if parsed.path.startswith("/static/fonts/") and parsed.path.endswith(".woff2"):
+            self._serve_font(parsed.path)
+            return
+
         if parsed.path == "/logout":
             self.send_response(302)
             self._clear_session_cookie()
@@ -16817,23 +16962,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/gateway-log":
-            n = 100
-            try:
-                n = int((qs.get("n") or ["100"])[0])
-            except Exception:
-                n = 100
-            n = max(1, min(n, 1000))
+            n = _tail_n_from_query(qs)
             raw_log = tail_gateway_log(n=n)
             self._send_json({"ok": True, "log": redact_sensitive_tokens(raw_log)})
             return
 
         if parsed.path == "/api/whatsapp-log":
-            n = 100
-            try:
-                n = int((qs.get("n") or ["100"])[0])
-            except Exception:
-                n = 100
-            n = max(1, min(n, 1000))
+            n = _tail_n_from_query(qs)
             raw_log = tail_whatsapp_bridge_log(n=n)
             self._send_json({"ok": True, "log": redact_sensitive_tokens(raw_log)})
             return
