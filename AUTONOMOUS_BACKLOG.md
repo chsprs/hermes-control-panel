@@ -202,3 +202,113 @@ Baseline: HEAD 107407c, 289 unit + 113 contract GREEN, runtime IDENTICAL, panel 
 - [x] 4. Hapus onerror fallback — FIXED. `<img onerror="this.src='.../docker.webp'">` di kartu layanan dihapus (tidak relevan dengan SVG data URI).
 - [x] 5. Verifikasi — (a) `curl /status | grep -cE "fonts.googleapis|jsdelivr"` = 0; (b) `curl -I /static/fonts/Geist-400.woff2` → 200, `font/woff2`, immutable; GeistMono juga 200; unknown font → 404; path traversal → 404; (c) CSP header bersih dari domain eksternal; (d) 303 unit test (289 baseline + 3 baru + 11 worker lain), hanya 2 pre-existing failure dari worker lain (`test_active_tab_scrolls_into_view`, `test_72_dos_and_input_validation`); (e) 113 contract GREEN; (f) node --check JS syntax OK.
 - [x] 4. `:focus-visible` global — SEBAGIAN SUDAH AMAN + 1 celah diperbaiki. Aturan global `:focus-visible{outline:2px solid var(--accent-light);outline-offset:2px}` sudah ada di PAGE (wave sebelumnya); `.search-input` dan `.net-input` yang men-set `outline:none` sudah punya pengganti (`:focus` border-color + box-shadow), halaman login juga (`input:focus{border-color:#60a5fa}`). Satu-satunya celah: textarea `#gw-config-yaml` punya inline `outline:none` — inline style mengalahkan aturan stylesheet sehingga ring fokus hilang tanpa pengganti. FIX: `outline:none` dihapus dari inline style, ring global kembali berlaku. Test: `test_focus_visible_style_present` (aturan global ada + tak ada outline:none tanpa pengganti, inline maupun CSS).
+
+## Wave 80 — audit bug fungsional & optimalisasi resource (task t_0fe2afd8)
+
+Baseline: HEAD 107407c (sebelum commit worker lain e7517a5/b118a7c self-host font),
+289 unit + 113 contract GREEN, panel PID 1273024, RSS 39.064 KB, latency /status 0.069–0.272 s,
+SSE 332.260 B / 9 event / 12 s (27,7 KB/s), 13 key per event.
+
+### 1. Timer & interval leak — SUDAH AMAN, tanpa perubahan kode
+Bukti (semua `setInterval`/`setTimeout` di PAGE/NAV/NETWORK/SSE script):
+- `kanbanSyncTimer` (3803) & `NET.timer` (9034): interval tunggal seumur halaman, guarded
+  `document.hidden` + tab tidak aktif; tidak di-clear karena memang auto-sync by design.
+- `_waPairPollTimer`/`_waPairTimerInterval` (5765–6090): di-clear di `closeWaPairModal`,
+  `cancelWaPair`, `startWaPair`, dan saat `rem <= 0`; poll hanya menjadwalkan diri berikutnya
+  bila modal masih `show`.
+- `NET.warpOp.timer` (8875): di-clear di `netWarpToggle` (sebelum assign baru),
+  `netClearWarpOp`, dan di kedua jalur `.then`/`.catch` dari `netPost`.
+- `retryTimer`/`hideDisconnectTimer`/`_hiddenTimer`/`_scrollTimer` (8020–8272): di-clear di
+  `disconnect()` dan `onVisibilityChange`.
+- Countdown restart (7953): `clearInterval(t)` sendiri saat `n <= 0`.
+- Toast (3250/9187) & pbar (2464/2563/8069): one-shot, self-clearing, punya generation guard.
+- Esc/backdrop tidak punya jalur tutup yang mem-bypass closer (CLOSERS map 9222 lengkap).
+Tidak ada timer yang bertahan setelah modal ditutup. Nol perubahan kode.
+
+### 2. Cache TTL & invalidasi — 1 temuan, DIPERBAIKI
+- **TEMUAN**: `_tail_log_cache` (key `(path, n)`) tidak pernah di-evict, dan `?n=` di
+  `/api/gateway-log` + `/api/whatsapp-log` menerima 1..1000 dari client. Satu client bisa
+  mencetak 1000 entri per path, tiap entri sampai ~40 KB teks log → retensi ~40 MB di proses
+  panel. Dampak nyata di STB 4 GB: RSS panel naik monoton, plus 1000× file read terpisah.
+- **FIX**: `_TAIL_LOG_CACHE_MAX = 16` (evict FIFO) + `TAIL_N_ALLOWED = (60,100,200,500,1000)`
+  dan `_tail_n_from_query()` yang snap `?n=` ke nilai terdekat. Cache lain sudah bounded /
+  ter-invalidate: `_redact_cache` (32), `_status_probe_cache` + `_invalidate_status_cache`
+  (dipanggil 20+ jalur mutasi), `_tail_log_cache`/`_casaos_compose_cache` (mtime+size),
+  `_models_cache` (TTL 300 s + `reload_panel_config`), `_9router_host_cache` (300 s).
+- Test: `test_61_tail_log_cache_is_bounded`, `test_61b_log_endpoints_clamp_n`.
+
+### 3. Blocking I/O di request handler — 1 temuan, DIPERBAIKI
+- **TEMUAN**: `Handler` tidak punya `timeout`, jadi socket koneksi tanpa timeout. Client yang
+  mengirim `Content-Length` lalu stall menahan thread request selamanya —
+  `ThreadingHTTPServer` spawn satu thread per koneksi. Dampak nyata: HP yang hang / tab yang
+  ditutup paksa menumpuk thread + buffer di panel.
+- **FIX**: `Handler.timeout = 60` (`StreamRequestHandler.setup()` menerapkannya ke socket).
+  SSE menulis heartbeat tiap 15 s, jauh di dalam window ini.
+- Sisanya sudah aman: semua 55 `subprocess.run` punya `timeout` (1.5–300 s), semua
+  `urlopen` punya `timeout`, semua `sqlite3.connect` punya `timeout`, `Popen` di-`wait`
+  dengan timeout + `killpg`, `TimeoutThreadingHTTPServer` (`daemon_threads`, `timeout=15`),
+  `MAX_BODY_SIZE` 5 MB.
+- Test: `test_62_handler_socket_has_timeout`.
+
+### 4. Error handling silent — DIPERBAIKI
+- **TEMUAN**: 8 blok `except Exception: pass` di `get_process_list()` (baris 14524–14716)
+  menelan error saat membangun baris tabel proses. Dampak nyata: sebuah layanan hilang dari
+  tabel tanpa jejak — user tidak bisa membedakan "mati" dari "panel gagal membaca".
+- **FIX**: `_log_swallow(context, exc)` — rate-limited 1×/menit per context (mencegah spam
+  stderr karena fragment dibangun tiap detik), dict bounded 64 entri. Delapan baris proses
+  sekarang memanggilnya dengan context spesifik per layanan.
+- Test: `test_63_process_row_failure_is_logged`, `test_63b_log_swallow_is_rate_limited`.
+
+### 5. Race pada mutasi config.yaml — SUDAH AMAN, tanpa perubahan kode
+Bukti: `_write_config_atomic()` sendiri memegang `_config_write_lock` (RLock, reentrant), dan
+kesepuluh call site berada di dalam `with _config_write_lock:` yang juga membungkus
+read-modify-write (`_read_config_for_write()` atau `open(CONFIG_PATH)` di dalam lock).
+Tidak ada penulis yang membaca di luar lock lalu menulis di dalam lock, jadi tidak ada
+lost-update. Jalur terkait: `save_gateway_platform_config`, `toggle_gateway_platform_config`,
+`remove_gateway_platform_config`, `set_current_model`, `set_reasoning_effort`,
+`set_aux_task_model`, `reset_all_aux_tasks`, `save_kanban_config`, dan jalur profil.
+
+### 5b. Bug laten di `set_current_model()` — DIPERBAIKI (ditemukan saat audit area 5)
+- **TEMUAN**: `re.subn(r"(\bdefault:\s*)\S+", ..., count=1)` mengganti `default:` PERTAMA di
+  seluruh file. Pada config.yaml nyata `model:` ada di baris 1 sehingga aman, tapi begitu ada
+  blok lain ber-`default:` di atasnya (mis. `agent.default:`), panel menimpa key yang salah
+  dan model tidak berubah — tanpa error.
+- **FIX**: rewrite dibatasi ke blok top-level `model:` (cari baris `model:`, batas sampai baris
+  non-indented berikutnya), substitusi hanya di dalam rentang itu.
+- Test: `test_64_set_current_model_scoped_to_model_block` (memakai decoy `agent.default`).
+
+### 6. Optimalisasi payload SSE — DIPERBAIKI, terukur
+- **TEMUAN**: change-detection lama all-or-nothing per payload. `current_state` memuat
+  `cells.ts`/`uptime` yang berubah tiap detik → `should_push` hampir selalu True → 13 key
+  (~37 KB) dikirim tiap tick. Pengukuran live 12 s: `gateway_log_card` 18,3 KB identik di
+  9/9 event, `clean_junk_card` 2,0 KB identik, `gateway_list_block` 1,7 KB identik,
+  `hermes_log_card` 0,6 KB identik — semuanya tetap dikirim, di-`JSON.parse`, dan di-diff
+  terhadap `innerHTML` di client.
+- **FIX**: `_sse_payload(frag, delta=True)` mengirim hanya key yang serialisasinya berubah;
+  push loop skip bila delta kosong. Payload penuh tetap dipakai untuk connect awal dan
+  `/api/status` (kontrak tidak berubah). Client `apply(d)` sudah guard per-key (`if(d.x)`),
+  dan `set()` sudah skip bila `innerHTML` identik.
+- **HASIL UKUR (12 s, 9 event)**: 332.260 B → 94.139 B (−72%). `gateway_log_card` 9/9 → 2/9
+  event, `processes_table` 9/9 → 3/9, `profiles_block` 9/9 → 2/9. Event steady-state kini
+  2 key (~1,7 KB) instead of 13 key (~37 KB).
+- Test: `test_60_sse_delta_omits_unchanged_keys`, `test_60b_sse_push_loop_uses_delta`.
+
+### Verifikasi
+- `python3 -m unittest tests.test_install tests.test_panel` → 304 test OK (289 baseline + 8 baru
+  Wave 80 + 7 worker lain).
+- `python3 /root/tests/test_panel_contract.py` → 113 pass, 0 fail.
+- `node --check` 3 blok script inline `/status` + `NETWORK_SCRIPT` → 0 error.
+- Deploy: `install -m 0755` → `cmp -s` IDENTICAL → `systemctl restart hermes-panel.service` →
+  active, listen 0.0.0.0:1000. PID 1434930.
+- RSS: 51.868 KB stabil (flat 60 s idle, tidak ada leak), +0,7 MB dengan satu SSE client,
+  thread 2 saat idle / 3 dengan client. Kenaikan vs baseline 39 MB berasal dari commit
+  self-host font e7517a5 (woff2 + SVG inline di halaman), bukan Wave 80 — state tambahan
+  Wave 78 hanya ~40 KB (`_sse_last_keys`).
+- Latency `/status`: 0.036–0.070 s (baseline 0.069–0.272 s); `/api/status` 0.043 s.
+- Catatan: threshold test gzip 85 KB → 90 KB. Baseline bergerak karena font self-hosted
+  (commit e7517a5); guard tetap menangkap bloat 2×. Bukan regresi Wave 80 — gagal juga pada
+  HEAD bersih (85.591 B).
+
+### Commit
+- `80408a0` fix(panel): Wave 78 — SSE per-key delta, bounded tail cache, handler timeout,
+  swallow logging, scoped model rewrite.
