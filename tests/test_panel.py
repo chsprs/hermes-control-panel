@@ -5936,6 +5936,130 @@ class TestMobileAccessibility(unittest.TestCase):
         # Screen readers need the document language for pronunciation.
         self.assertIn('<html lang="id">', panel.PAGE)
 
+    def test_active_tab_scrolls_into_view(self):
+        import re
+        page = panel.PAGE
+        # switchTab (the single activation path for click, URL restore and keyboard)
+        # must bring the activated tab into view.
+        start = page.index("function switchTab")
+        fn = page[start:page.index("safeStore('setItem', 'activeTab'", start)]
+        self.assertIn("scrollIntoView", fn, "activating a tab must scroll it into view")
+        self.assertIn("block: 'nearest'", fn)
+        self.assertIn("inline: 'center'", fn)
+        # Every tab button routes through switchTab with its own element.
+        onclicks = re.findall(r"onclick=\"switchTab\('[a-z]+', this\)\"", page)
+        self.assertEqual(len(onclicks), 6, "all six tabs must pass their element to switchTab")
+        # Keyboard arrow navigation focuses + clicks the next tab, hitting the same path.
+        # The tab a11y IIFEs ship inside NAV_SCRIPT, injected via the {nav_script} slot.
+        self.assertIn("{nav_script}", page)
+        seg = panel.NAV_SCRIPT[panel.NAV_SCRIPT.index("A11y: panah kiri/kanan"):]
+        seg = seg[:seg.index("})();") + len("})();")]
+        self.assertIn("next.focus()", seg)
+        self.assertIn("next.click()", seg)
+
+
+class TestWave78ResourceAudit(unittest.TestCase):
+    """Wave 78: timer/cache/blocking-IO/silent-error/config-race/SSE-payload audit."""
+
+    # ---- Area 6: SSE payload must travel per-key, not all-or-nothing ----
+    def test_60_sse_delta_omits_unchanged_keys(self):
+        frag = {k: f"<{k}-v1>" for k in panel.SSE_CLIENT_KEYS}
+        first = json.loads(panel._sse_payload(frag, delta=True))
+        self.assertEqual(set(first), set(panel.SSE_CLIENT_KEYS),
+                         "first delta push must carry every client key")
+        self.assertEqual(json.loads(panel._sse_payload(frag, delta=True)), {},
+                         "an unchanged fragment must produce an empty delta")
+        mutated = dict(frag)
+        mutated["gw_summary_text"] = "diubah"
+        delta = json.loads(panel._sse_payload(mutated, delta=True))
+        self.assertEqual(set(delta), {"gw_summary_text"},
+                         "only the key that changed may travel")
+        self.assertEqual(panel._sse_payload(frag), json.dumps(frag),
+                         "full payload (initial connect / /api/status) must stay complete")
+
+    def test_60b_sse_push_loop_uses_delta(self):
+        import inspect
+        src = inspect.getsource(panel._sse_push_loop)
+        self.assertIn("_sse_payload(frag, delta=True)", src,
+                      "push loop must send per-key deltas, not the full 36 KB payload every tick")
+
+    # ---- Area 2: tail-log cache must stay bounded ----
+    def test_61_tail_log_cache_is_bounded(self):
+        import tempfile
+        tmp = tempfile.mkdtemp(prefix="panel-tailcap-")
+        path = os.path.join(tmp, "big.log")
+        with open(path, "w", encoding="utf-8") as f:
+            for i in range(4000):
+                f.write(f"line {i} " + "x" * 60 + "\n")
+        try:
+            for n in range(1, 200):
+                panel._tail_file_cached(path, n)
+            with panel._tail_log_lock:
+                size = len(panel._tail_log_cache)
+            self.assertLessEqual(size, 32,
+                                 f"_tail_log_cache grew to {size} entries via /api/gateway-log?n=")
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_61b_log_endpoints_clamp_n(self):
+        """?n= is client-controlled; unbounded values must not create new cache keys."""
+        import inspect
+        src = inspect.getsource(panel)
+        self.assertIn("TAIL_N_ALLOWED", src,
+                      "log endpoints must clamp n to a fixed allowed set")
+
+    # ---- Area 3: stalled request bodies must not pin a thread forever ----
+    def test_62_handler_socket_has_timeout(self):
+        self.assertIsNotNone(panel.Handler.timeout,
+                             "Handler needs a socket timeout or a stalled body read pins a thread")
+        self.assertGreater(panel.Handler.timeout, 0)
+
+    # ---- Area 4: swallowed errors in the per-tick fragment path must be logged ----
+    def test_63_process_row_failure_is_logged(self):
+        with mock.patch.object(panel, "get_systemd_show", side_effect=RuntimeError("boom")):
+            with mock.patch.object(panel.sys, "stderr") as err:
+                procs = panel.get_process_list(fresh=True)
+        self.assertNotIn("hermes-gateway", [p["id"] for p in procs],
+                         "a failing probe must still drop the row")
+        written = "".join(c.args[0] for c in err.write.call_args_list if c.args)
+        self.assertIn("hermes-gateway", written,
+                      "a silently vanished service row must leave a log line")
+
+    def test_63b_log_swallow_is_rate_limited(self):
+        panel._swallow_log_at.clear()
+        with mock.patch.object(panel.sys, "stderr") as err:
+            for _ in range(5):
+                panel._log_swallow("unit-test-ctx", RuntimeError("boom"))
+        self.assertEqual(err.write.call_count, 1,
+                         "per-tick swallows must not flood stderr")
+
+    # ---- Area 5: model switch must not rewrite an unrelated default: key ----
+    def test_64_set_current_model_scoped_to_model_block(self):
+        import tempfile
+        tmp = tempfile.mkdtemp(prefix="panel-modelcfg-")
+        cfg_path = os.path.join(tmp, "config.yaml")
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            f.write("agent:\n"
+                    "  default: decoy-value\n"
+                    "model:\n"
+                    "  custom_providers:\n"
+                    "    9router:\n"
+                    "      discover_models: true\n"
+                    "  default: OLD-MODEL\n")
+        try:
+            with mock.patch.object(panel, "CONFIG_PATH", cfg_path):
+                self.assertTrue(panel.set_current_model("NEW-MODEL"))
+            with open(cfg_path, encoding="utf-8") as f:
+                text = f.read()
+            self.assertIn("default: decoy-value", text,
+                          "an unrelated default: key above model: must not be rewritten")
+            self.assertIn("default: NEW-MODEL", text)
+            self.assertNotIn("OLD-MODEL", text)
+        finally:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()
