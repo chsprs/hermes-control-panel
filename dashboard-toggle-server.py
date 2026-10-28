@@ -16243,6 +16243,13 @@ def build_logout_redirect() -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
+    # StreamRequestHandler.setup() applies this to the connection socket. Without
+    # it, a client that declares Content-Length and then stalls pins a request
+    # thread (and its buffers) forever — ThreadingHTTPServer spawns one per
+    # connection, so a hung phone could accumulate threads on the STB.
+    # SSE writes a heartbeat every 15 s, well inside this window.
+    timeout = 60
+
     def log_message(self, fmt, *args):
         pass  # keep it quiet — no noisy access log filling up disk
 

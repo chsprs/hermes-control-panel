@@ -5939,7 +5939,7 @@ class TestMobileAccessibility(unittest.TestCase):
     def test_active_tab_scrolls_into_view(self):
         import re
         page = panel.PAGE
-        # switchTab (the single activation path for click, URL restore and keyboard)
+        # switchTab (the single activation path for click, URL/sessionStore restore, keyboard)
         # must bring the activated tab into view.
         start = page.index("function switchTab")
         fn = page[start:page.index("safeStore('setItem', 'activeTab'", start)]
