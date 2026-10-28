@@ -5874,5 +5874,68 @@ class TestWave77Audit(unittest.TestCase):
                 pass
 
 
+    def test_page_has_no_external_font_or_icon_dependency(self):
+        """Panel must render fully offline: zero fonts.googleapis / jsdelivr refs in PAGE."""
+        page = panel.PAGE
+        for domain in ("fonts.googleapis.com", "fonts.gstatic.com", "cdn.jsdelivr.net"):
+            self.assertNotIn(domain, page,
+                             f"PAGE still references external domain {domain}")
+        # CSP must not whitelist external font/icon domains
+        self.assertNotIn("https://fonts.googleapis.com", page)
+        self.assertNotIn("https://fonts.gstatic.com", page)
+        self.assertNotIn("https://cdn.jsdelivr.net", page)
+        # Local @font-face must be present
+        self.assertIn("@font-face", page)
+        self.assertIn("/static/fonts/Geist-400.woff2", page)
+        self.assertIn("/static/fonts/GeistMono-400.woff2", page)
+        self.assertIn("font-display:swap", page)
+
+    def test_font_route_serves_woff2_with_immutable_cache(self):
+        """GET /static/fonts/Geist-400.woff2 returns 200 with font/woff2 + immutable cache."""
+        import http.client
+        server = panel.TimeoutThreadingHTTPServer(("127.0.0.1", 0), panel.Handler)
+        port = server.server_address[1]
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            conn.request("GET", "/static/fonts/Geist-400.woff2")
+            resp = conn.getresponse()
+            body = resp.read()
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(resp.getheader("Content-Type"), "font/woff2")
+            cc = resp.getheader("Cache-Control") or ""
+            self.assertIn("immutable", cc)
+            self.assertIn("max-age=31536000", cc)
+            self.assertGreater(len(body), 1000)  # real woff2, not empty
+            conn.close()
+
+            # Unknown font name -> 404
+            conn2 = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            conn2.request("GET", "/static/fonts/evil.woff2")
+            resp2 = conn2.getresponse()
+            resp2.read()
+            self.assertEqual(resp2.status, 404)
+            conn2.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_no_onerror_external_fallback_in_service_cards(self):
+        """Service catalog cards must not carry onerror fallback to external CDN."""
+        import inspect
+        src = inspect.getsource(panel)
+        self.assertNotIn("onerror=\"this.src=", src.replace(" ", ""),
+                         "onerror external-image fallback still present")
+
+
+class TestMobileAccessibility(unittest.TestCase):
+    """Mobile/accessibility polish: lang, tab scroll, touch targets, focus, SSE empty states."""
+
+    def test_page_declares_lang_attribute(self):
+        # Screen readers need the document language for pronunciation.
+        self.assertIn('<html lang="id">', panel.PAGE)
+
+
 if __name__ == "__main__":
     unittest.main()

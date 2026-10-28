@@ -580,7 +580,7 @@ def render_markdown(text: str) -> str:
     return res
 
 
-PAGE = """<!doctype html><html><head><meta charset="utf-8">
+PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hermes Control Panel</title>
 <meta name="theme-color" content="#07090e">
