@@ -312,3 +312,4 @@ lost-update. Jalur terkait: `save_gateway_platform_config`, `toggle_gateway_plat
 ### Commit
 - `80408a0` fix(panel): Wave 78 — SSE per-key delta, bounded tail cache, handler timeout,
   swallow logging, scoped model rewrite.
+- [x] 5. Empty/loading state slot SSE — 3 slot diperbaiki, 3 sudah aman. Audit: `aux-tasks-slot` (`render_aux_tasks_block` return "" kalau kosong), `process-table-slot` (tbody kosong tanpa baris placeholder), `clean-log-slot` (`render_clean_junk_card` return "" sebelum cleanup pertama) → ketiganya sekarang render placeholder informatif (`update-hint` / baris "Tidak ada layanan terdeteksi." colspan=5). Sudah aman tanpa perubahan: `gateway-list-slot` ("Belum ada gateway yang dikonfigurasi..."), `backup-models-slot` ("Belum ada model cadangan..."), `profiles-slot` (banner "Profil Saat Ini" selalu render). Render awal server sudah mengisi semua slot, jadi tidak ada gap loading. Test: `test_sse_slots_have_loading_or_empty_placeholder`.

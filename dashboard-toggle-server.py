@@ -10615,6 +10615,12 @@ def render_aux_tasks_block() -> str:
             f'  </button>'
             f'</div>'
         )
+    if not rows:
+        return (
+            '<div class="update-hint" style="margin:0;font-size:0.75rem">'
+            'Belum ada tugas tambahan yang dikonfigurasi.'
+            '</div>'
+        )
     return "".join(rows)
 
 
@@ -13995,7 +14001,11 @@ def render_clean_junk_card() -> str:
     """Render the clean junk log card with total freed summary and dismiss button."""
     res = get_clean_junk_result()
     if not res.get("log") and res.get("at", 0) == 0:
-        return ""
+        return (
+            '<div class="update-hint" style="margin:0;font-size:0.75rem">'
+            'Belum ada log pembersihan. Jalankan "Bersihkan Sampah" untuk melihat ringkasannya di sini.'
+            '</div>'
+        )
     freed_human = html.escape(str(res.get("freed_human", "0 B")))
     files_count = res.get("files_count", 0)
     log_text = html.escape(str(res.get("log", "")))
@@ -14849,6 +14859,11 @@ def _render_processes_table_uncached() -> str:
             f'</tr>'
         )
 
+    rows_html = "".join(rows) if rows else (
+        '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:1.2rem">'
+        'Tidak ada layanan terdeteksi.</td></tr>'
+    )
+
     return (
         f'<div class="task-table-wrap" id="process-table">'
         f'<table class="task-table">'
@@ -14862,7 +14877,7 @@ def _render_processes_table_uncached() -> str:
         f'  </tr>'
         f'</thead>'
         f'<tbody>'
-        f'  {"".join(rows)}'
+        f'  {rows_html}'
         f'</tbody>'
         f'</table>'
         f'</div>'

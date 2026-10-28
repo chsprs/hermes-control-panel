@@ -6026,6 +6026,31 @@ class TestMobileAccessibility(unittest.TestCase):
         self.assertNotIn("outline:none", markup.replace(" ", ""),
                          "inline outline:none kills the global focus ring with no replacement")
 
+    def test_sse_slots_have_loading_or_empty_placeholder(self):
+        """Every SSE-filled slot must render something informative when its
+        data is empty — never a bare empty string the user can't interpret."""
+        with mock.patch.object(panel, "get_aux_tasks_config", return_value=[]):
+            aux = panel.render_aux_tasks_block()
+        self.assertTrue(aux.strip(), "aux-tasks-slot renders '' when there are no aux tasks")
+        self.assertIn("Belum ada", aux)
+        with mock.patch.object(panel, "get_process_list", return_value=[]):
+            table = panel._render_processes_table_uncached()
+        tbody = table[table.index("<tbody>"):table.index("</tbody>")]
+        self.assertIn("<tr>", tbody, "empty process list renders an empty tbody")
+        self.assertIn("colspan", tbody)
+        self.assertIn("Tidak ada", tbody)
+        with mock.patch.object(panel, "get_clean_junk_result", return_value={"log": "", "at": 0}):
+            clean = panel.render_clean_junk_card()
+        self.assertTrue(clean.strip(), "clean-log-slot renders '' before the first cleanup")
+        self.assertIn("Belum ada", clean)
+        with mock.patch.object(panel, "get_gateway_platforms", return_value=[]):
+            self.assertIn("Belum ada", panel.render_gateway_platforms_html())
+        with mock.patch.object(panel, "get_fallback_models_config", return_value=[]):
+            self.assertIn("Belum ada", panel.render_backup_models_block())
+        with mock.patch.object(panel, "list_agent_profiles", return_value=[]), \
+             mock.patch.object(panel, "get_gateway_profile_statuses", return_value={}):
+            self.assertIn("Profil Saat Ini", panel._render_profiles_block_uncached())
+
 
 class TestWave78ResourceAudit(unittest.TestCase):
     """Wave 78: timer/cache/blocking-IO/silent-error/config-race/SSE-payload audit."""
