@@ -2365,7 +2365,7 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
             m_gw.assert_called_with(n=100)
 
             # Snap to the nearest allowed size: the cache key space stays bounded.
-            code, _, _ = self._request("/api/gateway-log?n=150", headers={"Cookie": cookie})
+            code, _, _ = self._request("/api/gateway-log?n=180", headers={"Cookie": cookie})
             self.assertEqual(code, 200)
             m_gw.assert_called_with(n=200)
             code, _, _ = self._request("/api/gateway-log?n=120", headers={"Cookie": cookie})
@@ -2379,7 +2379,7 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
 
             code, _, _ = self._request("/api/whatsapp-log?n=-5", headers={"Cookie": cookie})
             self.assertEqual(code, 200)
-            m_wa.assert_called_with(n=1)
+            m_wa.assert_called_with(n=60)
 
         # --- 3. SEC-VAL-01: Non-integer priority handled cleanly ---
         tmpdir = tempfile.mkdtemp(prefix="panel-val-http-")
@@ -2695,8 +2695,11 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
         decompressed = gzip.decompress(raw).decode("utf-8")
         self.assertIn("<!doctype html>", decompressed.lower())
         self.assertIn("Hermes Control Panel", decompressed)
-        # Verify significant payload reduction: 400KB+ to < 85KB (~80% reduction)
-        self.assertLess(len(raw), 85000)
+        # Verify significant payload reduction: 400KB+ to < 90KB (~80% reduction).
+        # Baseline moved from 85 KB to ~85.6 KB when fonts were self-hosted
+        # (commit e7517a5, Wave 78) — the woff2 payload is now part of the page
+        # instead of a CDN round-trip. The guard still catches a 2x page bloat.
+        self.assertLess(len(raw), 90000)
         self.assertGreater(len(decompressed), 350000)
 
     def test_deflate_compression_on_status_page(self):
@@ -5993,6 +5996,35 @@ class TestMobileAccessibility(unittest.TestCase):
         blob = page + panel.NAV_SCRIPT + panel.NETWORK_SCRIPT + panel.SSE_SCRIPT
         small = sorted({int(h) for h in re.findall(r"min-height:\s*(\d+)px", blob) if int(h) < 32})
         self.assertEqual(small, [], f"min-height below the 32px floor: {small}")
+
+    def test_focus_visible_style_present(self):
+        import re
+        page = panel.PAGE
+        css = page[page.index("<style>"):page.index("</style>")]
+        # 1. A global :focus-visible ring in the panel accent, with clear offset.
+        m = re.search(r":focus-visible\{\{([^{}]*)\}\}", css)
+        self.assertIsNotNone(m, "no global :focus-visible rule in PAGE")
+        body = m.group(1)
+        self.assertIn("outline:", body)
+        self.assertIn("outline-offset:", body)
+        self.assertIn("var(--accent", body)
+        # 2. Any CSS rule that strips the outline must replace it — same rule
+        #    or a matching :focus/:focus-visible rule.
+        rules = {sel.strip(): b for sel, b in re.findall(r"([^{}]+)\{\{([^{}]*)\}\}", css)}
+        login = panel.build_login_page()
+        lcss = login[login.index("<style>"):login.index("</style>")]
+        rules.update({sel.strip(): b for sel, b in re.findall(r"([^{}]+)\{([^{}]*)\}", lcss)})
+        for sel, body in rules.items():
+            if "outline:none" in body.replace(" ", ""):
+                focus_body = rules.get(sel + ":focus", "") + rules.get(sel + ":focus-visible", "")
+                self.assertTrue(
+                    "box-shadow" in body or "border-color" in body
+                    or "box-shadow" in focus_body or "border-color" in focus_body,
+                    f"{sel} drops the focus outline with no replacement")
+        # 3. Inline styles cannot carry a :focus replacement — none may strip it.
+        markup = re.sub(r"<style>.*?</style>", "", page, flags=re.S)
+        self.assertNotIn("outline:none", markup.replace(" ", ""),
+                         "inline outline:none kills the global focus ring with no replacement")
 
 
 class TestWave78ResourceAudit(unittest.TestCase):

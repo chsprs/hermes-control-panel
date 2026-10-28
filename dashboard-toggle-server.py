@@ -1373,7 +1373,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         <label style="font-size:0.75rem;color:var(--text-muted);font-weight:600">Editor YAML (<code>platforms.&lt;nama&gt;</code>)</label>
       </div>
 
-      <textarea id="gw-config-yaml" spellcheck="false" oninput="_yamlEditedByUser=true" style="width:100%;height:190px;max-height:30vh;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:var(--radius-sm);color:#e2e8f0;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;outline:none;box-sizing:border-box" placeholder="enabled: true..."></textarea>
+      <textarea id="gw-config-yaml" spellcheck="false" oninput="_yamlEditedByUser=true" style="width:100%;height:190px;max-height:30vh;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:var(--radius-sm);color:#e2e8f0;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;box-sizing:border-box" placeholder="enabled: true..."></textarea>
     </div>
 
     <!-- Dynamic syntax guide visible in both Form UI and YAML modes -->
@@ -10421,7 +10421,7 @@ def set_current_model(model_id: str) -> bool:
             end = len(lines)
             for j in range(start + 1, len(lines)):
                 stripped = lines[j].strip()
-                if stripped and not stripped[0].isspace() and not stripped.startswith("#"):
+                if stripped and not stripped.startswith("#") and lines[j][:1] not in (" ", "\t"):
                     end = j
                     break
             replaced = False
@@ -16217,7 +16217,6 @@ def _sse_push_loop():
         tick_count += 1
         try:
             frag = build_fragments(sse_only=True)
-            data = _sse_payload(frag)
 
             # Extract meaningful signals from cells for change detection
             cells = frag.get("cells", {})
@@ -16271,6 +16270,11 @@ def _sse_push_loop():
                 continue
 
             last_state = current_state
+            # Per-key delta: a tick where only cpu_pct moved must not drag the
+            # 18 KB gateway log block (and the 8.5 KB process table) along.
+            data = _sse_payload(frag, delta=True)
+            if data == "{}":
+                continue
             with _sse_last_data_lock:
                 _sse_last_data = data
 
