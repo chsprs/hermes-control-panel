@@ -2354,13 +2354,21 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
 
             code, _, _ = self._request("/api/gateway-log?n=-10", headers={"Cookie": cookie})
             self.assertEqual(code, 200)
-            m_gw.assert_called_with(n=1)
+            m_gw.assert_called_with(n=60)
 
             code, _, _ = self._request("/api/gateway-log?n=0", headers={"Cookie": cookie})
             self.assertEqual(code, 200)
-            m_gw.assert_called_with(n=1)
+            m_gw.assert_called_with(n=60)
 
             code, _, _ = self._request("/api/gateway-log?n=invalid", headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+            m_gw.assert_called_with(n=100)
+
+            # Snap to the nearest allowed size: the cache key space stays bounded.
+            code, _, _ = self._request("/api/gateway-log?n=150", headers={"Cookie": cookie})
+            self.assertEqual(code, 200)
+            m_gw.assert_called_with(n=200)
+            code, _, _ = self._request("/api/gateway-log?n=120", headers={"Cookie": cookie})
             self.assertEqual(code, 200)
             m_gw.assert_called_with(n=100)
 
@@ -5956,6 +5964,35 @@ class TestMobileAccessibility(unittest.TestCase):
         seg = seg[:seg.index("})();") + len("})();")]
         self.assertIn("next.focus()", seg)
         self.assertIn("next.click()", seg)
+
+    def test_touch_targets_meet_minimums(self):
+        import re
+        page = panel.PAGE
+        css = page[page.index("<style>"):page.index("</style>")]
+
+        def rule_min_height(selector):
+            m = re.search(re.escape(selector) + r"\{\{([^{}]*)\}\}", css)
+            self.assertIsNotNone(m, f"CSS rule {selector} not found")
+            body = m.group(1)
+            hm = re.search(r"min-height:\s*(\d+)px", body)
+            self.assertIsNotNone(hm, f"{selector} declares no min-height")
+            return int(hm.group(1))
+
+        # WCAG 2.5.5: primary tab navigation must stay a 44px target on phones.
+        self.assertGreaterEqual(rule_min_height(".tab"), 44)
+        mq = re.search(r"@media \(max-width:390px\)\{\{\.tab\{\{([^{}]*)\}\}", css)
+        self.assertIsNotNone(mq, "390px override for .tab not found")
+        mq_h = re.search(r"min-height:\s*(\d+)px", mq.group(1))
+        self.assertIsNotNone(mq_h, "390px .tab override lost min-height")
+        self.assertGreaterEqual(int(mq_h.group(1)), 44, "390px override shrank the tab target")
+        # Compact action buttons (cards, process table, pagination): 32px floor.
+        for sel in (".btn-action-sm", ".btn-end-task", ".btn-start-task",
+                    ".btn-restart-task", ".patch-notes-pages button"):
+            self.assertGreaterEqual(rule_min_height(sel), 32, sel)
+        # Nothing anywhere in the shipped markup may shrink a control below 32px.
+        blob = page + panel.NAV_SCRIPT + panel.NETWORK_SCRIPT + panel.SSE_SCRIPT
+        small = sorted({int(h) for h in re.findall(r"min-height:\s*(\d+)px", blob) if int(h) < 32})
+        self.assertEqual(small, [], f"min-height below the 32px floor: {small}")
 
 
 class TestWave78ResourceAudit(unittest.TestCase):
