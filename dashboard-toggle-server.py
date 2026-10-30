@@ -60,7 +60,9 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 import yaml
 import zlib
 from datetime import datetime, timedelta, timezone
@@ -1117,6 +1119,64 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   body {{ padding-left:4rem; padding-right:4rem; }}
   .header, .content-wrapper, #tab-status {{ max-width:1120px; }}
 }}
+
+/* ---- Kuota AI (per-account provider quota) ---- */
+.qz-wrap{{display:flex;flex-direction:column;gap:.75rem}}
+.qz-toolbar{{display:flex;align-items:flex-start;gap:.6rem;flex-wrap:wrap;justify-content:space-between;margin-bottom:.9rem}}
+.qz-legend{{display:flex;align-items:center;gap:.45rem;font-size:.66rem;color:var(--text-muted);font-family:var(--font-mono);margin-top:.35rem}}
+.qz-legend-bar{{width:104px;height:7px;border-radius:999px;background:linear-gradient(90deg,#dc2626 0%,#f59e0b 45%,#16a34a 100%)}}
+.qz-prov{{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);overflow:hidden}}
+.qz-prov-head{{display:flex;align-items:center;gap:.55rem;padding:.7rem .85rem;cursor:pointer;user-select:none;background:rgba(255,255,255,.02);transition:background .15s var(--ease)}}
+.qz-prov-head:hover{{background:var(--surface-hover)}}
+.qz-prov-head:focus-visible{{outline:2px solid var(--accent);outline-offset:-2px}}
+.qz-prov-name{{font-weight:600;font-size:.88rem}}
+.qz-prov-meta{{font-size:.68rem;color:var(--text-muted);font-family:var(--font-mono)}}
+.qz-chev{{margin-left:auto;color:var(--text-dim);transition:transform .2s var(--ease);flex-shrink:0}}
+.qz-prov.open .qz-chev{{transform:rotate(90deg)}}
+.qz-prov-body{{display:none;padding:.15rem .85rem .85rem}}
+.qz-prov.open .qz-prov-body{{display:block}}
+.qz-acct{{border-top:1px solid var(--border-subtle);padding:.8rem 0}}
+.qz-acct:first-child{{border-top:0;padding-top:.35rem}}
+.qz-acct-head{{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.55rem}}
+.qz-acct-mail{{font-size:.8rem;font-weight:600;word-break:break-all;margin-right:.15rem}}
+.qz-badge{{font-size:.6rem;font-weight:600;padding:.1rem .42rem;border-radius:999px;border:1px solid var(--border);font-family:var(--font-mono);letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;color:var(--text-muted);background:transparent}}
+.qz-badge.ok{{color:#34d399;border-color:rgba(52,211,153,.35);background:rgba(16,185,129,.12)}}
+.qz-badge.low{{color:#fbbf24;border-color:rgba(251,191,36,.35);background:rgba(245,158,11,.12)}}
+.qz-badge.exhausted,.qz-badge.error{{color:#f87171;border-color:rgba(248,113,113,.35);background:rgba(239,68,68,.12)}}
+.qz-badge.no_access,.qz-badge.unsupported{{color:var(--text-dim)}}
+.qz-badge.auth_expired{{color:#c084fc;border-color:rgba(192,132,252,.35);background:rgba(168,85,247,.12)}}
+.qz-badge.tier{{color:#93c5fd;border-color:rgba(147,197,253,.3);background:rgba(59,130,246,.1)}}
+.qz-row{{display:grid;grid-template-columns:186px minmax(0,1fr) 86px;gap:.65rem;align-items:center;padding:.26rem 0}}
+.qz-row-label{{font-size:.75rem;color:var(--text-muted);line-height:1.25}}
+.qz-row-val{{font-size:.76rem;font-weight:600;font-variant-numeric:tabular-nums;text-align:right;font-family:var(--font-mono);color:var(--text)}}
+.qz-row-sub{{font-size:.62rem;color:var(--text-muted);font-family:var(--font-mono);text-align:right;margin-top:.1rem}}
+.qz-bar{{position:relative;height:10px;border-radius:999px;background:rgba(148,163,184,.18);overflow:hidden;min-width:60px}}
+.qz-bar.na{{background:repeating-linear-gradient(45deg,rgba(148,163,184,.08) 0 6px,rgba(148,163,184,.17) 6px 12px)}}
+.qz-fill{{position:absolute;inset:0;border-radius:999px;background-image:linear-gradient(90deg,rgba(255,255,255,0) calc(100% - 7px),rgba(255,255,255,.62) calc(100% - 2px)),linear-gradient(90deg,#dc2626 0%,#f59e0b 45%,#16a34a 100%);clip-path:inset(0 calc(100% - var(--q,0%)) 0 0);transition:clip-path .6s cubic-bezier(.22,1,.36,1);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 0 12px -2px var(--qc,transparent)}}
+.qz-ticks{{position:absolute;inset:0;pointer-events:none}}
+.qz-ticks i{{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.10)}}
+.qz-bar.crit .qz-fill{{animation:qz-pulse 1.7s ease-in-out infinite}}
+@keyframes qz-pulse{{0%,100%{{opacity:1}}50%{{opacity:.55}}}}
+.qz-det{{display:none;padding:.15rem 0 .35rem .6rem;border-left:1px solid var(--border-subtle);margin:.15rem 0 .25rem .2rem}}
+.qz-det.open{{display:block}}
+.qz-det .qz-row{{grid-template-columns:150px minmax(0,1fr) 78px}}
+.qz-det .qz-row-label{{font-size:.68rem}}
+.qz-det .qz-row-val{{font-size:.7rem}}
+.qz-row.toggle{{cursor:pointer}}
+.qz-row.toggle:hover .qz-row-label{{color:var(--text)}}
+.qz-caret{{display:inline-block;width:.7em;color:var(--text-dim);transition:transform .18s var(--ease);font-size:.6rem}}
+.qz-row.toggle.open .qz-caret{{transform:rotate(90deg)}}
+.qz-empty{{padding:1.4rem .9rem;text-align:center;color:var(--text-dim);font-size:.8rem}}
+.qz-skel{{height:52px;border-radius:var(--radius-md);background:linear-gradient(90deg,rgba(148,163,184,.06) 25%,rgba(148,163,184,.13) 50%,rgba(148,163,184,.06) 75%);background-size:200% 100%;animation:qz-shimmer 1.3s linear infinite;margin-bottom:.5rem}}
+@keyframes qz-shimmer{{0%{{background-position:200% 0}}100%{{background-position:-200% 0}}}}
+.qz-note{{font-size:.68rem;color:var(--text-muted);font-family:var(--font-mono);margin-top:.25rem}}
+@media (max-width:640px){{
+  .qz-row{{grid-template-columns:1fr;gap:.18rem;padding:.34rem 0}}
+  .qz-row-val,.qz-row-sub{{text-align:left}}
+  .qz-det .qz-row{{grid-template-columns:1fr}}
+  .qz-det{{padding-left:.45rem}}
+}}
+
 </style></head><body>
 <div id="pbar"></div>
 <div id="navloader"><div class="ring"></div><span id="nav-label">Memproses…</span></div>
@@ -1768,6 +1828,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('auxiliary', this)">{icon_bot} Tugas AI</button>
   <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('profiles', this)">{icon_users} Profil Agent</button>
   <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('kanban', this)">{icon_kanban} Kanban</button>
+  <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('quota', this)">{icon_layers} Kuota AI</button>
 </div>
 
 <div class="content-wrapper">
@@ -2141,6 +2202,29 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   </div>
 </div>
 <div id="kanban-toast" style="position:fixed;bottom:24px;right:24px;background:rgba(16,185,129,0.92);color:#fff;padding:0.6rem 1rem;border-radius:6px;font-size:0.8rem;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,0.5);display:none;transition:opacity 0.3s;pointer-events:none"></div>
+<!-- TAB KUOTA AI -->
+<div class="tab-panel" id="tab-quota">
+  <div class="card card-status" style="padding:1.15rem">
+    <div class="qz-toolbar">
+      <div>
+        <div class="card-title" style="margin-bottom:0">{icon_layers} Kuota Provider AI</div>
+        <div class="qz-legend">
+          <span class="qz-legend-bar"></span>
+          <span>0%</span><span>&middot;</span><span>50%</span><span>&middot;</span><span>100%</span>
+        </div>
+        <div class="qz-note">Sisa kuota per akun dari 9router. Ujung kanan bar menandai nilai sekarang: makin ke kanan makin aman. Badge: hijau = aman, kuning = menipis (&lt;20%), merah = habis, abu = tidak tersedia, ungu = token kedaluwarsa.</div>
+      </div>
+      <div style="display:flex;gap:.45rem;align-items:center;flex-wrap:wrap">
+        <span id="qz-updated" class="qz-prov-meta"></span>
+        <button type="button" class="btn-action-sm" id="qz-refresh" onclick="quotaRefresh()">Refresh</button>
+      </div>
+    </div>
+    <div id="qz-root" class="qz-wrap">
+      <div class="qz-skel"></div><div class="qz-skel"></div><div class="qz-skel"></div>
+    </div>
+  </div>
+</div>
+
 </div> <!-- .content-wrapper -->
 
 {nav_script}
@@ -2629,6 +2713,223 @@ function selectAuxModel(provider, model){{
     }});
 }}
 
+/* ---- Kuota AI: per-account provider quota (9router) ---- */
+var QUOTA = {{loaded:false, loading:false, data:null, err:null, timer:null, openProv:{{}}, openDet:{{}}}};
+
+function quotaStatusLabel(s, accountLevel){{
+  if(accountLevel && s === 'exhausted') return 'ada yang habis';
+  var m = {{ok:'aman', low:'menipis', exhausted:'habis', no_access:'tidak tersedia',
+            unsupported:'tidak didukung', auth_expired:'token expired', error:'error'}};
+  return m[s] || s || '?';
+}}
+function quotaPctColor(p){{
+  if(p === null || p === undefined) return 'transparent';
+  if(p < 35) return '#dc2626';
+  if(p < 70) return '#f59e0b';
+  return '#16a34a';
+}}
+function quotaFmtReset(iso){{
+  if(!iso) return '';
+  var t = Date.parse(iso);
+  if(isNaN(t)) return '';
+  var ms = t - Date.now();
+  if(ms <= 0) return 'reset segera';
+  var m = Math.floor(ms / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  if(d > 0) return 'reset ' + d + ' hari ' + (h % 24) + 'j';
+  if(h > 0) return 'reset ' + h + 'j ' + (m % 60) + 'm';
+  return 'reset ' + m + 'mnt';
+}}
+function quotaBar(pct, status){{
+  if(status === 'no_access' || pct === null || pct === undefined){{
+    return '<div class="qz-bar na"></div>';
+  }}
+  var q = Math.max(0, Math.min(100, Number(pct)));
+  var crit = q < 10 ? ' crit' : '';
+  return '<div class="qz-bar' + crit + '">'
+    + '<div class="qz-fill" style="--q:' + q.toFixed(1) + '%;--qc:' + quotaPctColor(q) + '"></div>'
+    + '<div class="qz-ticks"><i style="left:25%"></i><i style="left:50%"></i><i style="left:75%"></i></div>'
+    + '</div>';
+}}
+function quotaRow(label, pct, status, sub, opts){{
+  opts = opts || {{}};
+  var val;
+  if(status === 'no_access') val = 'Tidak tersedia';
+  else if(pct === null || pct === undefined) val = 'N/A';
+  else val = Number(pct).toFixed(1) + '%';
+  var caret = '<span class="qz-caret"' + (opts.toggle ? '' : ' style="visibility:hidden"') + '>&#9654;</span>';
+  return '<div class="qz-row' + (opts.toggle ? ' toggle' : '') + (opts.cls ? ' ' + opts.cls : '') + '"' + (opts.attrs || '') + '>'
+    + '<div class="qz-row-label">' + caret + escHtml(label) + '</div>'
+    + quotaBar(pct, status)
+    + '<div><div class="qz-row-val">' + val + '</div>'
+    + (sub ? '<div class="qz-row-sub">' + escHtml(sub) + '</div>' : '')
+    + '</div></div>';
+}}
+function quotaSubFor(b){{
+  var parts = [];
+  if(b.used !== null && b.used !== undefined && b.total !== null && b.total !== undefined){{
+    parts.push(b.used + '/' + b.total);
+  }}
+  if(b.resetAt) parts.push(quotaFmtReset(b.resetAt));
+  return parts.join(' \u00b7 ');
+}}
+function quotaAccountHtml(a){{
+  var h = '<div class="qz-acct">';
+  h += '<div class="qz-acct-head">';
+  h += '<span class="qz-acct-mail">' + escHtml(a.name || a.email || a.id) + '</span>';
+  h += '<span class="qz-badge ' + escHtml(a.status || '') + '" title="status terburuk dari kuota kritis akun ini">' + escHtml(quotaStatusLabel(a.status, true)) + '</span>';
+  if(a.priority !== null && a.priority !== undefined){{
+    h += '<span class="qz-badge">prio ' + escHtml(a.priority) + '</span>';
+  }}
+  if(a.tier) h += '<span class="qz-badge tier">' + escHtml(a.tier) + '</span>';
+  else if(a.plan) h += '<span class="qz-badge tier">' + escHtml(a.plan) + '</span>';
+  if(a.isActive === false) h += '<span class="qz-badge no_access">nonaktif</span>';
+  h += '</div>';
+
+  if(a.groups && a.groups.length){{
+    a.groups.forEach(function(g){{
+      var key = a.id + '::' + g.key;
+      var hasDet = !!(g.buckets && g.buckets.length);
+      var sub = g.resetAt ? quotaFmtReset(g.resetAt) : '';
+      if(g.fallback) sub = (sub ? sub + ' \u00b7 ' : '') + 'turunan model';
+      h += quotaRow(g.label, g.pct, g.status, sub, {{
+        toggle: hasDet,
+        attrs: hasDet ? ' data-qk="' + escHtml(key) + '"' : ''
+      }});
+      if(hasDet){{
+        var open = QUOTA.openDet[key] === true;
+        h += '<div class="qz-det' + (open ? ' open' : '') + '" data-qd="' + escHtml(key) + '">';
+        g.buckets.forEach(function(b){{
+          h += quotaRow(b.label, b.pct, null, quotaSubFor(b), {{}});
+        }});
+        h += '</div>';
+      }}
+    }});
+  }} else if(a.buckets && a.buckets.length){{
+    h += '<div class="qz-flat">';
+    a.buckets.forEach(function(b){{
+      h += quotaRow(b.label, b.pct, null, quotaSubFor(b), {{}});
+    }});
+    h += '</div>';
+  }}
+  if(a.note) h += '<div class="qz-note">' + escHtml(a.note) + '</div>';
+  h += '</div>';
+  return h;
+}}
+function quotaProviderHtml(p){{
+  var open = QUOTA.openProv[p.provider] !== false;
+  var h = '<div class="qz-prov' + (open ? ' open' : '') + '" data-qp="' + escHtml(p.provider) + '">';
+  h += '<div class="qz-prov-head" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '" data-qhead="1">';
+  h += '<span class="qz-prov-name">' + escHtml(p.label || p.provider) + '</span>';
+  h += '<span class="qz-prov-meta">' + escHtml(p.accountCount) + ' akun</span>';
+  if(p.criticalCount){{
+    h += '<span class="qz-badge exhausted">' + escHtml(p.criticalCount) + ' kritis</span>';
+  }}
+  h += '<svg class="qz-chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+  h += '</div><div class="qz-prov-body">';
+  (p.accounts || []).forEach(function(a){{ h += quotaAccountHtml(a); }});
+  h += '</div></div>';
+  return h;
+}}
+function quotaToggleProv(el){{
+  var box = el.parentNode;
+  var on = box.classList.toggle('open');
+  QUOTA.openProv[box.getAttribute('data-qp')] = on;
+  el.setAttribute('aria-expanded', on ? 'true' : 'false');
+}}
+function quotaToggleDet(el){{
+  var k = el.getAttribute('data-qk');
+  var box = document.querySelector('[data-qd="' + k + '"]');
+  if(!box) return;
+  var on = box.classList.toggle('open');
+  el.classList.toggle('open', on);
+  QUOTA.openDet[k] = on;
+}}
+function quotaRender(){{
+  var root = document.getElementById('qz-root');
+  if(!root) return;
+  if(QUOTA.err){{
+    root.innerHTML = '<div class="qz-empty">' + escHtml(QUOTA.err)
+      + '<div style="margin-top:.75rem"><button type="button" class="btn-action-sm" onclick="quotaRefresh()">Coba lagi</button></div></div>';
+    return;
+  }}
+  var d = QUOTA.data;
+  if(!d || !d.providers || !d.providers.length){{
+    root.innerHTML = '<div class="qz-empty">Belum ada akun provider terdaftar di 9router.</div>';
+    return;
+  }}
+  var h = '';
+  d.providers.forEach(function(p){{ h += quotaProviderHtml(p); }});
+  root.innerHTML = h;
+  root.querySelectorAll('[data-qhead]').forEach(function(el){{
+    el.addEventListener('click', function(){{ quotaToggleProv(el); }});
+    el.addEventListener('keydown', function(ev){{
+      if(ev.key === 'Enter' || ev.key === ' '){{
+        ev.preventDefault();
+        quotaToggleProv(el);
+      }}
+    }});
+  }});
+  root.querySelectorAll('[data-qk]').forEach(function(el){{
+    el.addEventListener('click', function(){{ quotaToggleDet(el); }});
+  }});
+  var up = document.getElementById('qz-updated');
+  if(up){{
+    var txt = '';
+    if(d.fetchedAt){{
+      var t = new Date(d.fetchedAt);
+      if(!isNaN(t.getTime())){{
+        txt = 'diperbarui ' + t.toLocaleTimeString('id-ID', {{hour:'2-digit', minute:'2-digit'}});
+      }}
+    }}
+    if(d.stale) txt += (txt ? ' &middot; ' : '') + 'cache lama';
+    up.innerHTML = txt;
+  }}
+}}
+function quotaLoad(force, silent){{
+  if(QUOTA.loading) return;
+  QUOTA.loading = true;
+  var btn = document.getElementById('qz-refresh');
+  if(btn && !silent){{ btn.disabled = true; btn.textContent = 'Memuat...'; }}
+  fetch('/api/provider-quota' + (force ? '?refresh=1' : ''), {{credentials:'same-origin'}})
+    .then(function(r){{ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }})
+    .then(function(d){{
+      if(!d || !d.ok) throw new Error((d && d.error) || 'Gagal memuat kuota');
+      QUOTA.data = d; QUOTA.err = null; QUOTA.loaded = true;
+      quotaRender();
+      if(d.stale && !force) setTimeout(function(){{ quotaLoad(true, true); }}, 4000);
+    }})
+    .catch(function(e){{
+      QUOTA.err = 'Tidak bisa memuat kuota: ' + (e && e.message ? e.message : 'kesalahan jaringan');
+      if(!QUOTA.data) quotaRender();
+      else if(typeof toast === 'function') toast(QUOTA.err, 'error');
+    }})
+    .then(function(){{
+      QUOTA.loading = false;
+      if(btn){{ btn.disabled = false; btn.textContent = 'Refresh'; }}
+    }});
+}}
+function quotaEnsure(){{
+  if(!QUOTA.loaded && !QUOTA.loading) quotaLoad(false, false);
+}}
+function quotaRefresh(){{
+  quotaLoad(true, false);
+}}
+function quotaOnTab(name){{
+  if(name === 'quota'){{
+    quotaEnsure();
+    if(!QUOTA.timer){{
+      QUOTA.timer = setInterval(function(){{
+        if(document.hidden) return;
+        var panel = document.getElementById('tab-quota');
+        if(!panel || !panel.classList.contains('active')) return;
+        quotaLoad(true, true);
+      }}, 300000);
+    }}
+  }} else if(QUOTA.timer){{
+    clearInterval(QUOTA.timer); QUOTA.timer = null;
+  }}
+}}
+
 function switchTab(name, tab){{
   document.querySelectorAll('.tab').forEach(t=>{{t.classList.remove('active');t.setAttribute('aria-selected','false');}});
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
@@ -2645,6 +2946,7 @@ function switchTab(name, tab){{
   scrollAllLogsToBottom();
   restorePatchPages();
   syncGwLogTabUI();
+  quotaOnTab(name);
 }}
 
 // Tab restore from URL or safeStore
@@ -2654,7 +2956,7 @@ if(activeTabFromUrl){{
   if(btn) switchTab(activeTabFromUrl, btn);
 }} else {{
   var saved = safeStore('getItem', 'activeTab');
-  if(saved && ['status','performance','control','auxiliary','profiles','kanban'].indexOf(saved) !== -1){{
+  if(saved && ['status','performance','control','auxiliary','profiles','kanban','quota'].indexOf(saved) !== -1){{
     var btn = document.querySelector('.tab[onclick*="' + saved + '"]');
     if(btn) switchTab(saved, btn);
   }}
@@ -15495,6 +15797,515 @@ def render_auth_setting_block() -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Provider quota — per-account AI usage, sourced from 9router /api/usage/{id}
+#
+# 9router keeps one row per linked account in providerConnections and exposes
+# GET /api/usage/{connectionId} (cookie auth). Shapes differ per provider, so
+# everything is normalised here into one schema the frontend can render blindly.
+# Read-only against the 9router DB; never writes to it.
+# ---------------------------------------------------------------------------
+
+QUOTA_CACHE_PATH = "/opt/AppData/hermes-native/hermes-data/cache/provider_quota.json"
+QUOTA_TTL = 120.0            # seconds a snapshot is served without refetching
+QUOTA_TIMEOUT = 8.0          # per-account HTTP timeout
+QUOTA_MAX_WORKERS = 8
+
+_quota_mem = {"at": 0.0, "data": None}
+_quota_lock = threading.Lock()
+_quota_refreshing = {"on": False}
+_quota_disk_lock = threading.Lock()
+
+_router_auth = {"cookie": None, "at": 0.0, "fail_at": 0.0}
+_router_auth_lock = threading.Lock()
+_router_login_lock = threading.Lock()
+_ROUTER_AUTH_TTL = 1800.0
+_ROUTER_LOGIN_BACKOFF = 30.0
+
+QUOTA_PROVIDER_ORDER = (
+    "antigravity", "gemini", "codebuddy-intl", "codex", "qoder", "openai-compatible",
+)
+QUOTA_PROVIDER_LABELS = {
+    "antigravity": "Antigravity",
+    "gemini": "Gemini",
+    "codebuddy-intl": "CodeBuddy",
+    "codex": "Codex",
+    "qoder": "Qoder",
+    "openai-compatible": "OpenAI Compatible",
+}
+
+# Buckets that summarise a whole subscription rather than one model.
+_QUOTA_AGGREGATE_KEYS = frozenset({
+    "gemini_weekly", "gemini_session", "claude_gpt_weekly", "claude_gpt_session",
+    "monthly", "session", "weekly", "user", "organization",
+})
+
+# Antigravity renders as exactly these five rows, in this order, always.
+# (group key, UI label, main bucket, detail prefixes, detail exclusions)
+_ANTIGRAVITY_GROUPS = (
+    ("gemini_session", "Kuota Gemini (Flash & Pro)", "gemini_session", ("gemini-",), ("gemini-4-argon-",)),
+    ("gemini_weekly", "Kuota Weekly Gemini", "gemini_weekly", (), ()),
+    ("claude_gpt_session", "Kuota Claude", "claude_gpt_session", ("claude-",), ()),
+    ("claude_gpt_weekly", "Kuota Weekly Claude", "claude_gpt_weekly", (), ()),
+    ("gemini-4-argon", "Kuota Weekly Argon", None, ("gemini-4-argon-",), ()),
+)
+_ANTIGRAVITY_AGGREGATE_SET = frozenset({"gemini_session", "gemini_weekly", "claude_gpt_session", "claude_gpt_weekly"})
+
+# Worst-first ordering used when rolling group statuses up to the account.
+_ACCOUNT_STATUS_RANK = {
+    "ok": 0, "low": 1, "auth_expired": 2, "unsupported": 2, "no_access": 2,
+    "error": 3, "exhausted": 4,
+}
+
+
+def _quota_pct(bucket) -> float | None:
+    """Remaining percentage 0-100, or None when the bucket has no denominator."""
+    if not isinstance(bucket, dict):
+        return None
+    if bucket.get("unlimited"):
+        return None
+    val = None
+    rp = bucket.get("remainingPercentage")
+    if isinstance(rp, (int, float)) and not isinstance(rp, bool):
+        val = float(rp)
+    else:
+        rem = bucket.get("remaining")
+        total = bucket.get("total")
+        used = bucket.get("used")
+        if isinstance(total, (int, float)) and not isinstance(total, bool) and total > 0:
+            # Prefer an explicit remaining count; some providers only ship "used".
+            if isinstance(rem, (int, float)) and not isinstance(rem, bool):
+                val = float(rem) / float(total) * 100.0
+            elif isinstance(used, (int, float)) and not isinstance(used, bool):
+                val = (float(total) - float(used)) / float(total) * 100.0
+        else:
+            frac = bucket.get("remainingFraction")
+            if isinstance(frac, (int, float)) and not isinstance(frac, bool):
+                val = float(frac) * 100.0
+    if val is None or val != val:  # NaN guard
+        return None
+    return round(max(0.0, min(100.0, val)), 1)
+
+
+def _quota_bucket_entry(key: str, bucket) -> dict:
+    bucket = bucket if isinstance(bucket, dict) else {}
+    return {
+        "key": key,
+        "label": bucket.get("displayName") or key,
+        "pct": _quota_pct(bucket),
+        "used": bucket.get("used"),
+        "total": bucket.get("total"),
+        "resetAt": bucket.get("resetAt"),
+        "aggregate": key.lower() in _QUOTA_AGGREGATE_KEYS,
+    }
+
+
+def _quota_status_from_pcts(pcts) -> str:
+    vals = [p for p in pcts if p is not None]
+    if not vals:
+        return "ok"  # nothing measurable (unlimited / zero total) is not a failure
+    if all(p <= 0 for p in vals):
+        return "exhausted"
+    if any(p < 20 for p in vals):
+        return "low"
+    return "ok"
+
+
+def _antigravity_groups(quotas: dict) -> list:
+    """Fold the flat antigravity bucket map into the five mandated rows."""
+    groups = []
+    for gkey, glabel, main_key, prefixes, excludes in _ANTIGRAVITY_GROUPS:
+        details = []
+        if prefixes:
+            for bkey in sorted(quotas):
+                if bkey in _ANTIGRAVITY_AGGREGATE_SET:
+                    continue
+                if not bkey.startswith(prefixes):
+                    continue
+                if any(bkey.startswith(x) for x in excludes):
+                    continue
+                details.append(_quota_bucket_entry(bkey, quotas[bkey]))
+
+        if gkey == "gemini-4-argon":
+            if not details:
+                groups.append({
+                    "key": gkey, "label": glabel, "pct": None, "status": "no_access",
+                    "resetAt": None, "fallback": False, "buckets": [],
+                    "note": "Tidak tersedia (butuh Pro/Ultra)",
+                })
+                continue
+            pcts = [d["pct"] for d in details if d["pct"] is not None]
+            groups.append({
+                "key": gkey, "label": glabel,
+                "pct": round(min(pcts), 1) if pcts else None,
+                "status": _quota_status_from_pcts([d["pct"] for d in details]),
+                "resetAt": details[0]["resetAt"],
+                "fallback": False, "buckets": details, "note": None,
+            })
+            continue
+
+        main = quotas.get(main_key) if main_key else None
+        fallback = False
+        if isinstance(main, dict):
+            pct = _quota_pct(main)
+            reset = main.get("resetAt")
+        else:
+            # Older accounts have no aggregate bucket: derive from the models.
+            pcts = [d["pct"] for d in details if d["pct"] is not None]
+            pct = round(min(pcts), 1) if pcts else None
+            reset = details[0]["resetAt"] if details else None
+            fallback = True
+        groups.append({
+            "key": gkey, "label": glabel, "pct": pct,
+            "status": _quota_status_from_pcts([pct] + [d["pct"] for d in details]),
+            "resetAt": reset, "fallback": fallback, "buckets": details, "note": None,
+        })
+    return groups
+
+
+def _normalize_quota_account(conn: dict, usage) -> dict:
+    """One account row in the panel schema, whatever the provider's raw shape."""
+    provider = conn.get("provider") or ""
+    usage = usage if isinstance(usage, dict) else None
+    quotas = (usage or {}).get("quotas") or {}
+    quotas = quotas if isinstance(quotas, dict) else {}
+    msg = str((usage or {}).get("message") or "")
+    tier = (((usage or {}).get("subscriptionInfo") or {}).get("currentTier") or {}).get("id")
+
+    acct = {
+        "id": conn.get("id"),
+        "provider": provider,
+        "name": conn.get("name") or conn.get("email") or conn.get("id"),
+        "email": conn.get("email") or "",
+        "isActive": bool(conn.get("isActive")),
+        "priority": conn.get("priority"),
+        "plan": (usage or {}).get("plan") or "",
+        "tier": tier,
+        "status": "ok",
+        "groups": [],
+        "buckets": [],
+        "note": None,
+    }
+
+    if usage is None:
+        acct["status"] = "error"
+        acct["note"] = "9router tidak merespons"
+        return acct
+    if "authentication expired" in msg.lower():
+        acct["status"] = "auth_expired"
+        acct["note"] = msg
+        return acct
+    if not quotas:
+        acct["status"] = "unsupported"
+        acct["note"] = msg or "Kuota tidak tersedia untuk koneksi ini"
+        return acct
+
+    if provider == "antigravity":
+        groups = _antigravity_groups(quotas)
+        acct["groups"] = groups
+        worst = "ok"
+        for g in groups:
+            # A missing Argon allowance says nothing about the rest of the account.
+            if g["key"] == "gemini-4-argon":
+                continue
+            if _ACCOUNT_STATUS_RANK.get(g["status"], 0) > _ACCOUNT_STATUS_RANK.get(worst, 0):
+                worst = g["status"]
+        acct["status"] = worst
+    else:
+        entries = [_quota_bucket_entry(k, v) for k, v in sorted(quotas.items())]
+        acct["buckets"] = entries
+        acct["status"] = _quota_status_from_pcts([e["pct"] for e in entries])
+    return acct
+
+
+def _router_password() -> str:
+    """9router dashboard password: env first, then the systemd unit file."""
+    for var in ("ROUTER_PASSWORD", "INITIAL_PASSWORD"):
+        pw = os.environ.get(var)
+        if pw:
+            return pw
+    try:
+        with open("/etc/systemd/system/9router.service", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line.startswith("Environment=") and "INITIAL_PASSWORD=" in line:
+                    raw = line.split("INITIAL_PASSWORD=", 1)[1].strip()
+                    return raw.strip('"').strip("'")
+    except OSError:
+        pass
+    return ""
+
+
+def _router_origin() -> str:
+    return f"http://127.0.0.1:{get_9router_port()}"
+
+
+def _router_login(force: bool = False):
+    """Return a usable 9router auth cookie, logging in at most once per backoff.
+
+    The cookie is cached for _ROUTER_AUTH_TTL; a failed attempt parks logins for
+    _ROUTER_LOGIN_BACKOFF so a burst of 401s cannot trip 9router's lockout.
+    """
+    now = time.monotonic()
+    with _router_auth_lock:
+        cookie = _router_auth["cookie"]
+        if cookie and not force and (now - _router_auth["at"]) < _ROUTER_AUTH_TTL:
+            return cookie
+        if (now - _router_auth["fail_at"]) < _ROUTER_LOGIN_BACKOFF:
+            return cookie
+    with _router_login_lock:
+        now = time.monotonic()
+        with _router_auth_lock:
+            cookie = _router_auth["cookie"]
+            if cookie and not force and (now - _router_auth["at"]) < _ROUTER_AUTH_TTL:
+                return cookie
+            if (now - _router_auth["fail_at"]) < _ROUTER_LOGIN_BACKOFF:
+                return cookie
+        password = _router_password()
+        if not password:
+            with _router_auth_lock:
+                _router_auth["fail_at"] = now
+            return None
+        try:
+            req = urllib.request.Request(
+                _router_origin() + "/api/auth/login",
+                data=json.dumps({"password": password}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=QUOTA_TIMEOUT) as resp:
+                headers = resp.headers.get_all("Set-Cookie") or []
+            for item in headers:
+                if item.startswith("auth_token="):
+                    token = item.split(";", 1)[0]
+                    with _router_auth_lock:
+                        _router_auth["cookie"] = token
+                        _router_auth["at"] = time.monotonic()
+                        _router_auth["fail_at"] = 0.0
+                    return token
+        except Exception as exc:
+            _log_swallow("9router login", exc)
+        with _router_auth_lock:
+            _router_auth["fail_at"] = time.monotonic()
+        return None
+
+
+def _router_usage(connection_id: str, cookie):
+    """GET /api/usage/{id}. Re-logins once on 401, never loops."""
+    if not cookie:
+        return None
+    url = f"{_router_origin()}/api/usage/{quote(str(connection_id), safe='')}"
+    for attempt in (0, 1):
+        req = urllib.request.Request(url, headers={"Cookie": cookie, "Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=QUOTA_TIMEOUT) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code == 401 and attempt == 0:
+                cookie = _router_login(force=True)
+                if not cookie:
+                    return None
+                continue
+            return None
+        except Exception as exc:
+            _log_swallow("9router usage", exc)
+            return None
+    return None
+
+
+def _read_router_connections() -> list:
+    """Read-only snapshot of linked accounts from the 9router DB."""
+    if not os.path.exists(ROUTER_DB_PATH):
+        return []
+    try:
+        with closing(sqlite3.connect(f"file:{ROUTER_DB_PATH}?mode=ro", uri=True, timeout=2.0)) as conn:
+            rows = conn.execute(
+                "SELECT id, provider, name, email, priority, isActive FROM providerConnections"
+            ).fetchall()
+    except Exception as exc:
+        _log_swallow("9router connections", exc)
+        return []
+    return [
+        {"id": r[0], "provider": r[1], "name": r[2], "email": r[3],
+         "priority": r[4], "isActive": r[5]}
+        for r in rows
+    ]
+
+
+def _quota_fetch_all(conns: list) -> list:
+    """Fan out one /api/usage call per account, 8 at a time."""
+    if not conns:
+        return []
+    cookie = _router_login()
+
+    def one(conn):
+        try:
+            return _normalize_quota_account(conn, _router_usage(conn["id"], cookie))
+        except Exception as exc:
+            _log_swallow("provider quota account", exc)
+            return _normalize_quota_account(conn, None)
+
+    with ThreadPoolExecutor(max_workers=QUOTA_MAX_WORKERS) as pool:
+        return list(pool.map(one, conns))
+
+
+def _quota_provider_rank(prov: str) -> int:
+    base = prov.split("-chat-")[0] if prov.startswith("openai-compatible") else prov
+    try:
+        return QUOTA_PROVIDER_ORDER.index(base)
+    except ValueError:
+        return len(QUOTA_PROVIDER_ORDER)
+
+
+def _quota_build() -> dict:
+    conns = _read_router_connections()
+    accounts = _quota_fetch_all(conns)
+
+    grouped = {}
+    for acct in accounts:
+        grouped.setdefault(acct.get("provider") or "unknown", []).append(acct)
+
+    def acct_sort(a):
+        pcts = [g.get("pct") for g in a.get("groups") or [] if g.get("pct") is not None]
+        if not pcts:
+            pcts = [b.get("pct") for b in a.get("buckets") or [] if b.get("pct") is not None]
+        return (min(pcts) if pcts else 999.0, a.get("priority") if a.get("priority") is not None else 999)
+
+    providers = []
+    for prov in sorted(grouped, key=lambda p: (_quota_provider_rank(p), p)):
+        accts = sorted(grouped[prov], key=acct_sort)
+        critical = sum(1 for a in accts if a.get("status") in ("exhausted", "auth_expired", "error"))
+        providers.append({
+            "provider": prov,
+            "label": QUOTA_PROVIDER_LABELS.get(prov.split("-chat-")[0], prov),
+            "accountCount": len(accts),
+            "criticalCount": critical,
+            "accounts": accts,
+        })
+
+    return {
+        "ok": True,
+        "fetchedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "providers": providers,
+    }
+
+
+def _quota_filter(data: dict, provider_filter: str) -> dict:
+    if not provider_filter:
+        return data
+    want = provider_filter.strip().lower()
+    out = dict(data)
+    out["providers"] = [
+        p for p in data.get("providers") or []
+        if (p.get("provider") or "").lower() == want
+        or (p.get("label") or "").lower() == want
+        or (p.get("provider") or "").lower().startswith(want + "-")
+    ]
+    return out
+
+
+def _quota_load_disk():
+    try:
+        with open(QUOTA_CACHE_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict) and data.get("ok") and data.get("providers"):
+            return data
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _quota_save_disk(data: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(QUOTA_CACHE_PATH), exist_ok=True)
+        with _quota_disk_lock:
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(QUOTA_CACHE_PATH), suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    json.dump(data, fh, separators=(",", ":"))
+                os.replace(tmp, QUOTA_CACHE_PATH)
+            except BaseException:
+                with suppress(OSError):
+                    os.unlink(tmp)
+                raise
+    except Exception as exc:
+        _log_swallow("provider quota cache write", exc)
+
+
+def _quota_kick_refresh() -> None:
+    """Warm the cache in the background so a cold tab open still feels instant."""
+    with _quota_lock:
+        if _quota_refreshing["on"]:
+            return
+        _quota_refreshing["on"] = True
+
+    def run():
+        try:
+            fresh = _quota_build()
+            with _quota_lock:
+                _quota_mem["data"] = fresh
+                _quota_mem["at"] = time.monotonic()
+            _quota_save_disk(fresh)
+        except Exception as exc:
+            _log_swallow("provider quota background refresh", exc)
+        finally:
+            with _quota_lock:
+                _quota_refreshing["on"] = False
+
+    threading.Thread(target=run, name="quota-refresh", daemon=True).start()
+
+
+def get_provider_quota(refresh: bool = False, provider_filter: str = "") -> dict:
+    """Cached quota snapshot. refresh=True forces a full fan-out fetch."""
+    now = time.monotonic()
+    with _quota_lock:
+        data = _quota_mem["data"]
+        age = now - _quota_mem["at"]
+
+    if data is not None and not refresh:
+        # Serve whatever we have immediately; only ?refresh=1 blocks on the
+        # 41-account fan-out. A stale snapshot warms in the background.
+        out = copy.deepcopy(data)
+        out["cached"] = True
+        if age >= QUOTA_TTL:
+            out["stale"] = True
+            _quota_kick_refresh()
+        return _quota_filter(out, provider_filter)
+
+    if data is None:
+        disk = _quota_load_disk()
+        if disk is not None:
+            with _quota_lock:
+                if _quota_mem["data"] is None:
+                    _quota_mem["data"] = disk
+                    _quota_mem["at"] = 0.0  # always stale: it is a restart leftover
+            if not refresh:
+                _quota_kick_refresh()
+                out = copy.deepcopy(disk)
+                out["cached"] = True
+                out["stale"] = True
+                return _quota_filter(out, provider_filter)
+
+    try:
+        fresh = _quota_build()
+    except Exception as exc:
+        _log_swallow("provider quota build", exc)
+        if data is not None:
+            out = copy.deepcopy(data)
+            out["cached"] = True
+            out["stale"] = True
+            return _quota_filter(out, provider_filter)
+        return {"ok": False, "error": "Gagal mengambil kuota dari 9router", "providers": []}
+
+    with _quota_lock:
+        _quota_mem["data"] = fresh
+        _quota_mem["at"] = time.monotonic()
+    _quota_save_disk(fresh)
+    out = copy.deepcopy(fresh)
+    out["cached"] = False
+    return _quota_filter(out, provider_filter)
+
+
 def build_fragments(sse_only: bool = False) -> dict:
     """Compute every dynamic HTML fragment (plus a couple of raw flags) in one
     place, so the initial full-page render and the /api/status poll can never
@@ -16979,6 +17790,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/status":
             self._send_json(build_fragments())
             return
+        if parsed.path == "/api/provider-quota":
+            want_refresh = (qs.get("refresh") or ["0"])[0] in ("1", "true", "yes")
+            prov = (qs.get("provider") or [""])[0]
+            self._send_json(get_provider_quota(refresh=want_refresh, provider_filter=prov))
+            return
+
 
         if parsed.path == "/api/gateway-log":
             n = _tail_n_from_query(qs)

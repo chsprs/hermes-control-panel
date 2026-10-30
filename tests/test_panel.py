@@ -5958,8 +5958,15 @@ class TestMobileAccessibility(unittest.TestCase):
         self.assertIn("block: 'nearest'", fn)
         self.assertIn("inline: 'center'", fn)
         # Every tab button routes through switchTab with its own element.
+        # Derive the expected count from the tablist so adding a tab does not
+        # silently weaken this guard.
+        tablist = page[page.index('class="tabs"'):]
+        tablist = tablist[:tablist.index("</div>")]
+        tab_count = len(re.findall(r'<button[^>]*class="tab[ "]', tablist))
         onclicks = re.findall(r"onclick=\"switchTab\('[a-z]+', this\)\"", page)
-        self.assertEqual(len(onclicks), 6, "all six tabs must pass their element to switchTab")
+        self.assertEqual(len(onclicks), tab_count,
+                         "every tab button must pass its element to switchTab")
+        self.assertGreaterEqual(tab_count, 7, "core tabs plus the Kuota AI tab")
         # Keyboard arrow navigation focuses + clicks the next tab, hitting the same path.
         # The tab a11y IIFEs ship inside NAV_SCRIPT, injected via the {nav_script} slot.
         self.assertIn("{nav_script}", page)
@@ -6153,6 +6160,216 @@ class TestWave78ResourceAudit(unittest.TestCase):
         finally:
             import shutil
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestProviderQuota(unittest.TestCase):
+    """Kuota AI: 9router per-account usage normalisation and the /api/provider-quota route."""
+
+    AG_BUCKETS = {
+        "gemini_session": {"used": 0, "total": 1000, "remainingPercentage": 100.0,
+                           "resetAt": "2026-10-30T19:00:00.000Z", "displayName": "Gemini (5h)"},
+        "gemini_weekly": {"used": 540, "total": 1000, "remainingPercentage": 46.0,
+                          "resetAt": "2026-10-31T07:00:00.000Z"},
+        "claude_gpt_session": {"used": 1000, "total": 1000, "remainingPercentage": 0.0,
+                               "resetAt": "2026-10-30T19:00:00.000Z"},
+        "claude_gpt_weekly": {"used": 1000, "total": 1000, "remainingPercentage": 0.0,
+                              "resetAt": "2026-11-01T16:00:00.000Z"},
+        "gemini-3.8-flash-high": {"used": 23, "total": 1000, "remainingPercentage": 97.7,
+                                  "resetAt": "2026-10-30T19:33:57.000Z",
+                                  "displayName": "Gemini 3.8 Flash (High)"},
+        "gemini-3.1-flash-image": {"used": 23, "total": 1000, "remainingPercentage": 97.7,
+                                   "resetAt": "2026-10-30T19:33:57.000Z",
+                                   "displayName": "Gemini 3.1 Flash Image"},
+        "claude-sonnet-5-5-high": {"used": 0, "total": 1000, "remainingPercentage": 100.0,
+                                   "resetAt": "2026-10-30T19:00:00.000Z",
+                                   "displayName": "Claude Sonnet 5.5 (High)"},
+        "gemini-4-argon-high": {"used": 0, "total": 1000, "remainingPercentage": 100.0,
+                                "resetAt": "2026-11-06T14:24:22.000Z"},
+        "gemini-4-argon-medium": {"used": 0, "total": 1000, "remainingPercentage": 100.0,
+                                  "resetAt": "2026-11-06T14:24:22.000Z"},
+        "gemini-4-argon-low": {"used": 0, "total": 1000, "remainingPercentage": 100.0,
+                               "resetAt": "2026-11-06T14:24:22.000Z"},
+        "gpt-oss-120b-medium": {"used": 0, "total": 1000, "remainingPercentage": 100.0,
+                                "resetAt": "2026-10-30T19:00:00.000Z"},
+    }
+
+    def _ag_usage(self, buckets=None):
+        return {
+            "plan": "Antigravity",
+            "quotas": dict(buckets if buckets is not None else self.AG_BUCKETS),
+            "subscriptionInfo": {"currentTier": {"id": "free-tier", "name": "Antigravity"}},
+        }
+
+    def _account(self, usage, provider="antigravity"):
+        conn = {"id": "acc-1", "provider": provider, "name": "a@b.c", "email": "a@b.c",
+                "priority": 3, "isActive": 1}
+        return panel._normalize_quota_account(conn, usage)
+
+    # ---- pct normalisation -------------------------------------------------
+
+    def test_pct_prefers_remaining_percentage(self):
+        self.assertEqual(panel._quota_pct({"remainingPercentage": 42.34}), 42.3)
+
+    def test_pct_derives_from_remaining_over_total(self):
+        self.assertEqual(panel._quota_pct({"remaining": 73, "total": 100}), 73.0)
+
+    def test_pct_derives_from_used_when_remaining_absent(self):
+        # codebuddy-intl ships used+total with no remaining / remainingPercentage.
+        self.assertEqual(panel._quota_pct({"used": 0.13, "total": 100}), 99.9)
+
+    def test_pct_none_for_zero_total_and_unlimited(self):
+        self.assertIsNone(panel._quota_pct({"used": 0, "total": 0}))
+        self.assertIsNone(panel._quota_pct({"remainingPercentage": 50, "unlimited": True}))
+
+    def test_pct_is_clamped(self):
+        self.assertEqual(panel._quota_pct({"remainingPercentage": 130}), 100.0)
+        self.assertEqual(panel._quota_pct({"remainingPercentage": -5}), 0.0)
+
+    # ---- antigravity five groups ------------------------------------------
+
+    def test_antigravity_renders_exactly_five_groups_in_order(self):
+        acct = self._account(self._ag_usage())
+        self.assertEqual(len(acct["groups"]), 5)
+        self.assertEqual([g["label"] for g in acct["groups"]], [
+            "Kuota Gemini (Flash & Pro)",
+            "Kuota Weekly Gemini",
+            "Kuota Claude",
+            "Kuota Weekly Claude",
+            "Kuota Weekly Argon",
+        ])
+        self.assertEqual([g["key"] for g in acct["groups"]], [
+            "gemini_session", "gemini_weekly", "claude_gpt_session",
+            "claude_gpt_weekly", "gemini-4-argon",
+        ])
+
+    def test_group_main_bars_use_their_aggregate_bucket(self):
+        acct = self._account(self._ag_usage())
+        g = {x["key"]: x for x in acct["groups"]}
+        self.assertEqual(g["gemini_session"]["pct"], 100.0)
+        self.assertEqual(g["gemini_weekly"]["pct"], 46.0)
+        self.assertEqual(g["claude_gpt_session"]["pct"], 0.0)
+        self.assertEqual(g["claude_gpt_weekly"]["pct"], 0.0)
+
+    def test_group_details_exclude_aggregates_and_argon_from_gemini(self):
+        acct = self._account(self._ag_usage())
+        g = {x["key"]: x for x in acct["groups"]}
+        gem_keys = [b["key"] for b in g["gemini_session"]["buckets"]]
+        self.assertIn("gemini-3.8-flash-high", gem_keys)
+        self.assertNotIn("gemini_session", gem_keys)
+        self.assertNotIn("gemini-4-argon-high", gem_keys)
+        self.assertNotIn("gpt-oss-120b-medium", gem_keys)
+        claude_keys = [b["key"] for b in g["claude_gpt_session"]["buckets"]]
+        self.assertEqual(claude_keys, ["claude-sonnet-5-5-high"])
+
+    def test_argon_group_pct_is_min_of_tiers(self):
+        buckets = dict(self.AG_BUCKETS)
+        buckets["gemini-4-argon-high"] = {"used": 0, "total": 1000, "remainingPercentage": 80.0,
+                                          "resetAt": "2026-11-06T14:24:22.000Z"}
+        buckets["gemini-4-argon-medium"] = {"used": 0, "total": 1000, "remainingPercentage": 35.3,
+                                            "resetAt": "2026-11-06T14:24:22.000Z"}
+        buckets["gemini-4-argon-low"] = {"used": 0, "total": 1000, "remainingPercentage": 90.0,
+                                         "resetAt": "2026-11-06T14:24:22.000Z"}
+        acct = self._account(self._ag_usage(buckets))
+        argon = [g for g in acct["groups"] if g["key"] == "gemini-4-argon"][0]
+        self.assertEqual(argon["pct"], 35.3)
+        self.assertEqual(len(argon["buckets"]), 3)
+
+    def test_argon_absent_is_no_access_not_zero(self):
+        buckets = {k: v for k, v in self.AG_BUCKETS.items() if "argon" not in k}
+        acct = self._account(self._ag_usage(buckets))
+        argon = [g for g in acct["groups"] if g["key"] == "gemini-4-argon"][0]
+        self.assertEqual(argon["status"], "no_access")
+        self.assertIsNone(argon["pct"], "missing Argon must render 'Tidak tersedia', never 0%")
+        self.assertIn("Tidak tersedia", argon["note"])
+
+    def test_argon_no_access_does_not_degrade_account_status(self):
+        buckets = {k: v for k, v in self.AG_BUCKETS.items() if "argon" not in k}
+        buckets["claude_gpt_session"] = {"used": 0, "total": 1000, "remainingPercentage": 100.0}
+        buckets["claude_gpt_weekly"] = {"used": 0, "total": 1000, "remainingPercentage": 100.0}
+        acct = self._account(self._ag_usage(buckets))
+        self.assertEqual(acct["status"], "ok")
+
+    def test_account_status_is_worst_of_groups_one_to_four(self):
+        acct = self._account(self._ag_usage())
+        # Claude buckets are all zero -> that group is exhausted -> account exhausted.
+        self.assertEqual(acct["status"], "exhausted")
+
+    def test_fallback_when_aggregate_bucket_missing(self):
+        buckets = {k: v for k, v in self.AG_BUCKETS.items()
+                   if k not in ("gemini_session", "claude_gpt_session")}
+        acct = self._account(self._ag_usage(buckets))
+        g = {x["key"]: x for x in acct["groups"]}
+        self.assertTrue(g["gemini_session"]["fallback"])
+        self.assertEqual(g["gemini_session"]["pct"], 97.7)
+        self.assertTrue(g["claude_gpt_session"]["fallback"])
+
+    # ---- non-antigravity providers ----------------------------------------
+
+    def test_codex_uses_remaining_field(self):
+        acct = self._account({"plan": "plus", "quotas": {
+            "session": {"used": 7, "total": 100, "remaining": 93, "resetAt": "x"},
+            "weekly": {"used": 28, "total": 100, "remaining": 72, "resetAt": "y"},
+        }}, provider="codex")
+        got = {b["key"]: b["pct"] for b in acct["buckets"]}
+        self.assertEqual(got, {"session": 93.0, "weekly": 72.0})
+        self.assertEqual(acct["status"], "ok")
+
+    def test_aggregate_buckets_are_flagged(self):
+        acct = self._account({"quotas": {
+            "session": {"remaining": 50, "total": 100},
+            "Monthly": {"used": 1, "total": 100},
+        }}, provider="codex")
+        flags = {b["key"]: b["aggregate"] for b in acct["buckets"]}
+        self.assertTrue(flags["session"])
+        self.assertTrue(flags["Monthly"])
+
+    def test_auth_expired_message_maps_to_status(self):
+        acct = self._account({"message": "Antigravity quota API authentication expired. Chat may still work.",
+                              "quotas": {}})
+        self.assertEqual(acct["status"], "auth_expired")
+        self.assertEqual(acct["groups"], [])
+
+    def test_usage_not_available_maps_to_unsupported(self):
+        acct = self._account({"message": "Usage not available for this connection"}, provider="gemini")
+        self.assertEqual(acct["status"], "unsupported")
+
+    def test_missing_usage_maps_to_error(self):
+        acct = self._account(None, provider="gemini")
+        self.assertEqual(acct["status"], "error")
+
+    # ---- response shape / security ----------------------------------------
+
+    def test_route_registered(self):
+        src = _handler_source()
+        self.assertIn('"/api/provider-quota"', src)
+        self.assertIn("get_provider_quota(refresh=want_refresh, provider_filter=prov)", src)
+
+    def test_quota_response_never_leaks_secrets(self):
+        conn = {"id": "acc-1", "provider": "antigravity", "name": "a@b.c", "email": "a@b.c",
+                "priority": 1, "isActive": 1}
+        blob = json.dumps(panel._normalize_quota_account(conn, self._ag_usage()))
+        for needle in ("ya29.", "Bearer ", "INITIAL_PASSWORD", "auth_token", "refresh_token"):
+            self.assertNotIn(needle, blob)
+
+    def test_kuota_tab_is_wired(self):
+        page = panel.PAGE
+        self.assertIn("switchTab('quota', this)", page)
+        self.assertIn('id="tab-quota"', page)
+        self.assertIn("function quotaRender", page)
+        self.assertIn("clip-path:inset(0 calc(100% - var(--q,0%)) 0 0)", page)
+
+    def test_provider_filter_matches_prefix_family(self):
+        data = {"ok": True, "providers": [
+            {"provider": "openai-compatible-chat-abc", "label": "OpenAI Compatible", "accounts": []},
+            {"provider": "codex", "label": "Codex", "accounts": []},
+        ]}
+        out = panel._quota_filter(data, "openai-compatible")
+        self.assertEqual([p["provider"] for p in out["providers"]], ["openai-compatible-chat-abc"])
+
+
+def _handler_source() -> str:
+    import inspect
+    return inspect.getsource(panel.Handler.do_GET)
 
 
 if __name__ == "__main__":
