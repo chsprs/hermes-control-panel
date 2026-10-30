@@ -2212,7 +2212,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
           <span class="qz-legend-bar"></span>
           <span>0%</span><span>&middot;</span><span>50%</span><span>&middot;</span><span>100%</span>
         </div>
-        <div class="qz-note">Sisa kuota per akun dari 9router. Ujung kanan bar menandai nilai sekarang: makin ke kanan makin aman. Badge: hijau = aman, kuning = menipis (&lt;20%), merah = habis, abu = tidak tersedia, ungu = token kedaluwarsa.</div>
+        <div class="qz-note">Sisa kuota per akun dari 9router. Ujung kanan bar menandai nilai sekarang: makin ke kanan makin aman. Badge status akun: hijau = aman, kuning = menipis (&lt;20%), merah = habis, abu = tidak tersedia, ungu = token kedaluwarsa.</div>
       </div>
       <div style="display:flex;gap:.45rem;align-items:center;flex-wrap:wrap">
         <span id="qz-updated" class="qz-prov-meta"></span>
