@@ -6404,5 +6404,74 @@ def _handler_source() -> str:
     return inspect.getsource(panel.Handler.do_GET)
 
 
+class TestPanelDeepSleep(unittest.TestCase):
+    """Socket activation + idle exit: the panel must park itself when unused."""
+
+    def test_no_inherited_socket_without_env(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("LISTEN_FDS", None)
+            os.environ.pop("LISTEN_PID", None)
+            self.assertIsNone(panel._inherited_listen_socket())
+
+    def test_inherited_socket_ignores_foreign_pid(self):
+        with mock.patch.dict(os.environ, {"LISTEN_FDS": "1", "LISTEN_PID": "1"}):
+            self.assertIsNone(panel._inherited_listen_socket())
+
+    def test_inherited_socket_ignores_zero_fds(self):
+        with mock.patch.dict(os.environ, {"LISTEN_FDS": "0", "LISTEN_PID": str(os.getpid())}):
+            self.assertIsNone(panel._inherited_listen_socket())
+
+    def test_inherited_socket_ignores_garbage(self):
+        with mock.patch.dict(os.environ, {"LISTEN_FDS": "abc", "LISTEN_PID": "x"}):
+            self.assertIsNone(panel._inherited_listen_socket())
+
+    def test_conn_tracking_is_monotonic_at_zero(self):
+        base = panel._active_conns
+        panel._conn_delta(+1)
+        self.assertEqual(panel._active_conns, base + 1)
+        panel._conn_delta(-1)
+        self.assertEqual(panel._active_conns, base)
+        # never goes negative even if finish() fires twice
+        panel._conn_delta(-1)
+        self.assertEqual(panel._active_conns, base)
+
+    def test_touch_activity_moves_timestamp(self):
+        before = panel._last_activity
+        time.sleep(0.01)
+        panel._touch_activity()
+        self.assertGreater(panel._last_activity, before)
+
+    def test_idle_busy_while_update_runs(self):
+        with mock.patch.object(panel, "_hermes_update_running", True):
+            self.assertTrue(panel._panel_idle_busy())
+        with mock.patch.object(panel, "_hermes_update_running", False), \
+             mock.patch.object(panel, "_hermes_check_running", False), \
+             mock.patch.object(panel, "_update_refreshing", False), \
+             mock.patch.object(panel, "_models_bg_refreshing", False), \
+             mock.patch.object(panel, "_quota_refreshing", {"on": False}), \
+             mock.patch.object(panel, "_clean_junk_result", {"status": "idle"}), \
+             mock.patch.object(panel, "_wa_pair_proc", None):
+            self.assertFalse(panel._panel_idle_busy())
+
+    def test_idle_busy_while_quota_refresh_runs(self):
+        with mock.patch.object(panel, "_quota_refreshing", {"on": True}):
+            self.assertTrue(panel._panel_idle_busy())
+
+    def test_watchdog_exits_when_limit_zero(self):
+        """limit<=0 must disable the watchdog thread entirely (no idle exit)."""
+        with mock.patch.dict(os.environ, {"PANEL_IDLE_EXIT_SECONDS": "0"}):
+            panel._idle_watchdog()  # returns immediately instead of looping
+
+    def test_service_unit_uses_socket_activation(self):
+        src = open("/etc/systemd/system/hermes-panel.service", encoding="utf-8").read() \
+            if os.path.exists("/etc/systemd/system/hermes-panel.service") else ""
+        if not src:
+            self.skipTest("unit file not present")
+        self.assertIn("hermes-panel.socket", src,
+                      "service must require the socket so it can be woken")
+        self.assertNotIn("Restart=always", src,
+                         "Restart=always would respawn the panel right after idle exit")
+
+
 if __name__ == "__main__":
     unittest.main()

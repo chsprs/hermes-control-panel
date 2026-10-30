@@ -17087,6 +17087,39 @@ _sse_clients: list = []  # list of (queue.Queue, threading.Event) tuples
 _sse_clients_lock = threading.Lock()
 _sse_active_event = threading.Event()
 
+# --- Idle / deep-sleep bookkeeping -----------------------------------------
+_conn_lock = threading.Lock()
+_active_conns = 0
+_last_activity = time.monotonic()
+_socket_activated = False  # set in __main__ when systemd handed us the socket
+
+
+def _touch_activity() -> None:
+    global _last_activity
+    _last_activity = time.monotonic()
+
+
+def _conn_delta(n: int) -> None:
+    global _active_conns
+    with _conn_lock:
+        _active_conns = max(0, _active_conns + n)
+
+
+def _panel_idle_busy() -> bool:
+    """True while a long-running job owns the process and must not be killed."""
+    if _hermes_update_running or _hermes_check_running or _update_refreshing:
+        return True
+    if _models_bg_refreshing:
+        return True
+    if _quota_refreshing.get("on"):
+        return True
+    if (_clean_junk_result.get("status") or "") == "running":
+        return True
+    proc = _wa_pair_proc
+    if proc is not None and proc.poll() is None:
+        return True
+    return False
+
 
 def _trim_memory():
     """Run garbage collection and return free heap memory to the OS via malloc_trim."""
@@ -17330,6 +17363,18 @@ class Handler(BaseHTTPRequestHandler):
     # connection, so a hung phone could accumulate threads on the STB.
     # SSE writes a heartbeat every 15 s, well inside this window.
     timeout = 60
+
+    def setup(self):
+        super().setup()
+        _conn_delta(+1)
+        _touch_activity()
+
+    def finish(self):
+        try:
+            super().finish()
+        finally:
+            _conn_delta(-1)
+            _touch_activity()
 
     def log_message(self, fmt, *args):
         pass  # keep it quiet — no noisy access log filling up disk
@@ -18777,6 +18822,73 @@ class Handler(BaseHTTPRequestHandler):
         self._redirect_to_status(just=just, tab=target_tab)
 
 
+def _inherited_listen_socket():
+    """Return the listening socket systemd handed us via socket activation."""
+    try:
+        nfds = int(os.environ.get("LISTEN_FDS", "0"))
+        lpid = int(os.environ.get("LISTEN_PID", "0"))
+    except (TypeError, ValueError):
+        return None
+    if nfds < 1 or lpid != os.getpid():
+        return None
+    try:
+        sock = socket.socket(fileno=3)  # SD_LISTEN_FDS_START
+        sock.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN)
+    except OSError:
+        return None
+    return sock
+
+
+def _make_server():
+    """Prefer the socket systemd already listens on; else bind the port ourselves."""
+    global _socket_activated
+    inherited = _inherited_listen_socket()
+    if inherited is None:
+        _socket_activated = False
+        return TimeoutThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    srv = TimeoutThreadingHTTPServer(("0.0.0.0", PORT), Handler, bind_and_activate=False)
+    try:
+        srv.socket.close()
+    except OSError:
+        pass
+    srv.socket = inherited
+    srv.server_address = inherited.getsockname()
+    srv.server_name, srv.server_port = srv.server_address[:2]
+    _socket_activated = True
+    return srv
+
+
+def _idle_watchdog() -> None:
+    """Exit cleanly after a long quiet spell so systemd can park the process.
+
+    Only armed under socket activation: systemd keeps the listening socket
+    open, so the next visitor spawns us again. Never exits while a client is
+    attached or a background job is still running.
+    """
+    limit = _env_int("PANEL_IDLE_EXIT_SECONDS", 900, 0, 86400)
+    if limit <= 0:
+        return
+    while True:
+        time.sleep(30)
+        if not _socket_activated:
+            continue
+        with _conn_lock:
+            conns = _active_conns
+        with _sse_clients_lock:
+            sse = len(_sse_clients)
+        if conns or sse or _panel_idle_busy():
+            _touch_activity()
+            continue
+        idle_for = time.monotonic() - _last_activity
+        if idle_for >= limit:
+            sys.stderr.write(
+                f"[panel] idle {int(idle_for)}s tanpa klien - deep sleep; "
+                f"socket systemd membangunkan pada request berikutnya\n"
+            )
+            sys.stderr.flush()
+            os._exit(0)
+
+
 class TimeoutThreadingHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = True
@@ -18856,7 +18968,10 @@ if __name__ == "__main__":
         print("[INFO] Hermes Control Panel berjalan dengan proteksi kata sandi aktif.", file=sys.stderr)
 
     signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
-    server = TimeoutThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    server = _make_server()
+    if _socket_activated:
+        print("[INFO] Socket activation aktif - panel deep sleep saat idle.", file=sys.stderr)
+    threading.Thread(target=_idle_watchdog, daemon=True).start()
 
     def _warm_caches():
         """First page after a restart otherwise pays every cold probe at once (~9 s)."""
@@ -18865,5 +18980,11 @@ if __name__ == "__main__":
         except Exception as e:
             sys.stderr.write(f"[panel] cache warm-up warning: {e}\n")
 
-    threading.Thread(target=_warm_caches, daemon=True).start()
+    if _socket_activated:
+        # The first client is already queued on the systemd socket, so warm
+        # synchronously: running this in a thread just fights that request for
+        # CPU and doubles the cold-start latency.
+        _warm_caches()
+    else:
+        threading.Thread(target=_warm_caches, daemon=True).start()
     server.serve_forever()
