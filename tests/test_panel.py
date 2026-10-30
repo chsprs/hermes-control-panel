@@ -6358,6 +6358,38 @@ class TestProviderQuota(unittest.TestCase):
         self.assertIn("function quotaRender", page)
         self.assertIn("clip-path:inset(0 calc(100% - var(--q,0%)) 0 0)", page)
 
+    def test_new_account_appears_on_next_build(self):
+        """Adding a connection in 9router must surface on the next rebuild."""
+        conn1 = {"id": "a1", "provider": "codex", "name": "one@x", "email": "one@x",
+                 "priority": 1, "isActive": 1}
+        conn2 = {"id": "a2", "provider": "codex", "name": "two@x", "email": "two@x",
+                 "priority": 2, "isActive": 1}
+        seq = [[conn1], [conn1, conn2]]
+
+        def fake_read():
+            return seq.pop(0) if seq else [conn1, conn2]
+
+        def fake_fetch(conns):
+            usage = {"quotas": {"session": {"remaining": 50, "total": 100}}}
+            return [panel._normalize_quota_account(c, usage) for c in conns]
+
+        with mock.patch.object(panel, "_read_router_connections", side_effect=fake_read), \
+             mock.patch.object(panel, "_quota_fetch_all", side_effect=fake_fetch):
+            first = panel._quota_build()
+            second = panel._quota_build()
+
+        self.assertEqual(sum(p["accountCount"] for p in first["providers"]), 1)
+        self.assertEqual(sum(p["accountCount"] for p in second["providers"]), 2,
+                         "a connection added in 9router must show up on the next rebuild")
+
+    def test_connection_list_is_not_cached(self):
+        """_quota_build must re-read providerConnections every time."""
+        with mock.patch.object(panel, "_read_router_connections", return_value=[]) as m_read, \
+             mock.patch.object(panel, "_quota_fetch_all", return_value=[]):
+            panel._quota_build()
+            panel._quota_build()
+        self.assertEqual(m_read.call_count, 2)
+
     def test_provider_filter_matches_prefix_family(self):
         data = {"ok": True, "providers": [
             {"provider": "openai-compatible-chat-abc", "label": "OpenAI Compatible", "accounts": []},

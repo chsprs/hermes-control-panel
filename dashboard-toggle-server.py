@@ -2714,7 +2714,7 @@ function selectAuxModel(provider, model){{
 }}
 
 /* ---- Kuota AI: per-account provider quota (9router) ---- */
-var QUOTA = {{loaded:false, loading:false, data:null, err:null, timer:null, openProv:{{}}, openDet:{{}}}};
+var QUOTA = {{loaded:false, loading:false, data:null, err:null, timer:null, lastAt:0, openProv:{{}}, openDet:{{}}}};
 
 function quotaStatusLabel(s, accountLevel){{
   if(accountLevel && s === 'exhausted') return 'ada yang habis';
@@ -2894,7 +2894,7 @@ function quotaLoad(force, silent){{
     .then(function(r){{ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }})
     .then(function(d){{
       if(!d || !d.ok) throw new Error((d && d.error) || 'Gagal memuat kuota');
-      QUOTA.data = d; QUOTA.err = null; QUOTA.loaded = true;
+      QUOTA.data = d; QUOTA.err = null; QUOTA.loaded = true; QUOTA.lastAt = Date.now();
       quotaRender();
       if(d.stale && !force) setTimeout(function(){{ quotaLoad(true, true); }}, 4000);
     }})
@@ -2914,9 +2914,19 @@ function quotaEnsure(){{
 function quotaRefresh(){{
   quotaLoad(true, false);
 }}
+document.addEventListener('visibilitychange', function(){{
+  if(document.hidden) return;
+  var panel = document.getElementById('tab-quota');
+  if(!panel || !panel.classList.contains('active')) return;
+  if(!QUOTA.loaded) return;
+  if(QUOTA.lastAt && (Date.now() - QUOTA.lastAt) < 60000) return;
+  quotaLoad(false, true);
+}});
+
 function quotaOnTab(name){{
   if(name === 'quota'){{
-    quotaEnsure();
+    if(!QUOTA.loaded) quotaEnsure();
+    else if(!QUOTA.lastAt || (Date.now() - QUOTA.lastAt) > 60000) quotaLoad(false, true);
     if(!QUOTA.timer){{
       QUOTA.timer = setInterval(function(){{
         if(document.hidden) return;
