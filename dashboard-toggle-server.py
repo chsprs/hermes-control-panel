@@ -1121,60 +1121,90 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 }}
 
 /* ---- Kuota AI (per-account provider quota) ---- */
-.qz-wrap{{display:flex;flex-direction:column;gap:.75rem}}
-.qz-toolbar{{display:flex;align-items:flex-start;gap:.6rem;flex-wrap:wrap;justify-content:space-between;margin-bottom:.9rem}}
-.qz-legend{{display:flex;align-items:center;gap:.45rem;font-size:.66rem;color:var(--text-muted);font-family:var(--font-mono);margin-top:.35rem}}
-.qz-legend-bar{{width:104px;height:7px;border-radius:999px;background:linear-gradient(90deg,#dc2626 0%,#f59e0b 45%,#16a34a 100%)}}
-.qz-prov{{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);overflow:hidden}}
-.qz-prov-head{{display:flex;align-items:center;gap:.55rem;padding:.7rem .85rem;cursor:pointer;user-select:none;background:rgba(255,255,255,.02);transition:background .15s var(--ease)}}
+.qz-wrap{{display:flex;flex-direction:column;gap:.9rem}}
+.qz-toolbar{{display:flex;align-items:flex-start;gap:.8rem;flex-wrap:wrap;justify-content:space-between;margin-bottom:1rem}}
+.qz-legend{{display:flex;align-items:center;gap:.5rem;font-size:.68rem;color:var(--text-muted);font-family:var(--font-mono);margin-top:.4rem}}
+.qz-legend-bar{{width:110px;height:6px;border-radius:999px;background:linear-gradient(90deg,#dc2626 0%,#f59e0b 45%,#16a34a 100%)}}
+.qz-note{{font-size:.7rem;color:var(--text-muted);margin-top:.45rem;line-height:1.5;max-width:70ch}}
+
+/* provider section */
+.qz-prov{{border:1px solid var(--border);border-radius:18px;background:rgba(255,255,255,.022);overflow:hidden}}
+.qz-prov-head{{display:flex;align-items:center;gap:.75rem;padding:.9rem 1.05rem;cursor:pointer;user-select:none;background:rgba(255,255,255,.028);transition:background .15s var(--ease)}}
 .qz-prov-head:hover{{background:var(--surface-hover)}}
 .qz-prov-head:focus-visible{{outline:2px solid var(--accent);outline-offset:-2px}}
-.qz-prov-name{{font-weight:600;font-size:.88rem}}
-.qz-prov-meta{{font-size:.68rem;color:var(--text-muted);font-family:var(--font-mono)}}
-.qz-chev{{margin-left:auto;color:var(--text-dim);transition:transform .2s var(--ease);flex-shrink:0}}
-.qz-prov.open .qz-chev{{transform:rotate(90deg)}}
-.qz-prov-body{{display:none;padding:.15rem .85rem .85rem}}
+.qz-prov-name{{font-size:.95rem;font-weight:650;letter-spacing:-.01em}}
+.qz-prov-meta{{font-size:.72rem;color:var(--text-muted);font-family:var(--font-mono)}}
+.qz-prov-body{{display:none;padding:.2rem .7rem .8rem}}
 .qz-prov.open .qz-prov-body{{display:block}}
-.qz-acct{{border-top:1px solid var(--border-subtle);padding:.8rem 0}}
-.qz-acct:first-child{{border-top:0;padding-top:.35rem}}
-.qz-acct-head{{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.55rem}}
-.qz-acct-mail{{font-size:.8rem;font-weight:600;word-break:break-all;margin-right:.15rem}}
-.qz-badge{{font-size:.6rem;font-weight:600;padding:.1rem .42rem;border-radius:999px;border:1px solid var(--border);font-family:var(--font-mono);letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;color:var(--text-muted);background:transparent}}
-.qz-badge.ok{{color:#34d399;border-color:rgba(52,211,153,.35);background:rgba(16,185,129,.12)}}
-.qz-badge.low{{color:#fbbf24;border-color:rgba(251,191,36,.35);background:rgba(245,158,11,.12)}}
-.qz-badge.exhausted,.qz-badge.error{{color:#f87171;border-color:rgba(248,113,113,.35);background:rgba(239,68,68,.12)}}
-.qz-badge.no_access,.qz-badge.unsupported{{color:var(--text-dim)}}
-.qz-badge.auth_expired{{color:#c084fc;border-color:rgba(192,132,252,.35);background:rgba(168,85,247,.12)}}
-.qz-badge.tier{{color:#93c5fd;border-color:rgba(147,197,253,.3);background:rgba(59,130,246,.1)}}
-.qz-row{{display:grid;grid-template-columns:186px minmax(0,1fr) 86px;gap:.65rem;align-items:center;padding:.26rem 0}}
-.qz-row-label{{font-size:.75rem;color:var(--text-muted);line-height:1.25}}
-.qz-row-val{{font-size:.76rem;font-weight:600;font-variant-numeric:tabular-nums;text-align:right;font-family:var(--font-mono);color:var(--text)}}
-.qz-row-sub{{font-size:.62rem;color:var(--text-muted);font-family:var(--font-mono);text-align:right;margin-top:.1rem}}
-.qz-bar{{position:relative;height:10px;border-radius:999px;background:rgba(148,163,184,.18);overflow:hidden;min-width:60px}}
-.qz-bar.na{{background:repeating-linear-gradient(45deg,rgba(148,163,184,.08) 0 6px,rgba(148,163,184,.17) 6px 12px)}}
-.qz-fill{{position:absolute;inset:0;border-radius:999px;background-image:linear-gradient(90deg,rgba(255,255,255,0) calc(100% - 7px),rgba(255,255,255,.62) calc(100% - 2px)),linear-gradient(90deg,#dc2626 0%,#f59e0b 45%,#16a34a 100%);clip-path:inset(0 calc(100% - var(--q,0%)) 0 0);transition:clip-path .6s cubic-bezier(.22,1,.36,1);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 0 12px -2px var(--qc,transparent)}}
-.qz-ticks{{position:absolute;inset:0;pointer-events:none}}
-.qz-ticks i{{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.10)}}
+.qz-chev{{margin-left:auto;color:var(--text-muted);transition:transform .2s var(--ease);flex-shrink:0}}
+.qz-prov.open .qz-chev{{transform:rotate(90deg)}}
+
+/* account card — wide, roomy, flat (no heavy borders) */
+.qz-acct{{background:rgba(255,255,255,.03);border:1px solid var(--border-subtle);border-radius:15px;padding:1.05rem 1.1rem;margin-top:.65rem}}
+.qz-acct:first-child{{margin-top:.45rem}}
+.qz-acct-head{{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;padding-bottom:.85rem;border-bottom:1px solid var(--border-subtle);margin-bottom:.35rem}}
+.qz-acct-id{{min-width:0;flex:1}}
+.qz-acct-mail{{font-size:.88rem;font-weight:600;word-break:break-all;line-height:1.3}}
+.qz-acct-sub{{font-size:.7rem;color:var(--text-muted);font-family:var(--font-mono);margin-top:.18rem}}
+.qz-acct-badges{{display:flex;gap:.3rem;flex-wrap:wrap;align-items:center}}
+
+/* logo tile */
+.qz-logo{{flex-shrink:0;display:block;border-radius:9px}}
+
+/* badges */
+.qz-badge{{font-size:.62rem;font-weight:600;padding:.14rem .5rem;border-radius:999px;border:1px solid var(--border);font-family:var(--font-mono);letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;color:var(--text-muted);background:transparent}}
+.qz-badge.ok{{color:#34d399;border-color:rgba(52,211,153,.32);background:rgba(16,185,129,.12)}}
+.qz-badge.low{{color:#fbbf24;border-color:rgba(251,191,36,.32);background:rgba(245,158,11,.12)}}
+.qz-badge.exhausted,.qz-badge.error{{color:#f87171;border-color:rgba(248,113,113,.32);background:rgba(239,68,68,.12)}}
+.qz-badge.no_access,.qz-badge.unsupported{{color:var(--text-muted)}}
+.qz-badge.auth_expired{{color:#c084fc;border-color:rgba(192,132,252,.32);background:rgba(168,85,247,.12)}}
+.qz-badge.tier{{color:#93c5fd;border-color:rgba(147,197,253,.28);background:rgba(59,130,246,.1)}}
+
+/* quota row — full width, stacked like the 9router tracker */
+.qz-row{{padding:.62rem 0 .55rem}}
+.qz-row + .qz-row{{border-top:1px solid rgba(255,255,255,.035)}}
+.qz-row-top{{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.4rem}}
+.qz-dot{{width:7px;height:7px;border-radius:50%;flex-shrink:0;transform:translateY(-1px)}}
+.qz-row-label{{font-size:.81rem;color:var(--text);flex:1;min-width:0;line-height:1.35}}
+.qz-row-pct{{font-size:.86rem;font-weight:650;font-variant-numeric:tabular-nums;font-family:var(--font-mono);flex-shrink:0}}
+.qz-row-pct.muted{{color:var(--text-muted);font-weight:500;font-size:.76rem}}
+.qz-row-foot{{display:flex;justify-content:space-between;gap:.6rem;margin-top:.32rem;font-size:.66rem;color:var(--text-muted);font-family:var(--font-mono);font-variant-numeric:tabular-nums}}
+.qz-bar{{position:relative;height:6px;border-radius:999px;background:rgba(148,163,184,.16);overflow:hidden}}
+.qz-bar.na{{background:repeating-linear-gradient(45deg,rgba(148,163,184,.07) 0 5px,rgba(148,163,184,.16) 5px 10px)}}
+.qz-fill{{position:absolute;inset:0;border-radius:999px;background-image:linear-gradient(90deg,rgba(255,255,255,0) calc(100% - 6px),rgba(255,255,255,.6) calc(100% - 1px)),linear-gradient(90deg,var(--c1,#dc2626) 0%,var(--c2,#16a34a) 100%);clip-path:inset(0 calc(100% - var(--q,0%)) 0 0);transition:clip-path .6s cubic-bezier(.22,1,.36,1);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 0 10px -3px var(--qc,transparent)}}
 .qz-bar.crit .qz-fill{{animation:qz-pulse 1.7s ease-in-out infinite}}
-@keyframes qz-pulse{{0%,100%{{opacity:1}}50%{{opacity:.55}}}}
-.qz-det{{display:none;padding:.15rem 0 .35rem .6rem;border-left:1px solid var(--border-subtle);margin:.15rem 0 .25rem .2rem}}
-.qz-det.open{{display:block}}
-.qz-det .qz-row{{grid-template-columns:150px minmax(0,1fr) 78px}}
-.qz-det .qz-row-label{{font-size:.68rem}}
-.qz-det .qz-row-val{{font-size:.7rem}}
+@keyframes qz-pulse{{0%,100%{{opacity:1}}50%{{opacity:.5}}}}
+
+/* expandable detail */
 .qz-row.toggle{{cursor:pointer}}
-.qz-row.toggle:hover .qz-row-label{{color:var(--text)}}
-.qz-caret{{display:inline-block;width:.7em;color:var(--text-dim);transition:transform .18s var(--ease);font-size:.6rem}}
+.qz-row.toggle:hover .qz-row-label{{color:#fff}}
+.qz-caret{{display:inline-block;width:.8em;margin-left:.3rem;color:var(--text-muted);font-size:.58rem;transition:transform .18s var(--ease);vertical-align:1px}}
 .qz-row.toggle.open .qz-caret{{transform:rotate(90deg)}}
-.qz-empty{{padding:1.4rem .9rem;text-align:center;color:var(--text-dim);font-size:.8rem}}
-.qz-skel{{height:52px;border-radius:var(--radius-md);background:linear-gradient(90deg,rgba(148,163,184,.06) 25%,rgba(148,163,184,.13) 50%,rgba(148,163,184,.06) 75%);background-size:200% 100%;animation:qz-shimmer 1.3s linear infinite;margin-bottom:.5rem}}
+.qz-det{{display:none;padding:.1rem 0 .3rem 1rem;margin:.1rem 0 .2rem;border-left:1px solid var(--border-subtle)}}
+.qz-det.open{{display:block}}
+.qz-det .qz-row{{padding:.42rem 0}}
+.qz-det .qz-row-label{{font-size:.74rem;color:var(--text-muted)}}
+.qz-det .qz-row-pct{{font-size:.76rem}}
+.qz-det .qz-bar{{height:4px}}
+.qz-det .qz-row-foot{{font-size:.62rem}}
+
+/* flat bucket list (non-antigravity) */
+.qz-flat{{padding-top:.1rem}}
+
+/* states */
+.qz-empty{{padding:2rem 1rem;text-align:center;color:var(--text-muted);font-size:.84rem;line-height:1.6}}
+.qz-skel{{height:88px;border-radius:15px;background:linear-gradient(90deg,rgba(148,163,184,.05) 25%,rgba(148,163,184,.12) 50%,rgba(148,163,184,.05) 75%);background-size:200% 100%;animation:qz-shimmer 1.3s linear infinite;margin-bottom:.65rem}}
 @keyframes qz-shimmer{{0%{{background-position:200% 0}}100%{{background-position:-200% 0}}}}
-.qz-note{{font-size:.68rem;color:var(--text-muted);font-family:var(--font-mono);margin-top:.25rem}}
+
+/* wider canvas for this tab so the rows breathe */
+@media (min-width: 1100px){{
+  .content-wrapper:has(#tab-quota.active){{max-width:1180px}}
+}}
 @media (max-width:640px){{
-  .qz-row{{grid-template-columns:1fr;gap:.18rem;padding:.34rem 0}}
-  .qz-row-val,.qz-row-sub{{text-align:left}}
-  .qz-det .qz-row{{grid-template-columns:1fr}}
-  .qz-det{{padding-left:.45rem}}
+  .qz-acct{{padding:.9rem .85rem}}
+  .qz-acct-head{{gap:.55rem}}
+  .qz-row-top{{gap:.4rem}}
+  .qz-row-foot{{font-size:.63rem}}
 }}
 
 </style></head><body>
@@ -2204,7 +2234,17 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 <div id="kanban-toast" style="position:fixed;bottom:24px;right:24px;background:rgba(16,185,129,0.92);color:#fff;padding:0.6rem 1rem;border-radius:6px;font-size:0.8rem;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,0.5);display:none;transition:opacity 0.3s;pointer-events:none"></div>
 <!-- TAB KUOTA AI -->
 <div class="tab-panel" id="tab-quota">
-  <div class="card card-status" style="padding:1.15rem">
+  <svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="qz-g-antigravity" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4285F4"/><stop offset="1" stop-color="#A142F4"/></linearGradient>
+      <linearGradient id="qz-g-gemini" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1A73E8"/><stop offset="1" stop-color="#8AB4F8"/></linearGradient>
+      <linearGradient id="qz-g-codex" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10A37F"/><stop offset="1" stop-color="#0B7A5E"/></linearGradient>
+      <linearGradient id="qz-g-codebuddy" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F59E0B"/><stop offset="1" stop-color="#EA580C"/></linearGradient>
+      <linearGradient id="qz-g-qoder" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#06B6D4"/><stop offset="1" stop-color="#0E7490"/></linearGradient>
+      <linearGradient id="qz-g-openai" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#64748B"/><stop offset="1" stop-color="#334155"/></linearGradient>
+    </defs>
+  </svg>
+  <div class="card card-status" style="padding:1.2rem">
     <div class="qz-toolbar">
       <div>
         <div class="card-title" style="margin-bottom:0">{icon_layers} Kuota Provider AI</div>
@@ -2212,9 +2252,9 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
           <span class="qz-legend-bar"></span>
           <span>0%</span><span>&middot;</span><span>50%</span><span>&middot;</span><span>100%</span>
         </div>
-        <div class="qz-note">Sisa kuota per akun dari 9router. Ujung kanan bar menandai nilai sekarang: makin ke kanan makin aman. Badge status akun: hijau = aman, kuning = menipis (&lt;20%), merah = habis, abu = tidak tersedia, ungu = token kedaluwarsa.</div>
+        <div class="qz-note">Sisa kuota per akun, dibaca dari 9router. Ujung kanan bar menandai nilai sekarang. Badge status akun: hijau = aman, kuning = menipis (&lt;20%), merah = habis, abu = tidak tersedia, ungu = token kedaluwarsa.</div>
       </div>
-      <div style="display:flex;gap:.45rem;align-items:center;flex-wrap:wrap">
+      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
         <span id="qz-updated" class="qz-prov-meta"></span>
         <button type="button" class="btn-action-sm" id="qz-refresh" onclick="quotaRefresh()">Refresh</button>
       </div>
@@ -2716,17 +2756,71 @@ function selectAuxModel(provider, model){{
 /* ---- Kuota AI: per-account provider quota (9router) ---- */
 var QUOTA = {{loaded:false, loading:false, data:null, err:null, timer:null, lastAt:0, openProv:{{}}, openDet:{{}}}};
 
+/* Provider marks: inline SVG only, the panel must render with no network. */
+var QZ_LOGOS = {{
+  antigravity: {{grad:'qz-g-antigravity', glyph:'<path d="M16 8l7.6 16h-3.7l-1.6-3.6h-4.6L12.1 24H8.4z" fill="#fff"/>'}},
+  gemini:      {{grad:'qz-g-gemini', glyph:'<path d="M16 6.5c1.35 5.9 3.6 8.15 9.5 9.5-5.9 1.35-8.15 3.6-9.5 9.5-1.35-5.9-3.6-8.15-9.5-9.5 5.9-1.35 8.15-3.6 9.5-9.5z" fill="#fff"/>'}},
+  codex:       {{grad:'qz-g-codex', glyph:'<path d="M16 7.5l7.4 4.25v8.5L16 24.5l-7.4-4.25v-8.5z" fill="none" stroke="#fff" stroke-width="2.1" stroke-linejoin="round"/><circle cx="16" cy="16" r="2.1" fill="#fff"/>'}},
+  codebuddy:   {{grad:'qz-g-codebuddy', glyph:'<path d="M9 10.5h14a2.2 2.2 0 012.2 2.2v6.6a2.2 2.2 0 01-2.2 2.2h-6.6L12 25v-3.5H9a2.2 2.2 0 01-2.2-2.2v-6.6A2.2 2.2 0 019 10.5z" fill="#fff"/>'}},
+  qoder:       {{grad:'qz-g-qoder', glyph:'<circle cx="15.6" cy="15.4" r="6.6" fill="none" stroke="#fff" stroke-width="2.3"/><path d="M18.8 18.8L23 23" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>'}},
+  openai:      {{grad:'qz-g-openai', glyph:'<path d="M12 6.5v4.5M20 6.5v4.5" stroke="#fff" stroke-width="2.3" stroke-linecap="round"/><rect x="8" y="11" width="16" height="8.6" rx="2.6" fill="#fff"/><path d="M16 19.6v5.4" stroke="#fff" stroke-width="2.3" stroke-linecap="round"/>'}},
+  _default:    {{grad:'qz-g-openai', glyph:'<circle cx="16" cy="16" r="7" fill="none" stroke="#fff" stroke-width="2.2"/>'}}
+}};
+function qzLogoKey(prov){{
+  var p = String(prov || '');
+  if(p.indexOf('openai-compatible') === 0) return 'openai';
+  if(p.indexOf('codebuddy') === 0) return 'codebuddy';
+  return p;
+}}
+function qzLogo(prov, size){{
+  var spec = QZ_LOGOS[qzLogoKey(prov)] || QZ_LOGOS._default;
+  var s = size || 32;
+  return '<svg class="qz-logo" viewBox="0 0 32 32" width="' + s + '" height="' + s + '" aria-hidden="true" focusable="false">'
+    + '<rect width="32" height="32" rx="9" fill="url(#' + spec.grad + ')"/>'
+    + spec.glyph + '</svg>';
+}}
 function quotaStatusLabel(s, accountLevel){{
   if(accountLevel && s === 'exhausted') return 'ada yang habis';
   var m = {{ok:'aman', low:'menipis', exhausted:'habis', no_access:'tidak tersedia',
             unsupported:'tidak didukung', auth_expired:'token expired', error:'error'}};
   return m[s] || s || '?';
 }}
+function qzStatusColor(s){{
+  if(s === 'low') return '#fbbf24';
+  if(s === 'exhausted' || s === 'error') return '#f87171';
+  if(s === 'auth_expired') return '#c084fc';
+  if(s === 'no_access' || s === 'unsupported') return '#64748b';
+  return '#34d399';
+}}
+/* Red -> amber -> green spectrum; the fill shows a slice ending at the value,
+   so a full bar reads green and a 20% bar reads red. */
+var QZ_STOPS = [[0,[220,38,38]],[45,[245,158,11]],[100,[22,163,74]]];
+function qzSpectrum(p){{
+  var v = Math.max(0, Math.min(100, Number(p)));
+  for(var i = 1; i < QZ_STOPS.length; i++){{
+    var a = QZ_STOPS[i - 1], b = QZ_STOPS[i];
+    if(v <= b[0]){{
+      var t = (v - a[0]) / (b[0] - a[0]);
+      return [0, 1, 2].map(function(k){{ return Math.round(a[1][k] + (b[1][k] - a[1][k]) * t); }});
+    }}
+  }}
+  return QZ_STOPS[QZ_STOPS.length - 1][1];
+}}
+function qzRgb(c){{ return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; }}
 function quotaPctColor(p){{
   if(p === null || p === undefined) return 'transparent';
-  if(p < 35) return '#dc2626';
-  if(p < 70) return '#f59e0b';
-  return '#16a34a';
+  return qzRgb(qzSpectrum(p));
+}}
+function qzNum(n){{
+  if(n === null || n === undefined) return '';
+  var v = Number(n);
+  if(isNaN(v)) return String(n);
+  return v.toLocaleString('id-ID', {{maximumFractionDigits: 2}});
+}}
+function qzPctText(p){{
+  if(p === null || p === undefined) return 'N/A';
+  var v = Number(p);
+  return (v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)) + '%';
 }}
 function quotaFmtReset(iso){{
   if(!iso) return '';
@@ -2737,69 +2831,87 @@ function quotaFmtReset(iso){{
   var m = Math.floor(ms / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24);
   if(d > 0) return 'reset ' + d + ' hari ' + (h % 24) + 'j';
   if(h > 0) return 'reset ' + h + 'j ' + (m % 60) + 'm';
-  return 'reset ' + m + 'mnt';
+  return 'reset ' + m + 'm';
 }}
-function quotaBar(pct, status){{
+function qzBar(pct, status){{
   if(status === 'no_access' || pct === null || pct === undefined){{
     return '<div class="qz-bar na"></div>';
   }}
   var q = Math.max(0, Math.min(100, Number(pct)));
   var crit = q < 10 ? ' crit' : '';
+  var head = Math.max(0, q - 32);
   return '<div class="qz-bar' + crit + '">'
-    + '<div class="qz-fill" style="--q:' + q.toFixed(1) + '%;--qc:' + quotaPctColor(q) + '"></div>'
-    + '<div class="qz-ticks"><i style="left:25%"></i><i style="left:50%"></i><i style="left:75%"></i></div>'
+    + '<div class="qz-fill" style="--q:' + q.toFixed(1)
+    + '%;--c1:' + qzRgb(qzSpectrum(head)) + ';--c2:' + qzRgb(qzSpectrum(q)) + '"></div>'
     + '</div>';
 }}
-function quotaRow(label, pct, status, sub, opts){{
-  opts = opts || {{}};
-  var val;
-  if(status === 'no_access') val = 'Tidak tersedia';
-  else if(pct === null || pct === undefined) val = 'N/A';
-  else val = Number(pct).toFixed(1) + '%';
-  var caret = '<span class="qz-caret"' + (opts.toggle ? '' : ' style="visibility:hidden"') + '>&#9654;</span>';
-  return '<div class="qz-row' + (opts.toggle ? ' toggle' : '') + (opts.cls ? ' ' + opts.cls : '') + '"' + (opts.attrs || '') + '>'
-    + '<div class="qz-row-label">' + caret + escHtml(label) + '</div>'
-    + quotaBar(pct, status)
-    + '<div><div class="qz-row-val">' + val + '</div>'
-    + (sub ? '<div class="qz-row-sub">' + escHtml(sub) + '</div>' : '')
-    + '</div></div>';
-}}
-function quotaSubFor(b){{
-  var parts = [];
-  if(b.used !== null && b.used !== undefined && b.total !== null && b.total !== undefined){{
-    parts.push(b.used + '/' + b.total);
+function qzRow(o){{
+  var pct = o.pct;
+  var valTxt;
+  var valCls = 'qz-row-pct';
+  if(o.status === 'no_access'){{ valTxt = 'Tidak tersedia'; valCls += ' muted'; }}
+  else if(pct === null || pct === undefined){{ valTxt = 'N/A'; valCls += ' muted'; }}
+  else {{ valTxt = qzPctText(pct); }}
+  var dot = '<span class="qz-dot" style="background:' + qzStatusColor(o.status || 'ok') + '"></span>';
+  var caret = o.toggle
+    ? '<span class="qz-caret">&#9654;</span>'
+    : '<span class="qz-caret" style="visibility:hidden">&#9654;</span>';
+  var foot = [];
+  if(o.used !== null && o.used !== undefined && o.total !== null && o.total !== undefined && o.total !== 0){{
+    foot.push('<span>' + qzNum(o.used) + ' / ' + qzNum(o.total) + '</span>');
+  }} else if(o.footLeft){{
+    foot.push('<span>' + escHtml(o.footLeft) + '</span>');
+  }} else {{
+    foot.push('<span></span>');
   }}
-  if(b.resetAt) parts.push(quotaFmtReset(b.resetAt));
-  return parts.join(' \u00b7 ');
+  foot.push('<span>' + escHtml(o.resetText || '') + '</span>');
+  return '<div class="qz-row' + (o.toggle ? ' toggle' : '') + '"' + (o.attrs || '') + '>'
+    + '<div class="qz-row-top">' + dot
+    + '<span class="qz-row-label">' + escHtml(o.label) + '</span>'
+    + '<span class="' + valCls + '">' + valTxt + '</span>' + caret + '</div>'
+    + qzBar(pct, o.status)
+    + '<div class="qz-row-foot">' + foot.join('') + '</div>'
+    + '</div>';
 }}
 function quotaAccountHtml(a){{
+  var prov = a.provider || '';
+  var sub = [];
+  if(a.tier) sub.push(a.tier);
+  else if(a.plan) sub.push(a.plan);
+  if(a.priority !== null && a.priority !== undefined) sub.push('prio ' + a.priority);
+  if(a.isActive === false) sub.push('nonaktif');
+
   var h = '<div class="qz-acct">';
   h += '<div class="qz-acct-head">';
-  h += '<span class="qz-acct-mail">' + escHtml(a.name || a.email || a.id) + '</span>';
-  h += '<span class="qz-badge ' + escHtml(a.status || '') + '" title="status terburuk dari kuota kritis akun ini">' + escHtml(quotaStatusLabel(a.status, true)) + '</span>';
-  if(a.priority !== null && a.priority !== undefined){{
-    h += '<span class="qz-badge">prio ' + escHtml(a.priority) + '</span>';
-  }}
-  if(a.tier) h += '<span class="qz-badge tier">' + escHtml(a.tier) + '</span>';
-  else if(a.plan) h += '<span class="qz-badge tier">' + escHtml(a.plan) + '</span>';
-  if(a.isActive === false) h += '<span class="qz-badge no_access">nonaktif</span>';
-  h += '</div>';
+  h += qzLogo(prov, 32);
+  h += '<div class="qz-acct-id"><div class="qz-acct-mail">' + escHtml(a.name || a.email || a.id) + '</div>'
+    + (sub.length ? '<div class="qz-acct-sub">' + escHtml(sub.join(' · ')) + '</div>' : '')
+    + '</div>';
+  h += '<div class="qz-acct-badges">';
+  h += '<span class="qz-badge ' + escHtml(a.status || '') + '" title="status terburuk dari kuota kritis akun ini">'
+    + escHtml(quotaStatusLabel(a.status, true)) + '</span>';
+  h += '</div></div>';
 
   if(a.groups && a.groups.length){{
     a.groups.forEach(function(g){{
       var key = a.id + '::' + g.key;
       var hasDet = !!(g.buckets && g.buckets.length);
-      var sub = g.resetAt ? quotaFmtReset(g.resetAt) : '';
-      if(g.fallback) sub = (sub ? sub + ' \u00b7 ' : '') + 'turunan model';
-      h += quotaRow(g.label, g.pct, g.status, sub, {{
-        toggle: hasDet,
-        attrs: hasDet ? ' data-qk="' + escHtml(key) + '"' : ''
+      var reset = quotaFmtReset(g.resetAt);
+      if(g.fallback) reset = (reset ? reset + ' · ' : '') + 'turunan model';
+      h += qzRow({{
+        label: g.label, pct: g.pct, status: g.status,
+        used: g.used, total: g.total,
+        resetText: reset, footLeft: g.status === 'no_access' ? 'butuh Pro/Ultra' : '',
+        toggle: hasDet, attrs: hasDet ? ' data-qk="' + escHtml(key) + '"' : ''
       }});
       if(hasDet){{
         var open = QUOTA.openDet[key] === true;
         h += '<div class="qz-det' + (open ? ' open' : '') + '" data-qd="' + escHtml(key) + '">';
         g.buckets.forEach(function(b){{
-          h += quotaRow(b.label, b.pct, null, quotaSubFor(b), {{}});
+          h += qzRow({{
+            label: b.label, pct: b.pct, status: null,
+            used: b.used, total: b.total, resetText: quotaFmtReset(b.resetAt)
+          }});
         }});
         h += '</div>';
       }}
@@ -2807,11 +2919,14 @@ function quotaAccountHtml(a){{
   }} else if(a.buckets && a.buckets.length){{
     h += '<div class="qz-flat">';
     a.buckets.forEach(function(b){{
-      h += quotaRow(b.label, b.pct, null, quotaSubFor(b), {{}});
+      h += qzRow({{
+        label: b.label, pct: b.pct, status: null,
+        used: b.used, total: b.total, resetText: quotaFmtReset(b.resetAt)
+      }});
     }});
     h += '</div>';
   }}
-  if(a.note) h += '<div class="qz-note">' + escHtml(a.note) + '</div>';
+  if(a.note) h += '<div class="qz-note" style="margin-top:.55rem">' + escHtml(a.note) + '</div>';
   h += '</div>';
   return h;
 }}
@@ -2819,12 +2934,13 @@ function quotaProviderHtml(p){{
   var open = QUOTA.openProv[p.provider] !== false;
   var h = '<div class="qz-prov' + (open ? ' open' : '') + '" data-qp="' + escHtml(p.provider) + '">';
   h += '<div class="qz-prov-head" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '" data-qhead="1">';
+  h += qzLogo(p.provider, 34);
   h += '<span class="qz-prov-name">' + escHtml(p.label || p.provider) + '</span>';
   h += '<span class="qz-prov-meta">' + escHtml(p.accountCount) + ' akun</span>';
   if(p.criticalCount){{
     h += '<span class="qz-badge exhausted">' + escHtml(p.criticalCount) + ' kritis</span>';
   }}
-  h += '<svg class="qz-chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+  h += '<svg class="qz-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
   h += '</div><div class="qz-prov-body">';
   (p.accounts || []).forEach(function(a){{ h += quotaAccountHtml(a); }});
   h += '</div></div>';
@@ -2849,7 +2965,7 @@ function quotaRender(){{
   if(!root) return;
   if(QUOTA.err){{
     root.innerHTML = '<div class="qz-empty">' + escHtml(QUOTA.err)
-      + '<div style="margin-top:.75rem"><button type="button" class="btn-action-sm" onclick="quotaRefresh()">Coba lagi</button></div></div>';
+      + '<div style="margin-top:.9rem"><button type="button" class="btn-action-sm" onclick="quotaRefresh()">Coba lagi</button></div></div>';
     return;
   }}
   var d = QUOTA.data;
@@ -2881,7 +2997,7 @@ function quotaRender(){{
         txt = 'diperbarui ' + t.toLocaleTimeString('id-ID', {{hour:'2-digit', minute:'2-digit'}});
       }}
     }}
-    if(d.stale) txt += (txt ? ' &middot; ' : '') + 'cache lama';
+    if(d.stale) txt += (txt ? ' · ' : '') + 'cache lama';
     up.innerHTML = txt;
   }}
 }}
@@ -2922,7 +3038,6 @@ document.addEventListener('visibilitychange', function(){{
   if(QUOTA.lastAt && (Date.now() - QUOTA.lastAt) < 60000) return;
   quotaLoad(false, true);
 }});
-
 function quotaOnTab(name){{
   if(name === 'quota'){{
     if(!QUOTA.loaded) quotaEnsure();
@@ -15945,30 +16060,38 @@ def _antigravity_groups(quotas: dict) -> list:
                 })
                 continue
             pcts = [d["pct"] for d in details if d["pct"] is not None]
+            worst = min(details, key=lambda d: (d["pct"] is None, d["pct"] or 0))
             groups.append({
                 "key": gkey, "label": glabel,
                 "pct": round(min(pcts), 1) if pcts else None,
                 "status": _quota_status_from_pcts([d["pct"] for d in details]),
                 "resetAt": details[0]["resetAt"],
+                "used": worst.get("used"), "total": worst.get("total"),
                 "fallback": False, "buckets": details, "note": None,
             })
             continue
 
         main = quotas.get(main_key) if main_key else None
         fallback = False
+        used = total = None
         if isinstance(main, dict):
             pct = _quota_pct(main)
             reset = main.get("resetAt")
+            used, total = main.get("used"), main.get("total")
         else:
             # Older accounts have no aggregate bucket: derive from the models.
             pcts = [d["pct"] for d in details if d["pct"] is not None]
             pct = round(min(pcts), 1) if pcts else None
             reset = details[0]["resetAt"] if details else None
+            if details:
+                worst = min(details, key=lambda d: (d["pct"] is None, d["pct"] or 0))
+                used, total = worst.get("used"), worst.get("total")
             fallback = True
         groups.append({
             "key": gkey, "label": glabel, "pct": pct,
             "status": _quota_status_from_pcts([pct] + [d["pct"] for d in details]),
-            "resetAt": reset, "fallback": fallback, "buckets": details, "note": None,
+            "resetAt": reset, "used": used, "total": total,
+            "fallback": fallback, "buckets": details, "note": None,
         })
     return groups
 
