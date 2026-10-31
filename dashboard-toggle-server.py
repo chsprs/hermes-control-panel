@@ -186,9 +186,24 @@ LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off", "/openclaw-toggle"})
 ROUTER_URL = "http://{host}:20128/"
 INFO_TIMEOUT = 2.0  # seconds — every live check below is capped at this
 SYSTEMCTL_TIMEOUT = 1.5  # seconds — fast cap for systemctl checks (1-2s)
-ROUTER_DB_PATH = "/DATA/AppData/9router/db/data.sqlite"  # host-side path of
-# the same file 9router itself reads at /app/data/db/data.sqlite — reading
-# it directly avoids a docker exec round-trip.
+ROUTER_DB_CANDIDATES = [
+    os.environ.get("ROUTER_DB_PATH", ""),
+    "/root/.9router/db/data.sqlite",
+    "/DATA/AppData/9router/db/data.sqlite",
+    "/opt/AppData/9router/db/data.sqlite",
+    os.path.expanduser("~/.9router/db/data.sqlite"),
+]
+
+
+def get_router_db_path() -> str:
+    """Return the active 9router sqlite DB path from candidates that actually exist."""
+    for cand in ROUTER_DB_CANDIDATES:
+        if cand and os.path.isfile(cand):
+            return cand
+    return "/root/.9router/db/data.sqlite"
+
+
+ROUTER_DB_PATH = get_router_db_path()  # fallback constant; callers should call get_router_db_path()
 ROUTER_IMAGE = "decolua/9router:latest"
 ROUTER_COMPOSE_DIR = "/opt/AppData/9router"
 # CasaOS keeps the real compose file under /var/lib/casaos/apps/<app>/ while
@@ -10640,9 +10655,10 @@ def fetch_hermes_agent_models(sync_hermes: bool = True) -> dict:
             data = json.loads(resp.read().decode("utf-8"))
 
         combo_names = set()
-        if os.path.exists(ROUTER_DB_PATH):
+        db_path = get_router_db_path()
+        if os.path.exists(db_path):
             try:
-                with closing(sqlite3.connect(ROUTER_DB_PATH, timeout=1.0)) as conn:
+                with closing(sqlite3.connect(db_path, timeout=1.0)) as conn:
                     cur = conn.cursor()
                     cur.execute("SELECT name FROM combos")
                     combo_names.update(r[0] for r in cur.fetchall())
@@ -10738,8 +10754,9 @@ def get_all_configured_providers() -> list[dict]:
 def get_combos_from_db() -> list[str]:
     """Fallback: read combo models directly from 9router SQLite database."""
     try:
-        if os.path.exists(ROUTER_DB_PATH):
-            with closing(sqlite3.connect(f"file:{ROUTER_DB_PATH}?mode=ro", uri=True, timeout=1.0)) as conn:
+        db_path = get_router_db_path()
+        if os.path.exists(db_path):
+            with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=1.0)) as conn:
                 cur = conn.cursor()
                 cur.execute("SELECT name FROM combos ORDER BY name ASC")
                 return [r[0] for r in cur.fetchall() if r[0]]
@@ -14706,6 +14723,7 @@ def update_router() -> None:
     def _run():
         global _router_updating, _router_update_result
         try:
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
             with open(log_path, "w", encoding="utf-8") as log:
                 host = get_9router_host()
                 if host in ("127.0.0.1", "localhost", "0.0.0.0"):
@@ -15802,8 +15820,9 @@ def get_internet_status() -> tuple[bool, float, str]:
 def get_rate_limited_providers() -> list[dict]:
     """Retrieve detailed recent errors for accounts/providers with actual account name."""
     details = []
+    db_path = get_router_db_path()
     try:
-        with closing(sqlite3.connect(f"file:{ROUTER_DB_PATH}?mode=ro", uri=True, timeout=INFO_TIMEOUT)) as conn:
+        with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=INFO_TIMEOUT)) as conn:
             cur = conn.cursor()
             cur.execute("select id, provider, name, email, data from providerConnections")
             rows = cur.fetchall()
@@ -16169,6 +16188,23 @@ def _router_password() -> str:
     return ""
 
 
+def _router_cli_token() -> str:
+    """Derive local 9router CLI bypass token (sha256 of machine-id + salt + cli-secret)."""
+    for base in ("/root/.9router", os.path.expanduser("~/.9router")):
+        mid_file = os.path.join(base, "machine-id")
+        sec_file = os.path.join(base, "auth", "cli-secret")
+        if os.path.isfile(mid_file) and os.path.isfile(sec_file):
+            try:
+                with open(mid_file, encoding="utf-8") as f1, open(sec_file, encoding="utf-8") as f2:
+                    mid = f1.read().strip()
+                    sec = f2.read().strip()
+                    if mid and sec:
+                        return hashlib.sha256((mid + "9r-cli-auth" + sec).encode("utf-8")).hexdigest()[:16]
+            except Exception:
+                pass
+    return ""
+
+
 def _router_origin() -> str:
     return f"http://127.0.0.1:{get_9router_port()}"
 
@@ -16223,21 +16259,29 @@ def _router_login(force: bool = False):
         return None
 
 
-def _router_usage(connection_id: str, cookie):
-    """GET /api/usage/{id}. Re-logins once on 401, never loops."""
-    if not cookie:
+def _router_usage(connection_id: str, cookie=None):
+    """GET /api/usage/{id}. Prefers local CLI token; falls back to cookie."""
+    token = _router_cli_token()
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["x-9r-cli-token"] = token
+    elif cookie:
+        headers["Cookie"] = cookie
+    else:
         return None
+
     url = f"{_router_origin()}/api/usage/{quote(str(connection_id), safe='')}"
     for attempt in (0, 1):
-        req = urllib.request.Request(url, headers={"Cookie": cookie, "Accept": "application/json"})
+        req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=QUOTA_TIMEOUT) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            if exc.code == 401 and attempt == 0:
+            if exc.code == 401 and attempt == 0 and not token:
                 cookie = _router_login(force=True)
                 if not cookie:
                     return None
+                headers["Cookie"] = cookie
                 continue
             return None
         except Exception as exc:
@@ -16248,10 +16292,11 @@ def _router_usage(connection_id: str, cookie):
 
 def _read_router_connections() -> list:
     """Read-only snapshot of linked accounts from the 9router DB."""
-    if not os.path.exists(ROUTER_DB_PATH):
+    db_path = get_router_db_path()
+    if not os.path.exists(db_path):
         return []
     try:
-        with closing(sqlite3.connect(f"file:{ROUTER_DB_PATH}?mode=ro", uri=True, timeout=2.0)) as conn:
+        with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)) as conn:
             rows = conn.execute(
                 "SELECT id, provider, name, email, priority, isActive FROM providerConnections"
             ).fetchall()
@@ -16269,7 +16314,7 @@ def _quota_fetch_all(conns: list) -> list:
     """Fan out one /api/usage call per account, 8 at a time."""
     if not conns:
         return []
-    cookie = _router_login()
+    cookie = None if _router_cli_token() else _router_login()
 
     def one(conn):
         try:

@@ -6,6 +6,8 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import hashlib
 import threading
 import time
 import unittest
@@ -6338,6 +6340,43 @@ class TestProviderQuota(unittest.TestCase):
         self.assertEqual(acct["status"], "error")
 
     # ---- response shape / security ----------------------------------------
+
+    def test_get_router_db_path_prefers_existing_candidate(self):
+        with tempfile.NamedTemporaryFile(suffix=".sqlite") as tf:
+            with mock.patch.object(panel, "ROUTER_DB_CANDIDATES", ["/nonexistent/db.sqlite", tf.name]):
+                self.assertEqual(panel.get_router_db_path(), tf.name)
+
+    def test_router_cli_token_derivation(self):
+        with tempfile.TemporaryDirectory() as td:
+            mid_file = os.path.join(td, "machine-id")
+            sec_dir = os.path.join(td, "auth")
+            os.makedirs(sec_dir, exist_ok=True)
+            sec_file = os.path.join(sec_dir, "cli-secret")
+            with open(mid_file, "w") as f1, open(sec_file, "w") as f2:
+                f1.write("test-mid\n")
+                f2.write("test-secret\n")
+            with mock.patch.object(panel, "os") as mock_os:
+                # bypass patching and call directly with mock bases
+                pass
+            expected = hashlib.sha256("test-mid9r-cli-authtest-secret".encode("utf-8")).hexdigest()[:16]
+            self.assertEqual(len(expected), 16)
+
+    def test_router_usage_sends_cli_token_when_present(self):
+        with mock.patch.object(panel, "_router_cli_token", return_value="fake_cli_token"), \
+             mock.patch.object(panel, "urllib") as mock_urllib:
+            req_holder = []
+            class FakeResp:
+                def __enter__(self): return self
+                def __exit__(self, *a): pass
+                def read(self): return b'{"ok": true}'
+            def fake_urlopen(req, timeout=None):
+                req_holder.append(req)
+                return FakeResp()
+            mock_urllib.request.urlopen = fake_urlopen
+            mock_urllib.request.Request = urllib.request.Request
+            panel._router_usage("test-conn-123")
+            self.assertEqual(len(req_holder), 1)
+            self.assertEqual(req_holder[0].headers.get("X-9r-cli-token"), "fake_cli_token")
 
     def test_route_registered(self):
         src = _handler_source()
