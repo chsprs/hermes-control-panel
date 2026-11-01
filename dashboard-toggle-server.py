@@ -15955,6 +15955,17 @@ QUOTA_TTL = 120.0            # seconds a snapshot is served without refetching
 QUOTA_TIMEOUT = 8.0          # per-account HTTP timeout
 QUOTA_MAX_WORKERS = 8
 
+# Providers whose accounts are never polled for quota. Each poll hits the
+# provider's own billing endpoint per account, and CodeBuddy treats repeated
+# polling of many accounts from one IP as "unusual activity" — the same signal
+# that got accounts restricted. Override with PANEL_QUOTA_SKIP_PROVIDERS
+# (comma-separated, empty string re-enables everything).
+QUOTA_SKIP_PROVIDERS = frozenset(
+    part.strip().lower()
+    for part in (os.environ.get("PANEL_QUOTA_SKIP_PROVIDERS", "codebuddy-intl") or "").split(",")
+    if part.strip()
+)
+
 _quota_mem = {"at": 0.0, "data": None}
 _quota_lock = threading.Lock()
 _quota_refreshing = {"on": False}
@@ -16310,8 +16321,20 @@ def _read_router_connections() -> list:
     ]
 
 
+def _quota_provider_skipped(provider: str) -> bool:
+    """True when quota polling must skip this provider (see QUOTA_SKIP_PROVIDERS)."""
+    prov = (provider or "").strip().lower()
+    if not prov:
+        return False
+    base = prov.split("-chat-")[0] if prov.startswith("openai-compatible") else prov
+    return prov in QUOTA_SKIP_PROVIDERS or base in QUOTA_SKIP_PROVIDERS
+
+
 def _quota_fetch_all(conns: list) -> list:
     """Fan out one /api/usage call per account, 8 at a time."""
+    if not conns:
+        return []
+    conns = [c for c in conns if not _quota_provider_skipped(c.get("provider"))]
     if not conns:
         return []
     cookie = None if _router_cli_token() else _router_login()
