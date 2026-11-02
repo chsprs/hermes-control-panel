@@ -6902,5 +6902,98 @@ class TestProfileManagementParity(unittest.TestCase):
         self.assertEqual(data["model"]["provider"], "openrouter")
 
 
+class TestDisplayedValuesMatchReality(unittest.TestCase):
+    """Nilai yang tampil di panel harus berasal dari keadaan nyata, bukan konstanta."""
+
+    def setUp(self):
+        panel._status_probe_cache.clear()
+
+    def tearDown(self):
+        panel._status_probe_cache.clear()
+
+    def test_links_use_detected_lan_ip_not_hardcoded(self):
+        container = {"name": "web", "title": "Web", "image": "nginx", "state": "running",
+                     "is_running": True, "status": "Up 2 hours", "icon": "", "port": "8080",
+                     "path": "/", "scheme": "http"}
+        with mock.patch.object(panel, "get_server_ips", return_value=("100.64.0.9", "10.1.2.3")):
+            with mock.patch.object(panel, "is_openclaw_control_ui_enabled", return_value=True):
+                openclaw = panel.get_openclaw_open_block()
+            panel._status_probe_cache.clear()
+            with mock.patch.object(panel, "get_docker_containers_info", return_value=[container]):
+                docker = panel._render_docker_apps_block_uncached()
+            panel._status_probe_cache.clear()
+            with mock.patch.object(panel, "get_server_ips", return_value=("", "")):
+                with mock.patch.object(panel, "is_openclaw_control_ui_enabled", return_value=True):
+                    fallback = panel.get_openclaw_open_block()
+        self.assertIn("10.1.2.3", openclaw)
+        self.assertIn("10.1.2.3", docker)
+        self.assertNotIn("192.168.1.100", openclaw + docker)
+        self.assertNotIn("{_link_host()}", openclaw + docker)
+        self.assertIn("127.0.0.1", fallback, "tanpa IP terdeteksi jangan tinggalkan placeholder")
+
+    def test_emmc_wear_reported_as_bucket_range(self):
+        self.assertEqual(panel._emmc_wear_label(4), "30\u201340%")
+        self.assertEqual(panel._emmc_wear_label(1), "0\u201310%")
+        self.assertEqual(panel._emmc_wear_label(10), "90\u2013100%")
+        self.assertEqual(panel._emmc_wear_label(11), ">100%")
+        self.assertEqual(panel._emmc_wear_upper(4), 40)
+        self.assertEqual(panel._emmc_wear_upper(99), 100)
+
+    def test_delete_profile_without_name_reports_it(self):
+        ok, msg = panel.delete_agent_profile("")
+        self.assertFalse(ok)
+        self.assertIn("tidak diberikan", msg)
+        ok, msg = panel.delete_agent_profile("default")
+        self.assertFalse(ok)
+        self.assertIn("default", msg)
+
+
+class TestConfigSummarySchemaShapes(unittest.TestCase):
+    """Config tab harus membaca bentuk config yang benar-benar ditulis Hermes."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="hermes-cfgschema-")
+        self.root = panel.Path(self.tmpdir)
+        self._orig_config_path = panel.CONFIG_PATH
+        panel.CONFIG_PATH = str(self.root / "config.yaml")
+        panel._status_probe_cache.clear()
+
+    def tearDown(self):
+        import shutil
+        panel.CONFIG_PATH = self._orig_config_path
+        panel._status_probe_cache.clear()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _aux(self):
+        cfg = panel.get_profile_config_summary("default")
+        self.assertTrue(cfg.get("ok"), cfg.get("error"))
+        groups = {g["id"]: g for g in cfg["groups"]}
+        return dict(groups["aux"]["items"])
+
+    def test_flat_auxiliary_shape_is_read(self):
+        # Bentuk yang ditulis `hermes config set auxiliary.vision.model ...`
+        (self.root / "config.yaml").write_text(
+            "model:\n  default: m\n"
+            "auxiliary:\n"
+            "  vision:\n    provider: 9router\n    model: m-vision\n    timeout: 120\n"
+            "  compression:\n    provider: 9router\n    model: m-comp\n"
+            "delegation:\n  provider: 9router\n  model: m-del\n", encoding="utf-8")
+        aux = self._aux()
+        self.assertEqual(aux.get("vision"), "9router / m-vision")
+        self.assertEqual(aux.get("compression"), "9router / m-comp")
+        self.assertEqual(aux.get("delegation"), "9router / m-del")
+
+    def test_nested_auxiliary_tasks_shape_is_read(self):
+        (self.root / "config.yaml").write_text(
+            "model:\n  default: m\n"
+            "auxiliary:\n  tasks:\n    stt:\n      provider: p\n      model: mm\n", encoding="utf-8")
+        self.assertEqual(self._aux().get("stt"), "p / mm")
+
+    def test_auto_tasks_are_not_listed_as_pinned(self):
+        (self.root / "config.yaml").write_text(
+            "model:\n  default: m\nauxiliary:\n  vision:\n    timeout: 120\n", encoding="utf-8")
+        self.assertEqual(self._aux(), {"-": "semua otomatis"})
+
+
 if __name__ == "__main__":
     unittest.main()

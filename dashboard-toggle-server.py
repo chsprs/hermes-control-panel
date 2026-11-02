@@ -6568,10 +6568,41 @@ def toggle_openclaw_control_ui() -> bool | None:
                     os.unlink(tmp_path)
 
 
+def _link_host() -> str:
+    """Host untuk link absolut (IP LAN terdeteksi), bukan alamat hardcode.
+
+    Panel dulu menulis `192.168.1.100` di href dasbor OpenClaw dan kartu Docker;
+    begitu DHCP memberi alamat lain, middle-click/salin-link mengarah ke host yang
+    salah. Nilai ini di-cache sebentar karena mendeteksi IP memanggil subprocess.
+    """
+    try:
+        val = _ttl_cached("link_host_ip", 60.0, lambda: get_server_ips()[1] or "")
+        if isinstance(val, str) and val:
+            return val
+    except Exception as e:
+        _log_swallow("link host", e)
+    return "127.0.0.1"
+
+
+def _emmc_wear_upper(raw: int) -> int:
+    """Batas atas bucket eMMC life_time (0x01 = 0-10%, 0x02 = 10-20%, ... 0x0A = 90-100%)."""
+    return max(0, min(int(raw), 10)) * 10
+
+
+def _emmc_wear_label(raw: int) -> str:
+    """Label bucket aus eMMC sebagai rentang, sama seperti `mmc extcsd read` menjelaskannya."""
+    raw = int(raw)
+    if raw >= 0x0B:
+        return ">100%"
+    if raw <= 0:
+        return "0%"
+    return f"{(raw - 1) * 10}\u2013{min(raw, 10) * 10}%"
+
+
 def get_openclaw_open_block() -> str:
     if is_openclaw_control_ui_enabled():
         return (
-            f'<a class="open" href="https://192.168.1.100:18789/" target="_blank" rel="noopener" '
+            f'<a class="open" href="https://{_link_host()}:18789/" target="_blank" rel="noopener" '
             f'onclick="window.open(\'https://\'+window.location.hostname+\':18789/\',\'_blank\',\'noopener\');return false;">'
             f'{ICON_EXTERNAL_LINK}Buka Dasbor OpenClaw</a>'
         )
@@ -11695,7 +11726,9 @@ def create_agent_profile(name: str, clone_from: str = "", description: str = "")
 def delete_agent_profile(name: str) -> tuple[bool, str]:
     """Delete a named profile via the official CLI so the gateway is stopped cleanly."""
     name = (name or "").strip().lower()
-    if not name or name == "default":
+    if not name:
+        return False, "Nama profil tidak diberikan."
+    if name == "default":
         return False, "Profil default tidak dapat dihapus."
     if not _PROFILE_NAME_RE.match(name):
         return False, "Nama profil tidak valid."
@@ -12539,14 +12572,37 @@ def get_profile_config_summary(name: str) -> dict:
         plat_items.append((plat_name, state + ((" · " + ", ".join(x for x in extra if x)) if extra else "")))
     groups.append({"id": "platforms", "label": "Platform Messaging", "items": plat_items or [("-", "tidak ada platform terkonfigurasi")]})
 
+    # auxiliary bisa berbentuk datar (`auxiliary.vision: {provider, model}` — yang
+    # ditulis `hermes config set`) atau bersarang (`auxiliary.tasks.<task>`). Bentuk
+    # datar dulu diabaikan, sehingga tab Config melaporkan "semua otomatis" padahal
+    # tugasnya dipin ke model tertentu.
     aux_cfg = cfg.get("auxiliary") if isinstance(cfg.get("auxiliary"), dict) else {}
+    dele_cfg = cfg.get("delegation") if isinstance(cfg.get("delegation"), dict) else {}
+    aux_source = aux_cfg.get("tasks") if isinstance(aux_cfg.get("tasks"), dict) else aux_cfg
     aux_items = []
-    if isinstance(aux_cfg.get("tasks"), dict):
-        for task, spec in sorted(aux_cfg["tasks"].items()):
-            if isinstance(spec, dict):
-                aux_items.append((task, f"{spec.get('provider') or '-'} / {spec.get('model') or 'auto'}"))
-            else:
-                aux_items.append((task, _fmt_cfg_value(spec)))
+    known_aux = [k for k, _label, _hint in AUX_TASK_DEFINITIONS]
+
+    def _aux_value(spec: dict) -> str:
+        provider = str(spec.get("provider") or "").strip()
+        model = str(spec.get("model") or "").strip()
+        if not provider and not model:
+            return ""
+        return f"{provider or '-'} / {model or 'auto'}"
+
+    for key in known_aux:
+        if key == "delegation":
+            value = _aux_value(dele_cfg)
+        else:
+            spec = aux_source.get(key) if isinstance(aux_source.get(key), dict) else {}
+            value = _aux_value(spec)
+        if value:
+            aux_items.append((key, value))
+    for key, spec in sorted(aux_source.items()):
+        if key in known_aux or not isinstance(spec, dict):
+            continue
+        value = _aux_value(spec)
+        if value:
+            aux_items.append((key, value))
     groups.append({"id": "aux", "label": "Model Auxiliary", "items": aux_items or [("-", "semua otomatis")]})
 
     mcp_cfg = cfg.get("mcp_servers") if isinstance(cfg.get("mcp_servers"), dict) else {}
@@ -16279,7 +16335,7 @@ def _render_docker_apps_block_uncached() -> str:
 
         if is_run and port:
             open_btn = (
-                f'<a class="btn-action-sm open" href="{scheme}://192.168.1.100:{port}{path}" target="_blank" rel="noopener" '
+                f'<a class="btn-action-sm open" href="{scheme}://{_link_host()}:{port}{path}" target="_blank" rel="noopener" '
                 f'onclick="window.open(\'{scheme}://\'+window.location.hostname+\':{port}{path}\',\'_blank\',\'noopener\');return false;" '
                 f'style="background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3);text-decoration:none;display:inline-flex;align-items:center;gap:4px">'
                 f'{ICON_EXTERNAL_LINK} Buka</a>'
@@ -16366,19 +16422,20 @@ def _probe_emmc_health() -> tuple[str, str]:
             if len(values) < 2:
                 continue
 
-            wear = max(int(value, 16) * 10 for value in values)
+            raw = max(int(value, 16) for value in values)
+            wear = _emmc_wear_upper(raw)
 
             with open(os.path.join(device_dir, "pre_eol_info")) as f:
                 eol = int(f.read().strip(), 16)
 
-            readings.append((wear, eol))
+            readings.append((wear, eol, raw))
         except (OSError, ValueError):
             continue
 
     if not readings:
         return "", "N/A"
 
-    wear, eol = max(readings, key=lambda item: (item[1], item[0]))
+    wear, eol, raw = max(readings, key=lambda item: (item[1], item[0]))
 
     cls = "down" if (wear >= 80 or eol == 3) else (
         "warn" if (wear >= 60 or eol == 2) else "up"
@@ -16387,7 +16444,7 @@ def _probe_emmc_health() -> tuple[str, str]:
         "Warn" if eol == 2 else "Normal"
     )
 
-    return cls, f"{wear}% aus ({status})"
+    return cls, f"{_emmc_wear_label(raw)} aus ({status})"
 
 
 def get_emmc_health() -> tuple[str, str]:
