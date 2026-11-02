@@ -370,3 +370,65 @@ sedangkan panel melaporkan isi penuh bundle (51 tool) karena replikasinya butuh 
 
 ### Commit
 - `7357816` fix(panel): tab Profil baca runtime Hermes (skills, toolset, config).
+
+## Wave 82 — Loop audit "nilai panel vs kenyataan" (4 putaran)
+
+Metode tiap putaran: ambil angka/tampilan panel, bandingkan dengan sumber nyata
+(`hermes CLI`, config.yaml, sysfs, sqlite, registry toolsets), perbaiki, test, deploy.
+
+**Putaran 1 — manajemen profil**
+- Deskripsi profil dibaca dari `profile.yaml` (0.22.5), fallback `meta.json`; dulu
+  selalu kosong karena hanya meta.json yang dibaca.
+- `/api/profiles` + badge kartu: `skill_count` 158 → 130 (walk dua level mentah
+  menghitung `.archive`, `.curator_backups`, direktori support).
+- `create_agent_profile`/`rename_agent_profile` memakai `hermes profile create/rename`
+  (skill bawaan tersinkron 58, wrapper, migrasi identitas) + fallback manual yang kini
+  menulis `profile.yaml`. Bukti live: create → "58 skill bawaan disinkronkan",
+  rename → profile.yaml ikut pindah, delete → bersih.
+- `set_agent_profile_model` membuang `base_url`/`api_key`/`api_mode` saat provider
+  berubah (dulu profil bisa menembak endpoint provider sebelumnya).
+
+**Putaran 2 — nilai tampilan**
+- `192.168.1.100` hardcode di href dasbor OpenClaw + kartu Docker → `_link_host()`
+  (IP LAN terdeteksi, cache 60 s, fallback 127.0.0.1).
+- eMMC: `life_time` adalah bucket; "40% aus" untuk 0x04 (30–40%) → "30–40% aus".
+- `delete_agent_profile("")` tidak lagi menjawab "profil default".
+
+**Putaran 3 — bentuk config**
+- Tab Config: `auxiliary` datar (`auxiliary.vision`) tidak terbaca → tab melaporkan
+  "semua otomatis" padahal 8+ tugas dipin. Sekarang datar + bersarang + `delegation`.
+
+**Putaran 4 — regresi performa yang saya buat sendiri**
+- Kartu profil memindai inventaris tiap profil: `/api/profiles` cold 12,8 dtk (9
+  profil) + rescan tiap 45-60 dtk. Diukur ulang setelah perbaikan: 1,5 dtk cold
+  (import) / 0,11 dtk hangat; `/status` 0,076 dtk.
+- Mekanisme: `_cached_or_fast` (tanpa warm massal — 9 thread paralel berebut GIL,
+  sempat 8,7 dtk), `_cached_inventory` (hanya jalur user yang memindai),
+  `_fast_skill_stats` (walk kanonik tanpa parse) + label "perkiraan" yang hilang
+  begitu inventaris eksak masuk cache (handler meng-invalidate profiles_block).
+
+**Yang diperiksa dan ternyata sudah benar** (tidak diubah): versi 9router 0.5.112,
+status update Hermes (origin/main memang 197 commit di depan), RAM% (51% vs procfs),
+zram, disk, uptime, load, badge gateway (`served: true`, PID hidup), hitungan task
+kanban (selisih = baris `archived` yang memang dikecualikan), `node --check` 3 blok
+script, dan payload deflate (87,4 KB, guard dinaikkan 85→90 KB karena tab Config).
+
+### Verifikasi
+- `tests.test_install tests.test_panel` → **375 test OK** (342 baseline + 33 baru:
+  `TestProfileRuntimeParity` 17, `TestProfileManagementParity` 7,
+  `TestDisplayedValuesMatchReality` 3, `TestConfigSummarySchemaShapes` 3,
+  `TestProfileCardStaysCheap` 3).
+- Runtime md5 IDENTIK dengan repo, `hermes-panel.service` active, gateway default
+  tetap jalan (PID 51466, `served: true`), profil uji (`paneltest`, `panelrt1/2`)
+  sudah dihapus.
+
+### Commit
+- `9d0009b` fix(panel): profil ikut CLI Hermes (buat/rename), deskripsi & skill_count benar
+- `06e384a` fix(panel): nilai tampilan ikut keadaan nyata (link IP, eMMC, aux, config)
+- `8557147` perf(panel): kartu profil tidak lagi memindai skill (12 dtk → 0,1 dtk)
+
+### Catatan lingkungan (bukan bug panel)
+- `hermes-lib` dalam keadaan detached HEAD dan **2 file termodifikasi**
+  (`agent/provider_media.py`, `gateway/slash_commands_model.py`) — `hermes update`
+  bisa menolak/menimpa; sengaja tidak disentuh.
+- Ada `git stash@{0}` lama (28 Okt) di repo panel, bukan dari sesi ini.
