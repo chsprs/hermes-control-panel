@@ -6995,5 +6995,57 @@ class TestConfigSummarySchemaShapes(unittest.TestCase):
         self.assertEqual(self._aux(), {"-": "semua otomatis"})
 
 
+class TestProfileCardStaysCheap(unittest.TestCase):
+    """Kartu profil tidak boleh memicu scan inventaris (regresi 12 detik /api/profiles)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="hermes-cheap-")
+        self.root = panel.Path(self.tmpdir)
+        self._orig_config_path = panel.CONFIG_PATH
+        panel.CONFIG_PATH = str(self.root / "config.yaml")
+        panel._status_probe_cache.clear()
+        skills = self.root / "skills"
+        for rel in ("a", "b", ".archive/lama", "a/references/x"):
+            d = skills / rel
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "SKILL.md").write_text(f"---\nname: {rel.split('/')[-1]}\ndescription: d\n---\n")
+        (self.root / "config.yaml").write_text("model:\n  default: m\nskills:\n  disabled: [b]\n", encoding="utf-8")
+
+    def tearDown(self):
+        import shutil
+        panel.CONFIG_PATH = self._orig_config_path
+        panel._status_probe_cache.clear()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_card_summary_does_not_scan_inventory(self):
+        with mock.patch.object(panel, "get_profile_skill_inventory",
+                               side_effect=AssertionError("kartu tidak boleh memindai skill")):
+            summary = panel._profile_skill_tool_summary("default")
+        self.assertEqual(summary["skills_total"], 2, "hanya skill nyata, bukan .archive/references")
+        self.assertEqual(summary["skills_on"], 1)
+        self.assertTrue(summary["estimated"])
+
+    def test_listing_profiles_does_not_scan_inventory(self):
+        with mock.patch.object(panel, "get_profile_skill_inventory",
+                               side_effect=AssertionError("listing tidak boleh memindai skill")):
+            profiles = panel.list_agent_profiles()
+        default = {p["name"]: p for p in profiles}["default"]
+        self.assertEqual(default["skill_count"], 2)
+
+    def test_card_switches_to_exact_numbers_once_cached(self):
+        first = panel._profile_skill_tool_summary("default")
+        self.assertTrue(first["estimated"])
+        panel._ttl_cached("profile_skill_inventory:default:", 45.0,
+                          lambda: panel.get_profile_skill_inventory("default", ""))
+        panel._invalidate_status_cache("profile_skill_tool_summary:default")
+        second = panel._profile_skill_tool_summary("default")
+        self.assertFalse(second["estimated"])
+        self.assertEqual(second["skills_total"], 2)
+        self.assertEqual(second["skills_on"], 1)
+        html = panel._render_profiles_block_uncached()
+        self.assertIn("Skills: 1/2 aktif", html)
+        self.assertNotIn("perkiraan", html)
+
+
 if __name__ == "__main__":
     unittest.main()

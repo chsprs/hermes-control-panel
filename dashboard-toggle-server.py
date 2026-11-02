@@ -11521,6 +11521,63 @@ def _count_skills_in_dir(skills_dir: Path) -> int:
     return count
 
 
+def _canonical_skill_files(root: Path) -> list:
+    """SKILL.md di satu root dengan pruning kanonik (tanpa parse YAML)."""
+    skill_utils = _hermes_module("agent.skill_utils")
+    if skill_utils is not None:
+        try:
+            return list(skill_utils.iter_skill_index_files(root, "SKILL.md"))
+        except Exception as e:
+            _log_swallow("skill walk", e)
+            return []
+    files = []
+    for dirpath, dirnames, filenames in os.walk(str(root), followlinks=True):
+        dirnames[:] = sorted(d for d in dirnames if d not in _SKILL_EXCLUDED_DIRS)
+        if "SKILL.md" in filenames:
+            files.append(Path(dirpath) / "SKILL.md")
+    return files
+
+
+def _fast_skill_stats(home: Path, cfg: dict, platform: str = "") -> dict:
+    """Perkiraan cepat (tanpa parse SKILL.md) untuk render kartu yang tidak boleh memblokir.
+
+    Total memakai walk kanonik (bukan hitungan dua level mentah), status memakai nama
+    direktori sebagai proksi nama skill. Dipakai hanya sampai inventaris penuh masuk
+    cache; setelah itu angka eksak yang dipakai.
+    """
+    disabled = _profile_skills_disabled(cfg, platform)
+    total = 0
+    enabled = 0
+    for tier, root in _profile_skill_roots(home, cfg):
+        if not root.is_dir():
+            continue
+        for md in _canonical_skill_files(root):
+            total += 1
+            if md.parent.name not in disabled:
+                enabled += 1
+    return {"skills_total": total, "skills_on": enabled, "hidden": 0}
+
+
+def _cached_or_fast(key: str, ttl: float, loader, fast):
+    """Cache-first, tanpa scan sinkron dan tanpa warm massal.
+
+    Kartu profil dirender di jalur SSE. Satu scan inventaris per profil membuat
+    /api/profiles butuh belasan detik untuk 9 profil, jadi kartu memakai angka cepat
+    (`fast`) selama cache belum ada. Angka eksak masuk cache saat tab Profil dibuka
+    (atau lewat /api/profile-skills), lalu dipakai kartu pada render berikutnya.
+    """
+    with _status_probe_cache_lock:
+        entry = _status_probe_cache.get(key)
+    if entry is not None:
+        # Stale: nilai lama dipakai, _ttl_cached menyegarkan di latar.
+        return _ttl_cached(key, ttl, loader)
+    try:
+        return fast()
+    except Exception as e:
+        _log_swallow(f"fast {key}", e)
+        return None
+
+
 def _read_profile_description(home: Path) -> str:
     """Deskripsi profil seperti `hermes profile describe` membacanya.
 
@@ -11545,22 +11602,27 @@ def _read_profile_description(home: Path) -> str:
 
 
 def _profile_skill_count(name: str) -> int:
-    """Jumlah skill yang benar-benar dimuat profil (angka yang sama dengan tab Profil).
+    """Jumlah skill yang dimuat profil (sama dengan tab Profil), cache-only.
 
-    Walker lama menghitung setiap SKILL.md dua level ke bawah, termasuk `.archive`,
-    `.curator_backups` dan direktori support — 158 untuk profil yang runtime-nya
-    memuat 130. Memakai inventaris kanonik membuat kartu, badge dan modal konsisten.
+    Walker lama menghitung setiap SKILL.md dua level ke bawah termasuk `.archive`,
+    `.curator_backups` dan direktori support (158 untuk profil yang runtime-nya
+    memuat 130). Angka eksak diambil dari inventaris yang sudah di-cache; sebelum
+    tab Profil dibuka, walk kanonik cepat (tanpa parse) dipakai dan di-cache 120 s.
     """
     nm = (name or "").strip().lower()
     home = _profile_home(nm)
-    try:
-        inv = _ttl_cached(f"profile_skill_inventory:{nm}:", 45.0,
-                          lambda: get_profile_skill_inventory(nm, ""))
-        if isinstance(inv, dict) and inv.get("ok"):
-            return int(inv.get("total") or 0)
-    except Exception as e:
-        _log_swallow("profile skill count", e)
-    return _count_skills_in_dir(home / "skills") if home is not None else 0
+    if home is None:
+        return 0
+    inv = _cached_inventory(nm)
+    if inv:
+        return int(inv.get("total") or 0)
+    cfg_file, _err = _profile_cfg_file(nm)
+    cfg = _read_profile_cfg(cfg_file) if cfg_file else {}
+    val = _ttl_cached(f"profile_skill_count:{nm}", 120.0,
+                      lambda: _fast_skill_stats(home, cfg, "").get("skills_total", 0))
+    if isinstance(val, int):
+        return val
+    return _count_skills_in_dir(home / "skills")
 
 
 def _run_hermes_cli(args: list, timeout: int = 180) -> tuple:
@@ -12863,23 +12925,46 @@ def render_gateway_profile_badge(name: str, statuses: dict[str, dict] | None = N
         return ""
 
 
-def _profile_skill_tool_summary(name: str) -> dict:
-    """Ringkasan kartu profil, dihitung dari sumber yang sama dengan tab Profil.
+def _cached_inventory(name: str):
+    """Inventaris skill dari cache (read-only) — tanpa memicu scan.
 
-    Skills memakai inventaris Hermes (state on/off/hidden), tools memakai resolusi
-    registry toolset untuk platform cli — bukan angka tebakan.
+    Hanya jalur yang diminta pengguna (/api/profile-skills, tab Profil) yang boleh
+    memindai seluruh SKILL.md; kartu profil memakai nilai cache ini bila ada.
     """
-    def _compute():
-        nm = (name or "").strip().lower()
+    nm = (name or "").strip().lower()
+    with _status_probe_cache_lock:
+        entry = _status_probe_cache.get(f"profile_skill_inventory:{nm}:")
+    val = entry.get("value") if isinstance(entry, dict) else None
+    return val if isinstance(val, dict) and val.get("ok") else None
+
+
+def _profile_skill_tool_summary(name: str) -> dict:
+    """Ringkasan kartu profil: skills + toolset, tanpa memindai skill sendiri.
+
+    Angka eksak hanya dipakai bila inventaris profil sudah ada di cache (tab Profil
+    pernah dibuka). Selain itu `_fast_skill_stats()` memberi perkiraan dan ditandai
+    "perkiraan" di kartu, supaya render SSE tidak menahan belasan detik untuk 9 profil.
+    """
+    nm = (name or "").strip().lower()
+
+    def _stats():
         out = {"skills_on": None, "skills_total": None, "toolsets": None,
-               "tools": None, "hidden": None, "source": "hermes-lib"}
-        try:
-            inv = get_profile_skill_inventory(nm, "")
-            if inv.get("ok"):
-                out.update({"skills_on": inv["enabled_count"], "skills_total": inv["total"],
-                            "hidden": inv["hidden_count"], "source": inv["source"]})
-        except Exception as e:
-            _log_swallow("profile skill summary", e)
+               "tools": None, "hidden": 0, "explicit": True, "source": "hermes-lib",
+               "estimated": True}
+        inv = _cached_inventory(nm)
+        if inv:
+            out.update({"skills_on": inv["enabled_count"], "skills_total": inv["total"],
+                        "hidden": inv["hidden_count"], "source": inv.get("source", "hermes-lib"),
+                        "estimated": False})
+        else:
+            home = _profile_home(nm)
+            cfg_file, _err = _profile_cfg_file(nm)
+            cfg = _read_profile_cfg(cfg_file) if cfg_file else {}
+            if home is not None and home.is_dir():
+                try:
+                    out.update(_fast_skill_stats(home, cfg, ""))
+                except Exception as e:
+                    _log_swallow("fast skill stats", e)
         try:
             ts = get_profile_toolsets(nm, "")
             if ts.get("ok"):
@@ -12890,7 +12975,7 @@ def _profile_skill_tool_summary(name: str) -> dict:
             _log_swallow("profile toolset summary", e)
         return out
 
-    return _ttl_cached(f"profile_skill_tool_summary:{name}", 60.0, _compute)
+    return _cached_or_fast(f"profile_skill_tool_summary:{nm}", 30.0, _stats, _stats)
 
 
 def _render_profiles_block_uncached() -> str:
@@ -12944,6 +13029,8 @@ def _render_profiles_block_uncached() -> str:
             if tools_cnt is not None:
                 parts.append(f"{tools_cnt} tool" + ("" if summary.get("explicit", True) else " (bundel)"))
             skills_txt += " · " + " · ".join(parts)
+        if summary.get("estimated"):
+            skills_txt += " · perkiraan (buka Kelola untuk hitung runtime)"
         if summary.get("source") == "config":
             skills_txt += " · dari config"
 
@@ -18897,7 +18984,12 @@ class Handler(BaseHTTPRequestHandler):
             plat = (qs.get("platform") or [""])[0]
             nm = (prof or "").strip().lower()
             key = f"profile_skill_inventory:{nm}:{(plat or '').strip().lower()}"
-            self._send_json(_ttl_cached(key, 45.0, lambda: get_profile_skill_inventory(prof, plat)))
+            payload = _ttl_cached(key, 45.0, lambda: get_profile_skill_inventory(prof, plat))
+            # Kartu profil memakai angka dari cache ini: segarkan supaya label
+            # "perkiraan" hilang begitu inventaris eksak tersedia.
+            if isinstance(payload, dict) and payload.get("ok"):
+                _invalidate_status_cache("profiles_block", f"profile_skill_tool_summary:{nm}")
+            self._send_json(payload)
             return
 
         if parsed.path == "/api/profile-skill":
