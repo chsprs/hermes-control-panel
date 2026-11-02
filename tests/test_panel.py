@@ -141,7 +141,7 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertFalse(panel.bot_action("invalid"))
 
     def test_frontend_fetch_helper_checks_http_and_json_errors(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("function fetchJsonChecked", page)
         self.assertIn("if(!response.ok) throw new Error", page)
         self.assertIn("return response.json()", page)
@@ -150,7 +150,7 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("fetchJsonChecked('/api/models'", page[loader_start:loader_end])
 
     def test_frontend_profile_and_kanban_json_fetches_check_http_status(self):
-        page = panel.PAGE
+        page = panel.page_source()
         for function_name in (
             "openCreateProfileModal",
             "submitCreateProfile",
@@ -166,7 +166,7 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertNotIn(".then(function(r){{ return r.json(); }})", segment, function_name)
 
     def test_frontend_bulk_kanban_actions_validate_each_response(self):
-        page = panel.PAGE
+        page = panel.page_source()
         for function_name, endpoint in (
             ("applyBulkStatus", "/api/kanban/task/status"),
             ("applyBulkDelete", "/api/kanban/task/delete"),
@@ -179,7 +179,7 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertIn(endpoint, segment, function_name)
 
     def test_frontend_profile_and_kanban_mutations_check_http_status(self):
-        page = panel.PAGE
+        page = panel.page_source()
         for function_name in (
             "setActiveProfile",
             "deleteProfile",
@@ -206,7 +206,7 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertNotIn(".then(function(r){{ return r.json(); }})", segment, function_name)
 
     def test_frontend_gateway_and_whatsapp_fetches_check_http_status(self):
-        page = panel.PAGE
+        page = panel.page_source()
         for function_name in (
             "switchGwConfigMode",
             "selectCatalogPlatform",
@@ -227,7 +227,7 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertNotIn(".then(function(r){{ return r.json(); }})", segment, function_name)
 
     def test_frontend_remaining_json_fetches_check_http_status(self):
-        page = panel.PAGE
+        page = panel.page_source()
         for function_name in (
             "selectFallbackModel",
             "selectAuxModel",
@@ -249,7 +249,7 @@ class TestHermesControlPanel(unittest.TestCase):
                 self.assertNotIn(".then(function(r){{ return r.json(); }})", segment, function_name)
 
     def test_frontend_json_fetches_do_not_directly_parse_unchecked_response(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertNotIn(".then(function(r){{ return r.json(); }})", page)
         self.assertNotIn("}}).then(function(r){{ return r.json(); }})", page)
         network = panel.NETWORK_SCRIPT
@@ -264,7 +264,7 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertNotIn(".then(function (r) { return r.json(); })", network)
 
     def test_frontend_qr_svg_is_sanitized_before_dom_insertion(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("function renderWaQrSvg", page)
         start = page.index("function renderWaQrSvg")
         end = page.index("function setWaPairStatusUI", start)
@@ -279,12 +279,13 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertNotIn("+ data.qr_svg +", status)
 
     def test_frontend_error_messages_escape_before_innerhtml(self):
-        page = panel.PAGE
-        start = page.index("function openProfileSkillsModal")
-        end = page.index("function closeProfileSkillsModal", start)
-        skills = page[start:end]
-        self.assertIn("escHtml((res && res.error) || 'unknown')", skills)
-        self.assertIn("escHtml(err && err.message || err)", skills)
+        page = panel.page_source()
+        for function_name in ("loadProfileSkills", "loadProfileTools"):
+            start = page.index("function " + function_name)
+            end = page.index("\nfunction ", start + 1)
+            segment = page[start:end]
+            self.assertIn("escHtml((res && res.error) || 'unknown')", segment)
+            self.assertIn("escHtml(err && err.message || err)", segment)
         start = page.index("function openKanbanAttachment")
         end = page.index("function setAttachmentViewMode", start)
         attachment = page[start:end]
@@ -292,7 +293,7 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertNotIn("' + err.message + '</span>", attachment)
 
     def test_attachment_loader_ignores_stale_async_responses(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("var currentAttachmentText")
         end = page.index("function setAttachmentViewMode", start)
         attachment = page[start:end]
@@ -355,7 +356,7 @@ class TestHermesControlPanel(unittest.TestCase):
             self.assertGreaterEqual(segment.count("if (saveGen !== " + counter + ") return;"), 2, function_name)
 
     def test_kanban_toast_ignores_stale_hide_callbacks(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("function showKanbanToast")
         end = page.index("function handleKanbanDragStart", start)
         segment = page[start:end]
@@ -365,7 +366,7 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("if(toast._generation === toastGen) toast.style.display = 'none';", segment)
 
     def test_whatsapp_start_clears_prior_poll_and_countdown_timers(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("function startWaPair")
         end = page.index("function cancelWaPair", start)
         segment = page[start:end]
@@ -374,7 +375,7 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertIn("_waPairExpiresAt = null;", segment)
 
     def test_toggle_log_scrolls_restored_box_to_bottom(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("function toggleLog")
         end = page.index("function syncLogUI", start)
         segment = page[start:end]
@@ -400,7 +401,7 @@ class TestHermesControlPanel(unittest.TestCase):
         )
 
     def test_copy_code_ignores_stale_restore_callbacks(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("function copyCodeBlock")
         end = page.index("function fetchJsonChecked", start)
         segment = page[start:end]
@@ -463,7 +464,7 @@ class TestHermesControlPanel(unittest.TestCase):
         )
 
     def test_frontend_checked_fetch_consumers_have_rejection_paths(self):
-        page = panel.PAGE
+        page = panel.page_source()
         for function_name in (
             "selectCatalogPlatform", "toggleGwPlatform", "deleteGwPlatform", "cancelWaPair",
         ):
@@ -479,13 +480,21 @@ class TestHermesControlPanel(unittest.TestCase):
         self.assertNotIn(".catch(function(){{}});", page)
 
     def test_modal_loaders_ignore_stale_async_responses(self):
-        page = panel.PAGE
+        page = panel.page_source()
         checks = {
-            "openProfileSkillsModal": [
+            "loadProfileSkills": [
                 "var loadGen = ++profileSkillsLoadGen",
                 "if(loadGen !== profileSkillsLoadGen) return",
                 "if(loadGen !== profileSkillsLoadGen) return",
-                "if(loadGen !== profileSkillsLoadGen) return",
+            ],
+            "loadProfileTools": [
+                "var loadGen = ++profileToolsLoadGen",
+                "if(loadGen !== profileToolsLoadGen) return",
+                "if(loadGen !== profileToolsLoadGen) return",
+            ],
+            "loadProfileConfig": [
+                "var loadGen = ++profileConfigLoadGen",
+                "if(loadGen !== profileConfigLoadGen) return",
             ],
             "openViewTaskModal": [
                 "var loadGen = ++taskDetailLoadGen",
@@ -535,7 +544,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("&lt;svg onload=alert(1)&gt;", r.stdout)
 
     def test_frontend_pair_cancel_checks_http_status(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("function closeWaPairModal")
         end = page.index("function renderWaQrSvg", start)
         segment = page[start:end]
@@ -544,7 +553,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertNotIn(".catch(function(){{}})", segment)
 
     def test_gateway_and_whatsapp_modals_ignore_stale_responses(self):
-        page = panel.PAGE
+        page = panel.page_source()
         for function_name, needles in {
             "openGwConfig": ["var loadGen = ++_gwConfigLoadGen", "if(loadGen !== _gwConfigLoadGen || currentGwPlatform !== platform) return"],
             "closeGwConfig": ["++_gwConfigLoadGen"],
@@ -559,7 +568,7 @@ process.stdout.write(netRenderStatus(st));
                 self.assertIn(needle, segment, f"{function_name}: {needle}")
 
     def test_whatsapp_apply_ignores_stale_pairing_context(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("function applyWaPair")
         next_function = page.find("\nfunction ", start + 1)
         segment = page[start:] if next_function == -1 else page[start:next_function]
@@ -574,7 +583,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertLess(then_segment.index(guard), then_segment.index("if(d && d.ok)"))
 
     def test_kanban_assignee_bootstrap_ignores_reinitialization(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var kanbanAssigneeBootGen = 0;", page)
         start = page.index("setTimeout(function() {{")
         end = page.index("function openCreateTaskModal", start)
@@ -583,7 +592,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("if(bootGen !== kanbanAssigneeBootGen) return;", segment)
 
     def test_profile_soul_and_kanban_config_ignore_stale_responses(self):
-        page = panel.PAGE
+        page = panel.page_source()
         for function_name, needles in {
             "openProfileSoulModal": ["var loadGen = ++profileSoulLoadGen", "if(loadGen !== profileSoulLoadGen || currentEditingSoulProfile !== name) return"],
             "closeProfileSoulModal": ["++profileSoulLoadGen"],
@@ -597,7 +606,7 @@ process.stdout.write(netRenderStatus(st));
                 self.assertIn(needle, segment, f"{function_name}: {needle}")
 
     def test_aux_model_picker_ignores_stale_catalog_callbacks(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var auxPickerLoadGen = 0;", page)
         for function_name in ("openAuxPicker", "openFallbackPicker", "openProfileModelPicker"):
             start = page.index("function " + function_name)
@@ -611,7 +620,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("++auxPickerLoadGen", segment)
 
     def test_model_catalog_cache_ignores_stale_requests(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var availableModelsFetchGen = 0;", page)
         start = page.index("function ensureAvailableModels")
         end = page.index("function openAuxPicker", start)
@@ -624,7 +633,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn(request_guard, segment[catch_start:])
 
     def test_aux_model_saves_ignore_stale_responses(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var auxModelSaveGen = 0;", page)
         for function_name in ("selectFallbackModel", "selectAuxModel"):
             start = page.index("function " + function_name)
@@ -642,7 +651,7 @@ process.stdout.write(netRenderStatus(st));
             self.assertLess(catch_segment.index(then_guard), catch_segment.index("if(pbar)"), function_name)
 
     def test_kanban_refresh_ignores_stale_board_responses(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("function refreshKanbanBoard")
         end = page.index("function manualSyncKanban", start)
         segment = page[start:end]
@@ -651,7 +660,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("if(board !== (bSel ? bSel.value : 'default')) return", segment)
 
     def test_kanban_auto_sync_avoids_in_flight_overlap(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var isKanbanRefreshing = false;", page)
         start = page.index("function refreshKanbanBoard")
         end = page.index("function manualSyncKanban", start)
@@ -670,7 +679,7 @@ process.stdout.write(netRenderStatus(st));
 
 
     def test_profile_and_task_assignee_loaders_ignore_stale_responses(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var profileCloneLoadGen = 0;", page)
         self.assertIn("var taskAssigneeLoadGen = 0;", page)
         for function_name, gen in (("openCreateProfileModal", "profileCloneLoadGen"), ("openCreateTaskModal", "taskAssigneeLoadGen")):
@@ -686,7 +695,7 @@ process.stdout.write(netRenderStatus(st));
             self.assertIn("++" + gen, segment, function_name)
 
     def test_kanban_board_switch_ignores_stale_responses(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var kanbanBoardSwitchGen = 0;", page)
         start = page.index("function switchKanbanBoard")
         end = page.index("function openViewTaskModal", start)
@@ -697,7 +706,7 @@ process.stdout.write(netRenderStatus(st));
 
     def test_kanban_board_switch_serializes_overlapping_requests(self):
         """ThreadingHTTPServer can finish switches out of order; only one may be in flight."""
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var kanbanSwitchBusy = false;", page)
         self.assertIn("var kanbanSwitchQueued = null;", page)
         start = page.index("function switchKanbanBoard")
@@ -710,7 +719,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("if(queued) switchKanbanBoard(queued);", segment)
 
     def test_gateway_yaml_preview_ignores_stale_mode_changes(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("function switchGwConfigMode")
         end = page.index("function gwActivePlatform", start)
         segment = page[start:end]
@@ -725,7 +734,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("++_gwPreviewGen", page[close_start:close_end])
 
     def test_gateway_mutations_ignore_stale_slot_responses(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var _gwMutationGen = 0;", page)
         for function_name in ("saveGwConfig", "toggleGwPlatform", "deleteGwPlatform"):
             start = page.index("function " + function_name)
@@ -742,14 +751,19 @@ process.stdout.write(netRenderStatus(st));
             self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
 
     def test_profile_skill_mutations_ignore_stale_profile_context(self):
-        page = panel.PAGE
-        for function_name in ("toggleProfileSkill", "toggleProfileToolset"):
+        page = panel.page_source()
+        gens = {
+            "toggleProfileSkill": "profileSkillsLoadGen",
+            "toggleProfileToolset": "profileToolsLoadGen",
+        }
+        for function_name, gen in gens.items():
             start = page.index("function " + function_name)
             next_function = page.find("\nfunction ", start + 1)
             segment = page[start:] if next_function == -1 else page[start:next_function]
             self.assertIn("var mutationProfile = currentSkillsProfile", segment, function_name)
-            self.assertIn("var mutationLoadGen = profileSkillsLoadGen", segment, function_name)
-            guard = "if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;"
+            self.assertIn(f"var mutationLoadGen = {gen}", segment, function_name)
+            guard = (f"if(mutationProfile !== currentSkillsProfile || "
+                     f"mutationLoadGen !== {gen}) return;")
             then_start = segment.index(".then(function(res)")
             catch_start = segment.index(".catch(function")
             then_segment = segment[then_start:catch_start]
@@ -759,7 +773,7 @@ process.stdout.write(netRenderStatus(st));
             self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
 
     def test_profile_mutations_ignore_stale_modal_responses(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var profileMutationGen = 0;", page)
         cases = {
             "submitCreateProfile": "var mutationProfile = name",
@@ -785,7 +799,7 @@ process.stdout.write(netRenderStatus(st));
             self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
 
     def test_task_detail_mutations_ignore_stale_task_context(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var taskMutationGen = 0;", page)
         for function_name in ("moveCurrentTaskStatus", "reclaimCurrentTask", "deleteCurrentTask"):
             start = page.index("function " + function_name)
@@ -804,7 +818,7 @@ process.stdout.write(netRenderStatus(st));
             self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
 
     def test_task_comment_ignores_stale_task_context(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("function submitCurrentTaskComment")
         end = page.index("var kanbanConfigLoadGen", start)
         segment = page[start:end]
@@ -822,7 +836,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("openViewTaskModal(mutationTaskId)", then_segment)
 
     def test_kanban_comment_submit_serializes_and_disables_in_flight(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var kanbanCommentSubmitting = false;", page)
         start = page.index("function submitCurrentTaskComment")
         end = page.index("var kanbanConfigLoadGen", start)
@@ -842,7 +856,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("input.disabled = false", catch_segment)
 
     def test_kanban_comment_input_cleared_on_open_and_close(self):
-        page = panel.PAGE
+        page = panel.page_source()
         open_start = page.index("function openViewTaskModal")
         open_end = page.index("function formatKanbanBytes", open_start)
         open_seg = page[open_start:open_end]
@@ -856,7 +870,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("view-task-new-comment", close_seg)
 
     def test_kanban_comment_body_style_and_date_guard(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("function openViewTaskModal")
         end = page.index("function formatKanbanBytes", start)
         seg = page[start:end]
@@ -865,7 +879,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("c.created_at ? new Date", seg)
 
     def test_aux_picker_model_search_empty_state_and_profile_guard(self):
-        page = panel.PAGE
+        page = panel.page_source()
         filter_start = page.index("function filterAuxPicker")
         filter_end = page.index("function renderFallbackPickerItems", filter_start)
         filter_seg = page[filter_start:filter_end]
@@ -883,7 +897,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("Tidak ada model yang cocok", fb_seg)
 
     def test_main_model_filter_trims_query_and_checks_display(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("function filterModels")
         end = page.index("function toggleLog", start)
         seg = page[start:end]
@@ -891,7 +905,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("style.display !== 'none'", seg)
 
     def test_kanban_drag_mutations_ignore_stale_responses(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var kanbanMutationGen = 0;", page)
         for function_name in ("handleKanbanTrashDrop", "handleKanbanDrop"):
             start = page.index("function " + function_name)
@@ -910,7 +924,7 @@ process.stdout.write(netRenderStatus(st));
             self.assertLess(then_segment.index(guard), then_segment.index("if(res"), function_name)
 
     def test_kanban_drag_and_trash_guard_against_board_switch(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var draggedBoard = null;", page)
 
         # Drag start records board
@@ -949,7 +963,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertIn("handleKanbanDragEnd(null)", segment)
 
     def test_kanban_bulk_mutations_ignore_stale_selection(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var kanbanMutationGen = 0;", page)
         for function_name in ("applyBulkStatus", "applyBulkDelete"):
             start = page.index("function " + function_name)
@@ -965,7 +979,7 @@ process.stdout.write(netRenderStatus(st));
             self.assertLess(promise_segment.index(guard), promise_segment.index("clearKanbanSelection()"), function_name)
 
     def test_kanban_create_mutations_ignore_stale_board_context(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var kanbanMutationGen = 0;", page)
         start = page.index("function submitCreateTask")
         next_function = page.find("\nfunction ", start + 1)
@@ -981,7 +995,7 @@ process.stdout.write(netRenderStatus(st));
         self.assertLess(then_segment.index(guard), then_segment.index("if(res"), "submitCreateTask")
 
     def test_kanban_board_create_ignores_stale_switch_context(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("var kanbanMutationGen = 0;", page)
         start = page.index("function submitCreateBoard")
         next_function = page.find("\nfunction ", start + 1)
@@ -1908,7 +1922,7 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
 
     def test_60_frontend_audit_regressions(self):
         """Regression tests for frontend audit: modal safety, WA pairing lifecycle, and dismiss guards."""
-        page = panel.PAGE
+        page = panel.page_source()
         nav_script = panel.NAV_SCRIPT
 
         # 1. confirmAction has null guard for confirm-modal
@@ -3868,7 +3882,7 @@ class TestAgentProfiles(unittest.TestCase):
         self.assertEqual(inv["enabled_count"], h_en, "panel vs hermes enabled")
         # Modal + toggle UI ada
         self.assertIn('id="profile-skills-modal"', panel.PAGE)
-        self.assertIn("openProfileSkillsModal(", panel.PAGE)
+        self.assertIn("openProfileSkillsModal(", panel.page_source())
         html = panel.render_profiles_block()
         self.assertIn("Kelola Skills", html)
 
@@ -4447,7 +4461,7 @@ class TestKanbanBoard(unittest.TestCase):
         self.assertLess(card_pos, todo_col_start if todo_col_start > done_col_start else len(html_board))
 
         # Frontend JS checks
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("if(st === 'completed') st = 'done';", page)
         self.assertIn("var rawSt = t.status === 'completed' ? 'done' : t.status;", page)
 
@@ -4465,7 +4479,7 @@ class TestKanbanBoard(unittest.TestCase):
         self.assertEqual(cfg["orchestrator_profile"], "")
 
     def test_17_frontend_kanban_config_submit_disables_button(self):
-        page = panel.PAGE
+        page = panel.page_source()
         start = page.index("function submitKanbanConfig")
         end = page.find("\nfunction ", start + 1)
         segment = page[start:end]
@@ -4512,7 +4526,7 @@ class TestMarkdownRenderingAndKanbanAttachments(unittest.TestCase):
         self.assertIn('&lt;img src=x onerror=alert(1)&gt;', html)
         self.assertNotIn('<span><img', html)
         self.assertNotIn('onerror="alert(1)"', html)
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("escapeMdHtml(lang || 'code')", page)
 
     def test_03_markdown_tables_with_alignment_and_responsive_wrap(self):
@@ -4574,7 +4588,7 @@ class TestMarkdownRenderingAndKanbanAttachments(unittest.TestCase):
         self.assertIn('&lt;img', html)
 
     def test_06_attachment_viewer_modal_elements_in_page(self):
-        page = panel.PAGE
+        page = panel.page_source()
         # Modal viewer container
         self.assertIn('id="view-kanban-attachment-modal"', page)
         self.assertIn('id="attachment-viewer-filename"', page)
@@ -4590,7 +4604,7 @@ class TestMarkdownRenderingAndKanbanAttachments(unittest.TestCase):
         self.assertIn('closeAttachmentViewerModal()', page)
 
     def test_07_task_and_skill_markdown_preview_in_page(self):
-        page = panel.PAGE
+        page = panel.page_source()
         # Task view modal elements styled for rich markdown
         self.assertIn('id="view-task-body" class="markdown-body"', page)
         self.assertIn('id="view-task-output" class="markdown-body"', page)
@@ -5792,7 +5806,7 @@ class TestWave77Audit(unittest.TestCase):
     """Wave 77 finite checklist verification: mutation guards, SSE rendering, JS syntax, route parity."""
 
     def test_wave77_profile_mutation_controls_disable_during_submission(self):
-        page = panel.PAGE
+        page = panel.page_source()
         # 1. Rename profile submission guard & controls
         self.assertIn("var profileRenameSubmitting = false;", page)
         rename_start = page.index("function submitRenameProfile")
@@ -5889,7 +5903,7 @@ class TestWave77Audit(unittest.TestCase):
 
     def test_page_has_no_external_font_or_icon_dependency(self):
         """Panel must render fully offline: zero fonts.googleapis / jsdelivr refs in PAGE."""
-        page = panel.PAGE
+        page = panel.page_source()
         for domain in ("fonts.googleapis.com", "fonts.gstatic.com", "cdn.jsdelivr.net"):
             self.assertNotIn(domain, page,
                              f"PAGE still references external domain {domain}")
@@ -5951,7 +5965,7 @@ class TestMobileAccessibility(unittest.TestCase):
 
     def test_active_tab_scrolls_into_view(self):
         import re
-        page = panel.PAGE
+        page = panel.page_source()
         # switchTab (the single activation path for click, URL/sessionStore restore, keyboard)
         # must bring the activated tab into view.
         start = page.index("function switchTab")
@@ -5979,7 +5993,7 @@ class TestMobileAccessibility(unittest.TestCase):
 
     def test_touch_targets_meet_minimums(self):
         import re
-        page = panel.PAGE
+        page = panel.page_source()
         css = page[page.index("<style>"):page.index("</style>")]
 
         def rule_min_height(selector):
@@ -6008,7 +6022,7 @@ class TestMobileAccessibility(unittest.TestCase):
 
     def test_focus_visible_style_present(self):
         import re
-        page = panel.PAGE
+        page = panel.page_source()
         css = page[page.index("<style>"):page.index("</style>")]
         # 1. A global :focus-visible ring in the panel accent, with clear offset.
         m = re.search(r":focus-visible\{\{([^{}]*)\}\}", css)
@@ -6391,7 +6405,7 @@ class TestProviderQuota(unittest.TestCase):
             self.assertNotIn(needle, blob)
 
     def test_kuota_tab_is_wired(self):
-        page = panel.PAGE
+        page = panel.page_source()
         self.assertIn("switchTab('quota', this)", page)
         self.assertIn('id="tab-quota"', page)
         self.assertIn("function quotaRender", page)
@@ -6510,6 +6524,260 @@ class TestPanelDeepSleep(unittest.TestCase):
                       "service must require the socket so it can be woken")
         self.assertNotIn("Restart=always", src,
                          "Restart=always would respawn the panel right after idle exit")
+
+
+class TestProfileRuntimeParity(unittest.TestCase):
+    """Tab Profil harus menampilkan apa yang benar-benar dimuat Hermes.
+
+    Skill: status on / off (skills.disabled + platform_disabled) / tak berlaku
+    (gate platform-environment-apps), termasuk skill dari external_dirs.
+    Toolset: daftar efektif per platform + jumlah tool dari registry.
+    Config: config.yaml profil, kredensial disamarkan.
+    """
+
+    def setUp(self):
+        import shutil
+        self.tmpdir = tempfile.mkdtemp(prefix="hermes-parity-")
+        self.root = panel.Path(self.tmpdir)
+        self._orig_config_path = panel.CONFIG_PATH
+        panel.CONFIG_PATH = str(self.root / "config.yaml")
+        panel._status_probe_cache.clear()
+        panel._ttl_generation.clear()
+
+    def tearDown(self):
+        import shutil
+        panel.CONFIG_PATH = self._orig_config_path
+        panel._status_probe_cache.clear()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    # --- helpers ---------------------------------------------------------
+    def _skill(self, rel, name, extra_fm=""):
+        d = self.root / "skills" / rel
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: {name} description.\n{extra_fm}---\n\nBody {name}.\n",
+            encoding="utf-8",
+        )
+        return d
+
+    def _write_cfg(self, text):
+        (self.root / "config.yaml").write_text(text, encoding="utf-8")
+
+    def _states(self, profile, platform=""):
+        inv = panel.get_profile_skill_inventory(profile, platform)
+        self.assertTrue(inv.get("ok"), inv.get("error"))
+        return {s["name"]: s["state"] for s in inv["skills"]}, inv
+
+    # --- skills ----------------------------------------------------------
+    def test_skill_platform_disable_is_per_platform(self):
+        self._skill("demo-a", "demo-a")
+        self._skill("demo-b", "demo-b")
+        self._write_cfg(
+            "model:\n  default: m\n"
+            "skills:\n  disabled: [demo-b]\n  platform_disabled:\n    telegram: [demo-a]\n"
+        )
+        base_state, base = self._states("default")
+        self.assertEqual(base["platform"], "cli")
+        self.assertEqual(base_state["demo-a"], "on")
+        self.assertEqual(base_state["demo-b"], "off")
+
+        tg_state, tg = self._states("default", "telegram")
+        self.assertEqual(tg["platform"], "telegram")
+        self.assertEqual(tg_state["demo-a"], "off", "platform_disabled harus berlaku di platform itu")
+        self.assertEqual(tg_state["demo-b"], "off", "disable global berlaku di semua platform")
+        self.assertEqual(tg["enabled_count"], 0)
+
+    def test_skill_hidden_when_its_own_gate_excludes_this_host(self):
+        import sys
+        self._skill("universal", "universal")
+        other_os = "windows" if not sys.platform.startswith("win") else "linux"
+        self._skill("elsewhere", "elsewhere", f"platforms: [{other_os}]\n")
+        state, inv = self._states("default")
+        self.assertEqual(state["universal"], "on")
+        self.assertEqual(state["elsewhere"], "hidden")
+        self.assertEqual(inv["hidden_count"], 1)
+        self.assertEqual(inv["enabled_count"], 1)
+        hidden = {s["name"]: s for s in inv["skills"]}["elsewhere"]
+        self.assertEqual(hidden["hidden_reason"], "platform")
+
+    def test_skill_roots_follow_hermes_external_dirs(self):
+        self._skill("local-a", "local-a")
+        ext = self.root / "ext-skills"
+        (ext / "ext-b").mkdir(parents=True)
+        (ext / "ext-b" / "SKILL.md").write_text("---\nname: ext-b\ndescription: dari dir eksternal\n---\n")
+        self._write_cfg(f"model:\n  default: m\nskills:\n  external_dirs:\n    - {ext}\n")
+        state, inv = self._states("default")
+        self.assertIn("ext-b", state, "skills.external_dirs harus ikut discan seperti Hermes")
+        tiers = {s["name"]: s["tier"] for s in inv["skills"]}
+        self.assertEqual(tiers["local-a"], 1)
+        self.assertEqual(tiers["ext-b"], 3)
+        self.assertEqual([r["tier"] for r in inv["roots"]], [1, 3])
+
+    def test_inventory_matches_hermes_when_library_is_available(self):
+        """Sanity: hasil panel == hasil fungsi yang dipakai runtime (bila hermes-lib ada)."""
+        if panel._hermes_module("agent.skill_utils") is None:
+            self.skipTest("hermes-lib tidak tersedia di mesin ini")
+        self._skill("demo-a", "demo-a")
+        self._skill("demo-b", "demo-b")
+        self._write_cfg("model:\n  default: m\nskills:\n  disabled: [demo-b]\n")
+        state, inv = self._states("default")
+        self.assertEqual(inv["total"], 2)
+        self.assertEqual(sorted(state.values()), ["off", "on"])
+        self.assertEqual(inv["enabled_count"] + inv["disabled_count"] + inv["hidden_count"], inv["total"])
+
+    def test_skill_toggle_writes_platform_disabled(self):
+        import yaml
+        self._skill("demo-a", "demo-a")
+        self._write_cfg("model:\n  default: m\n")
+        ok, msg = panel.set_profile_skill_enabled("default", "demo-a", False, platform="telegram")
+        self.assertTrue(ok, msg)
+        raw = yaml.safe_load((self.root / "config.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(raw["skills"]["platform_disabled"]["telegram"], ["demo-a"])
+        self.assertNotIn("demo-a", raw["skills"].get("disabled") or [])
+
+        ok, msg = panel.set_profile_skill_enabled("default", "demo-a", True, platform="telegram")
+        self.assertTrue(ok, msg)
+        raw = yaml.safe_load((self.root / "config.yaml").read_text(encoding="utf-8"))
+        self.assertNotIn("platform_disabled", raw.get("skills") or {})
+
+    def test_global_disable_is_not_overridable_per_platform(self):
+        self._skill("demo-a", "demo-a")
+        self._write_cfg("model:\n  default: m\nskills:\n  disabled: [demo-a]\n")
+        ok, msg = panel.set_profile_skill_enabled("default", "demo-a", False, platform="telegram")
+        self.assertFalse(ok)
+        self.assertIn("global", msg)
+
+    def test_inventory_degrades_without_hermes_lib(self):
+        self._skill("demo-a", "demo-a")
+        self._write_cfg("model:\n  default: m\nskills:\n  disabled: [demo-a]\n")
+        saved_mods = dict(panel._HERMES_MOD_CACHE)
+        saved_lib = dict(panel._HERMES_LIB_CACHE)
+        try:
+            panel._HERMES_MOD_CACHE.clear()
+            panel._HERMES_LIB_CACHE.update({"dir": "", "tried": True})
+            inv = panel.get_profile_skill_inventory("default")
+            self.assertTrue(inv["ok"], inv.get("error"))
+            self.assertEqual(inv["source"], "panel-scan")
+            self.assertEqual(inv["total"], 1)
+            self.assertEqual(inv["disabled_count"], 1)
+            ts = panel.get_profile_toolsets("default")
+            self.assertEqual(ts["source"], "config")
+        finally:
+            panel._HERMES_MOD_CACHE.clear()
+            panel._HERMES_MOD_CACHE.update(saved_mods)
+            panel._HERMES_LIB_CACHE.clear()
+            panel._HERMES_LIB_CACHE.update(saved_lib)
+
+    def test_duplicate_declared_name_reports_cli_disagreement(self):
+        """Nama deklarasi ganda: loader memfilter dua-duanya, `hermes skills list` hanya satu."""
+        self._skill("cat-a/dup", "dup")
+        self._skill("cat-b/dup", "dup")
+        self._write_cfg("model:\n  default: m\nskills:\n  disabled: [dup]\n")
+        inv = panel.get_profile_skill_inventory("default")
+        self.assertEqual(inv["enabled_count"], 0, "loader memfilter dua-duanya")
+        self.assertEqual(inv["disabled_count"], 2)
+        self.assertEqual(inv["list_enabled_count"], 2, "CLI hanya melihat load name, jadi tampak aktif")
+        self.assertEqual(inv["list_mismatch"], ["cat-a/dup", "cat-b/dup"])
+
+    # --- toolsets --------------------------------------------------------
+    def test_toolsets_report_catalog_counts_per_platform(self):
+        self._write_cfg(
+            "model:\n  default: m\n"
+            "platform_toolsets:\n  cli: [web, terminal]\n  telegram: [web]\n"
+        )
+        ts = panel.get_profile_toolsets("default", "cli")
+        self.assertTrue(ts["ok"])
+        self.assertTrue(ts["explicit"])
+        self.assertEqual(ts["enabled"], ["web", "terminal"])
+        self.assertIn("web_search", ts["tools"])
+        self.assertIn("terminal", ts["tools"])
+        self.assertEqual(ts["tool_count"], len(ts["tools"]))
+        rows = {r["name"]: r for r in ts["rows"]}
+        self.assertGreater(rows["web"]["tool_count"], 0)
+        self.assertTrue(rows["web"]["description"])
+        self.assertEqual(ts["platforms"], ["cli", "telegram"])
+
+        tg = panel.get_profile_toolsets("default", "telegram")
+        self.assertEqual(tg["enabled"], ["web"])
+        self.assertNotIn("terminal", tg["tools"])
+
+    def test_toolsets_default_to_platform_bundle_when_unset(self):
+        self._write_cfg("model:\n  default: m\n")
+        ts = panel.get_profile_toolsets("default")
+        self.assertFalse(ts["explicit"])
+        self.assertEqual(ts["configured"], ["hermes-cli"])
+        if ts["source"] == "hermes-lib":
+            self.assertGreater(ts["tool_count"], 0)
+            self.assertEqual(ts["rows"][0]["name"], "hermes-cli")
+
+    def test_toolsets_subtract_agent_disabled_toolsets(self):
+        self._write_cfg(
+            "model:\n  default: m\n"
+            "platform_toolsets:\n  cli: [web, terminal]\n"
+            "agent:\n  disabled_toolsets: [terminal]\n"
+        )
+        ts = panel.get_profile_toolsets("default")
+        self.assertEqual(ts["enabled"], ["web"])
+        self.assertEqual(ts["disabled_toolsets"], ["terminal"])
+        self.assertNotIn("terminal", ts["tools"])
+
+    def test_toolset_toggle_updates_effective_list(self):
+        self._write_cfg("model:\n  default: m\nplatform_toolsets:\n  cli: [web, terminal]\n")
+        ok, msg = panel.set_profile_toolset_enabled("default", "web", False)
+        self.assertTrue(ok, msg)
+        ts = panel.get_profile_toolsets("default")
+        self.assertEqual(ts["enabled"], ["terminal"])
+        self.assertNotIn("web_search", ts["tools"])
+
+    # --- config ----------------------------------------------------------
+    def test_config_summary_groups_and_masks_secrets(self):
+        self._write_cfg(
+            "model:\n  default: m\n  provider: 9router\n"
+            "telegram:\n  enabled: true\n  bot_token: 123456:SECRET-TOKEN\n"
+            "platform_toolsets:\n  cli: [web]\n"
+            "skills:\n  disabled: [a, b]\n"
+        )
+        cfg = panel.get_profile_config_summary("default")
+        self.assertTrue(cfg["ok"], cfg.get("error"))
+        self.assertTrue(cfg["masked"])
+        self.assertNotIn("SECRET-TOKEN", cfg["raw_yaml"])
+        self.assertIn(panel._REDACTED_SENTINEL, cfg["raw_yaml"])
+        ids = [g["id"] for g in cfg["groups"]]
+        for expected in ("model", "agent", "toolsets", "skills", "platforms", "aux", "mcp"):
+            self.assertIn(expected, ids)
+        groups = {g["id"]: g for g in cfg["groups"]}
+        self.assertTrue(any(k == "disabled" and v.startswith("2 ") for k, v in groups["skills"]["items"]))
+        self.assertTrue(any(k == "telegram" and "aktif" in v for k, v in groups["platforms"]["items"]))
+
+    def test_config_summary_rejects_invalid_profile(self):
+        cfg = panel.get_profile_config_summary("../etc")
+        self.assertFalse(cfg["ok"])
+        self.assertIn("tidak valid", cfg["error"])
+
+    # --- card + page -----------------------------------------------------
+    def test_profile_card_shows_runtime_counts(self):
+        self._skill("demo-a", "demo-a")
+        self._write_cfg("model:\n  default: m\nplatform_toolsets:\n  cli: [web]\n")
+        html = panel._render_profiles_block_uncached()
+        self.assertIn("Skills: 1/1 aktif", html)
+        self.assertIn("toolset", html)
+        self.assertNotIn("Tools: 22", html)
+
+    def test_page_source_inlines_profile_script(self):
+        src = panel.page_source()
+        self.assertNotIn("{profile_script}", src)
+        for fn in ("function openProfileSkillsModal", "function loadProfileTools",
+                   "function onProfilePlatformChange", "function renderProfileConfig"):
+            self.assertIn(fn, src)
+
+    def test_profile_endpoints_accept_platform_and_config_is_read_only(self):
+        import inspect
+        src = inspect.getsource(panel.Handler.do_GET)
+        self.assertIn('"/api/profile-config"', src)
+        self.assertIn('"/api/profile-skills"', src)
+        self.assertIn('"/api/profile-toolsets"', src)
+        self.assertIn('qs.get("platform")', src)
+        self.assertNotIn("/api/profile-config", panel.MUTATING_PATHS)
 
 
 if __name__ == "__main__":

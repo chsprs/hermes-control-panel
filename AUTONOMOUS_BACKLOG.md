@@ -314,3 +314,59 @@ lost-update. Jalur terkait: `save_gateway_platform_config`, `toggle_gateway_plat
   swallow logging, scoped model rewrite.
 - [x] 5. Empty/loading state slot SSE — 3 slot diperbaiki, 3 sudah aman. Audit: `aux-tasks-slot` (`render_aux_tasks_block` return "" kalau kosong), `process-table-slot` (tbody kosong tanpa baris placeholder), `clean-log-slot` (`render_clean_junk_card` return "" sebelum cleanup pertama) → ketiganya sekarang render placeholder informatif (`update-hint` / baris "Tidak ada layanan terdeteksi." colspan=5). Sudah aman tanpa perubahan: `gateway-list-slot` ("Belum ada gateway yang dikonfigurasi..."), `backup-models-slot` ("Belum ada model cadangan..."), `profiles-slot` (banner "Profil Saat Ini" selalu render). Render awal server sudah mengisi semua slot, jadi tidak ada gap loading. Test: `test_sse_slots_have_loading_or_empty_placeholder`.
 - [x] Wave 78 selesai — verifikasi akhir: 305 unit test OK (tests.test_install + tests.test_panel), 113/113 contract test OK, `node --check` semua blok script inline yang tersentuh (PAGE + NAV/NETWORK/SSE) OK, runtime IDENTICAL + `hermes-panel.service` active + listen 0.0.0.0:1000. Cek visual 390px (render page + inspeksi CSS): `.tab` 44px termasuk override 390px, `.tabs` dan `.task-table-wrap` pakai `overflow-x:auto` (tidak ada overflow horizontal), grid fluid (1fr / auto-fit), tidak ada fixed width >390px di area layout. Catatan: perubahan server item 3 & 4 sempat ter-commit bersama worker paralel (tree bersama) — isi identik, test pengunci masuk di commit terpisah.
+
+## Wave 81 — Tab Profil sesuai runtime Hermes (skills / toolset / config)
+
+**Masalah**: tab Profil menampilkan angka karangan. Kartu profil default menulis
+"Skills: 79/150 aktif · Tools: 18 aktif" padahal runtime memuat 130 skill (117 aktif)
+dan 18 toolset berisi 50 tool. Untuk profil baru, `platform_toolsets.cli: null` dibalas
+`cli_toolsets: null` lalu UI memakai daftar hardcode 28 nama toolset (sebagian tidak ada
+di registry). `skills.external_dirs`, `skills.platform_disabled.<platform>`, dan gate
+`platforms:/environments:/requires_apps:` tidak dibaca sama sekali; tab Config tidak ada;
+deskripsi profil dibaca dari `meta.json` padahal Hermes 0.22.5 menulis `profile.yaml`.
+
+**Perbaikan**
+- Inventaris skill memakai fungsi Hermes sendiri: `get_skill_search_roots` (local →
+  create_dir → external_dirs, tier 1/2/3), `iter_skill_index_files`,
+  `resolve_skill_catalog`, `is_disabled_entry`, plus matcher platform/environment/apps.
+  Tiap skill kini berstatus `on` / `off` / `hidden` (+`hidden_reason`, `tier`, `root`).
+  Root project sengaja dikecualikan (bergantung cwd sesi, tak bisa diketahui panel).
+- `skills.platform_disabled` dihormati: inventory & toggle sadar platform
+  (`platform_disabled.<p>` untuk platform pesan, `disabled` untuk CLI), dan disable
+  global tidak bisa di-downgrade per platform (cermin `get_disabled_skill_names`).
+- Toolset: katalog asli dari registry (`deskripsi`, `tool_count`, `tools`, `includes`,
+  `is_bundle`), daftar efektif per platform = `platform_toolsets.<p>` (atau bundle
+  `hermes-cli`/`hermes-<p>`) − `agent.disabled_toolsets`, plus total tool unik.
+- Endpoint baru `/api/profile-config` (read-only, di luar `MUTATING_PATHS`): 7 grup
+  (Model, Agent, Toolset per Platform, Skills, Platform Messaging, Aux, MCP) + YAML
+  mentah, semua kredensial disamarkan via `_mask_secret_values`.
+- UI: selector platform + tab ketiga "Config" di modal profil; baris toolset bisa dibuka
+  untuk melihat nama tool; JS dipindah ke `PROFILE_SCRIPT` + `page_source()` supaya brace
+  JS tidak bentrok dengan `PAGE.format()`.
+- `list_mismatch`: `hermes skills list` hanya membandingkan load name, jadi nama deklarasi
+  ganda (mis. `comfyui` di dua kategori) tampil "enabled" di CLI walau loader memfilter
+  keduanya. Panel melaporkan hitungan loader + menyebut selisihnya di UI.
+
+**Batas yang didokumentasikan (bukan bug)**: profil tanpa `platform_toolsets` memakai
+bundle; `_get_platform_tools()` milik Hermes memangkasnya ke toolset konkret (37 tool),
+sedangkan panel melaporkan isi penuh bundle (51 tool) karena replikasinya butuh import
+`hermes_cli.tools_config` (+26–60 MB RSS). UI menandainya "(bundel)".
+
+### Verifikasi
+- `tests.test_install + tests.test_panel` → **359 test OK** (342 baseline + 17 baru di
+  `TestProfileRuntimeParity`).
+- Live: `/api/profile-skills?profile=default` → 130 skill, 115 on / 15 off, 0 hidden,
+  `list_enabled_count=117`, `list_mismatch=['creative/comfyui','video-production/comfyui']`
+  — sama dengan `hermes skills list` (117 enabled, 13 disabled) setelah selisih dijelaskan.
+- Live: `/api/profile-toolsets` → 18 toolset / 50 tool, `source=hermes-lib`.
+- Live: `/api/profile-config` → 7 grup, `masked=true` (`api_key` fallback = sentinel).
+- Named profile uji (`paneltest`): 58 skill (53 on, 5 hidden = skill khusus macOS),
+  toolset bundle `hermes-cli` 51 tool — profil uji sudah dihapus lagi.
+- `/status` HTTP 200 (452 KB), tidak ada placeholder `profile_script` tersisa,
+  `node --check` 3 blok script → 0 error. Panel RSS 64,7 MB (tidak naik: modul berat
+  Hermes tidak di-import ke proses panel).
+- Deploy: `cp` → md5 identik → `systemctl restart hermes-panel.service` → active.
+  Gateway default tetap jalan (PID 51466, `served: true`).
+
+### Commit
+- (lihat `git log -1` untuk hash Wave 81)

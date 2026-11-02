@@ -34,6 +34,7 @@ same HTML fragments the initial page uses, so the client never re-implements it.
 """
 
 from contextlib import closing, suppress
+import ast
 import copy
 import ctypes
 import ctypes.util
@@ -43,6 +44,7 @@ import gc
 import hashlib
 import hmac
 import html
+import importlib
 import ipaddress
 import json
 import os
@@ -1629,8 +1631,11 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       </div>
       <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeProfileSkillsModal()">✕</button>
     </div>
-    <div style="display:flex;gap:0.5rem;margin:0.5rem 0;flex-wrap:wrap;align-items:center">
+    <div id="profile-skills-searchwrap" style="display:flex;gap:0.5rem;margin:0.5rem 0;flex-wrap:wrap;align-items:center">
       <input type="text" id="profile-skills-search" class="search-input" placeholder="Cari skill..." style="flex:1;min-width:160px" oninput="filterProfileSkills()">
+      <select id="profile-skills-platform" class="search-input" style="width:auto;min-width:110px;background:rgba(255,255,255,0.06);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-sm)" onchange="onProfilePlatformChange(this.value)">
+        <option value="cli">CLI</option>
+      </select>
       <label style="font-size:0.72rem;color:var(--text-dim);display:flex;align-items:center;gap:0.3rem;cursor:pointer">
         <input type="checkbox" id="profile-skills-hide-off" onchange="filterProfileSkills()"> Sembunyikan nonaktif
       </label>
@@ -1638,11 +1643,13 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem">
       <button type="button" class="tab active" id="pst-tab-skills" onclick="switchProfileSkillsTab('skills')">Skills</button>
       <button type="button" class="tab" id="pst-tab-tools" onclick="switchProfileSkillsTab('tools')">Tools</button>
+      <button type="button" class="tab" id="pst-tab-config" onclick="switchProfileSkillsTab('config')">Config</button>
     </div>
     <div id="profile-skills-list" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:0.4rem;min-height:200px">
       <div style="font-size:0.8rem;color:var(--text-dim)">Memuat...</div>
     </div>
     <div id="profile-tools-list" style="flex:1;overflow-y:auto;display:none;flex-direction:column;gap:0.4rem;min-height:200px"></div>
+    <div id="profile-config-list" style="flex:1;overflow-y:auto;display:none;flex-direction:column;gap:0.4rem;min-height:200px"></div>
     <div id="profile-skill-read" style="display:none;flex-direction:column;gap:0.5rem;margin-top:0.5rem;border-top:1px solid var(--border);padding-top:0.5rem">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <strong id="profile-skill-read-title" style="font-family:var(--font-mono);font-size:0.85rem"></strong>
@@ -3408,292 +3415,7 @@ function setProfileModel(profileName, provider, model){{
   }});
 }}
 
-// --- Profile Skills & Tools manager ---
-var currentSkillsProfile = '';
-var profileSkillsCache = [];
-var profileToolsCache = {{cli: null, disabled: []}};
-var profileSkillsLoadGen = 0;
-var profileSkillReadGen = 0;
-
-function openProfileSkillsModal(name){{
-  var loadGen = ++profileSkillsLoadGen;
-  currentSkillsProfile = name;
-  profileSkillsCache = [];
-  profileToolsCache = {{cli: null, disabled: []}};
-  var title = document.getElementById('profile-skills-title');
-  if(title) title.textContent = 'Skills & Tools - Profil ' + name;
-  var inp = document.getElementById('profile-skills-search');
-  if(inp) inp.value = '';
-  var hide = document.getElementById('profile-skills-hide-off');
-  if(hide) hide.checked = false;
-  closeProfileSkillRead();
-  switchProfileSkillsTab('skills');
-  var modal = document.getElementById('profile-skills-modal');
-  if(modal) modal.classList.add('show');
-  var list = document.getElementById('profile-skills-list');
-  if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--text-dim)">Memuat...</div>';
-  fetchJsonChecked('/api/profile-skills?profile=' + encodeURIComponent(name))
-    .then(function(res){{
-      if(loadGen !== profileSkillsLoadGen) return;
-      if(res && res.ok){{
-        profileSkillsCache = res.skills || [];
-        var sub = document.getElementById('profile-skills-sub');
-        if(sub) sub.textContent = res.enabled_count + ' aktif / ' + res.total + ' skill · Sinkron dengan config.yaml profil ' + name;
-      }} else {{
-        profileSkillsCache = [];
-        if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Gagal: ' + escHtml((res && res.error) || 'unknown') + '</div>';
-      }}
-      renderProfileSkillsList();
-    }})
-    .catch(function(err){{
-      if(loadGen !== profileSkillsLoadGen) return;
-      if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Error: ' + escHtml(err && err.message || err) + '</div>';
-    }});
-  fetchJsonChecked('/api/profile-toolsets?profile=' + encodeURIComponent(name))
-    .then(function(res){{
-      if(loadGen !== profileSkillsLoadGen) return;
-      if(res && res.ok) profileToolsCache = {{cli: res.cli_toolsets, disabled: res.disabled_toolsets || []}};
-      renderProfileToolsList();
-    }})
-    .catch(function(err){{
-      if(loadGen !== profileSkillsLoadGen) return;
-      renderProfileToolsList();
-      var tools = document.getElementById('profile-tools-list');
-      if(tools) tools.title = 'Gagal memuat toolset: ' + (err && err.message || err);
-    }});
-}}
-
-function closeProfileSkillsModal(){{
-  ++profileSkillsLoadGen;
-  var modal = document.getElementById('profile-skills-modal');
-  if(modal) modal.classList.remove('show');
-  currentSkillsProfile = '';
-}}
-
-function switchProfileSkillsTab(which){{
-  var sl = document.getElementById('profile-skills-list');
-  var tl = document.getElementById('profile-tools-list');
-  var ts = document.getElementById('pst-tab-skills');
-  var tt = document.getElementById('pst-tab-tools');
-  if(which === 'tools'){{
-    if(sl) sl.style.display = 'none';
-    if(tl) tl.style.display = 'flex';
-    if(ts) ts.classList.remove('active');
-    if(tt) tt.classList.add('active');
-  }} else {{
-    if(sl) sl.style.display = 'flex';
-    if(tl) tl.style.display = 'none';
-    if(ts) ts.classList.add('active');
-    if(tt) tt.classList.remove('active');
-  }}
-}}
-
-function escHtml(s){{ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }}
-
-function renderProfileSkillsList(){{
-  var list = document.getElementById('profile-skills-list');
-  if(!list) return;
-  var q = ((document.getElementById('profile-skills-search') || {{}}).value || '').toLowerCase();
-  var hideOff = document.getElementById('profile-skills-hide-off');
-  hideOff = hideOff ? hideOff.checked : false;
-  var rows = [];
-  for(var i = 0; i < profileSkillsCache.length; i++){{
-    var s = profileSkillsCache[i];
-    if(hideOff && !s.enabled) continue;
-    if(q && (s.name + ' ' + (s.description || '') + ' ' + (s.category || '')).toLowerCase().indexOf(q) === -1) continue;
-    var badge = s.enabled
-      ? '<span class="live-badge badge-up" style="font-size:0.62rem;padding:0.1rem 0.4rem">Aktif</span>'
-      : '<span class="badge badge-muted" style="font-size:0.62rem">Mati</span>';
-    var cat = s.category ? '<span class="badge" style="font-size:0.62rem">' + escHtml(s.category) + '</span>' : '';
-    var tgl = s.essential
-      ? '<span style="font-size:0.68rem;color:var(--text-dim)">esensial</span>'
-      : '<button type="button" class="btn-action-sm" data-skill-name="' + escHtml(s.name) + '" onclick="toggleProfileSkill(this.getAttribute(\\'data-skill-name\\'), ' + (s.enabled ? 'false' : 'true') + ')">' + (s.enabled ? 'Matikan' : 'Nyalakan') + '</button>';
-    // Static-literal row markup: nama/deskripsi upstream via escHtml.
-    rows.push(
-      '<div style="display:flex;gap:0.5rem;align-items:flex-start;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.65rem">'
-      + '<div style="flex:1;min-width:0">'
-      + '<div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap"><strong style="font-family:var(--font-mono);font-size:0.8rem">' + escHtml(s.name) + '</strong>' + badge + cat + '</div>'
-      + '<div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.15rem;line-height:1.35">' + escHtml(s.description || '-') + '</div>'
-      + '</div>'
-      + '<div style="display:flex;gap:0.3rem;align-items:center;flex-shrink:0">'
-      + '<button type="button" class="btn-action-sm" data-skill-name="' + escHtml(s.name) + '" onclick="readProfileSkill(this.getAttribute(\\'data-skill-name\\'))">Baca</button>'
-      + tgl
-      + '</div></div>'
-    );
-  }}
-  list.innerHTML = rows.length ? rows.join('') : '<div style="font-size:0.8rem;color:var(--text-dim)">Tidak ada skill cocok.</div>';
-}}
-
-function filterProfileSkills(){{ renderProfileSkillsList(); }}
-
-var profileSkillSubmitting = {{}};
-
-function toggleProfileSkill(skill, enable){{
-  if(profileSkillSubmitting[skill]) return;
-  profileSkillSubmitting[skill] = true;
-  var btn = document.querySelector('button[data-skill-name="' + escHtml(skill) + '"]');
-  if(btn){{ btn.disabled = true; btn.textContent = '...'; }}
-  var mutationProfile = currentSkillsProfile;
-  var mutationLoadGen = profileSkillsLoadGen;
-  var body = new URLSearchParams({{ profile: mutationProfile, skill: skill, enabled: enable ? '1' : '0', ajax: '1' }});
-  fetchJsonChecked('/toggle-profile-skill', {{
-    method: 'POST',
-    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
-    body: body.toString()
-  }})
-  .then(function(res){{
-    delete profileSkillSubmitting[skill];
-    if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
-    if(res && res.ok){{
-      for(var i = 0; i < profileSkillsCache.length; i++){{
-        if(profileSkillsCache[i].name === skill) profileSkillsCache[i].enabled = !!enable;
-      }}
-      renderProfileSkillsList();
-      toast(res.message || ('Skill ' + skill + (enable ? ' diaktifkan' : ' dinonaktifkan')), 'ok');
-    }} else {{
-      renderProfileSkillsList();
-      toast('Gagal: ' + (res && res.error ? res.error : 'unknown'), 'err');
-    }}
-  }})
-  .catch(function(err){{
-    delete profileSkillSubmitting[skill];
-    if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
-    renderProfileSkillsList();
-    toast('Error: ' + err, 'err');
-  }});
-}}
-
-var currentProfileSkillRaw = '';
-var currentProfileSkillMode = 'preview';
-
-function toggleProfileSkillView(){{
-  var b = document.getElementById('profile-skill-read-body');
-  var btn = document.getElementById('profile-skill-toggle-btn');
-  if(!b) return;
-  if(currentProfileSkillMode === 'preview'){{
-    currentProfileSkillMode = 'raw';
-    if(btn) btn.textContent = 'Preview';
-    b.className = 'logbox';
-    b.style.whiteSpace = 'pre-wrap';
-    b.textContent = currentProfileSkillRaw;
-  }} else {{
-    currentProfileSkillMode = 'preview';
-    if(btn) btn.textContent = 'Raw';
-    b.className = 'markdown-body';
-    b.style.whiteSpace = 'normal';
-    b.innerHTML = renderMarkdown(currentProfileSkillRaw);
-  }}
-}}
-
-function readProfileSkill(skill){{
-  var loadGen = ++profileSkillReadGen;
-  var box = document.getElementById('profile-skill-read');
-  var t = document.getElementById('profile-skill-read-title');
-  var b = document.getElementById('profile-skill-read-body');
-  var btn = document.getElementById('profile-skill-toggle-btn');
-  currentProfileSkillMode = 'preview';
-  if(btn) btn.textContent = 'Raw';
-  if(t) t.textContent = skill;
-  if(b){{
-    b.className = 'markdown-body';
-    b.style.whiteSpace = 'normal';
-    b.innerHTML = '<span style="color:var(--text-dim)">Memuat...</span>';
-  }}
-  if(box) box.style.display = 'flex';
-  fetchJsonChecked('/api/profile-skill?profile=' + encodeURIComponent(currentSkillsProfile) + '&skill=' + encodeURIComponent(skill))
-    .then(function(res){{
-      if(loadGen !== profileSkillReadGen) return;
-      if(b){{
-        if(res && res.ok){{
-          currentProfileSkillRaw = res.content || '';
-          b.className = 'markdown-body';
-          b.style.whiteSpace = 'normal';
-          b.innerHTML = renderMarkdown(res.content);
-        }} else {{
-          b.textContent = 'Gagal: ' + ((res && res.error) || 'unknown');
-        }}
-      }}
-    }})
-    .catch(function(err){{
-      if(loadGen !== profileSkillReadGen) return;
-      if(b) b.textContent = 'Error: ' + (err && err.message || err);
-    }});
-}}
-
-function closeProfileSkillRead(){{
-  ++profileSkillReadGen;
-  var box = document.getElementById('profile-skill-read');
-  if(box) box.style.display = 'none';
-}}
-
-function renderProfileToolsList(){{
-  var list = document.getElementById('profile-tools-list');
-  if(!list) return;
-  var cli = profileToolsCache.cli;
-  var dis = profileToolsCache.disabled || [];
-  if(!cli){{ list.innerHTML = '<div style="font-size:0.8rem;color:var(--text-dim)">Profil ini ikut toolset default (belum ada platform_toolsets.cli khusus). Nonaktifkan toolset via daftar di bawah — tersimpan ke agent.disabled_toolsets.</div>'; }}
-  var names = cli || ['browser','clarify','code_execution','computer_use','connections','context_engine','cronjob','delegation','discord','discord_admin','file','homeassistant','image_gen','kanban','memory','session_search','skills','spotify','stt','terminal','todo','tts','video','video_gen','vision','web','x_search','yuanbao'];
-  var rows = [];
-  for(var i = 0; i < names.length; i++){{
-    var n = names[i];
-    var off = dis.indexOf(n) !== -1;
-    var badge = off
-      ? '<span class="badge badge-muted" style="font-size:0.62rem">Mati</span>'
-      : '<span class="live-badge badge-up" style="font-size:0.62rem;padding:0.1rem 0.4rem">Aktif</span>';
-    rows.push(
-      '<div style="display:flex;gap:0.5rem;align-items:center;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:0.45rem 0.65rem">'
-      + '<strong style="font-family:var(--font-mono);font-size:0.8rem;flex:1">' + escHtml(n) + '</strong>' + badge
-      + '<button type="button" class="btn-action-sm" data-ts-name="' + escHtml(n) + '" onclick="toggleProfileToolset(this.getAttribute(\\'data-ts-name\\'), ' + (off ? 'true' : 'false') + ')">' + (off ? 'Nyalakan' : 'Matikan') + '</button></div>'
-    );
-  }}
-  var extra = [];
-  for(var j = 0; j < dis.length; j++){{
-    if(names.indexOf(dis[j]) === -1) extra.push(dis[j]);
-  }}
-  if(extra.length){{
-    rows.push('<div style="font-size:0.7rem;color:var(--text-dim)">Nonaktif lain (di luar daftar cli): ' + escHtml(extra.join(', ')) + '</div>');
-  }}
-  list.innerHTML = rows.join('');
-}}
-
-var profileToolSubmitting = {{}};
-
-function toggleProfileToolset(toolset, enable){{
-  if(profileToolSubmitting[toolset]) return;
-  profileToolSubmitting[toolset] = true;
-  var btn = document.querySelector('button[data-ts-name="' + escHtml(toolset) + '"]');
-  if(btn){{ btn.disabled = true; btn.textContent = '...'; }}
-  var mutationProfile = currentSkillsProfile;
-  var mutationLoadGen = profileSkillsLoadGen;
-  var body = new URLSearchParams({{ profile: mutationProfile, toolset: toolset, enabled: enable ? '1' : '0', ajax: '1' }});
-  fetchJsonChecked('/toggle-profile-toolset', {{
-    method: 'POST',
-    headers: {{ 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }},
-    body: body.toString()
-  }})
-  .then(function(res){{
-    delete profileToolSubmitting[toolset];
-    if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
-    if(res && res.ok){{
-      var dis = profileToolsCache.disabled || [];
-      var ix = dis.indexOf(toolset);
-      if(enable && ix !== -1) dis.splice(ix, 1);
-      if(!enable && ix === -1) dis.push(toolset);
-      profileToolsCache.disabled = dis;
-      renderProfileToolsList();
-      toast(res.message || ('Toolset ' + toolset + (enable ? ' diaktifkan' : ' dimatikan')), 'ok');
-    }} else {{
-      renderProfileToolsList();
-      toast('Gagal: ' + (res && res.error ? res.error : 'unknown'), 'err');
-    }}
-  }})
-  .catch(function(err){{
-    delete profileToolSubmitting[toolset];
-    if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
-    renderProfileToolsList();
-    toast('Error: ' + err, 'err');
-  }});
-}}
+{profile_script}
 
 // --- Kanban UI JavaScript ---
 var currentViewingTaskId = '';
@@ -8466,6 +8188,479 @@ const t = setInterval(() => {{
 # Auto-refresh via SSE (Server-Sent Events). The server pushes updates only
 # when data actually changes — no wasted polls, instant updates, one persistent
 # connection. Falls back to polling if SSE is unavailable.
+PROFILE_SCRIPT = r"""
+// --- Profile Skills / Tools / Config manager (reads the Hermes runtime view) ---
+var currentSkillsProfile = '';
+var profileSkillsCache = [];
+var profileSkillsMeta = {profile: '', platform: 'cli', platforms: ['cli'], source: ''};
+var profileToolsCache = {rows: [], disabled: [], tools: [], count: 0, other: [], explicit: true, source: '', platform: 'cli'};
+var profileConfigCache = null;
+var profileSkillsLoadGen = 0;
+var profileToolsLoadGen = 0;
+var profileConfigLoadGen = 0;
+var profileSkillReadGen = 0;
+var profileToolsExpanded = {};
+
+function openProfileSkillsModal(name){
+  currentSkillsProfile = name;
+  profileSkillsCache = [];
+  profileSkillsMeta = {profile: name, platform: 'cli', platforms: ['cli'], source: ''};
+  profileToolsCache = {rows: [], disabled: [], tools: [], count: 0, other: [], explicit: true, source: '', platform: 'cli'};
+  profileConfigCache = null;
+  profileToolsExpanded = {};
+  var title = document.getElementById('profile-skills-title');
+  if(title) title.textContent = 'Profil ' + name;
+  var sub = document.getElementById('profile-skills-sub');
+  if(sub) sub.textContent = 'Skills, toolset, dan config.yaml profil — dibaca dari sumber yang sama dengan runtime Hermes.';
+  var inp = document.getElementById('profile-skills-search');
+  if(inp) inp.value = '';
+  var hide = document.getElementById('profile-skills-hide-off');
+  if(hide) hide.checked = false;
+  var sel = document.getElementById('profile-skills-platform');
+  if(sel) sel.innerHTML = '<option value="cli">CLI</option>';
+  closeProfileSkillRead();
+  var modal = document.getElementById('profile-skills-modal');
+  if(modal) modal.classList.add('show');
+  switchProfileSkillsTab('skills');
+  refreshProfilePanel('');
+}
+
+function closeProfileSkillsModal(){
+  ++profileSkillsLoadGen;
+  ++profileToolsLoadGen;
+  ++profileConfigLoadGen;
+  var modal = document.getElementById('profile-skills-modal');
+  if(modal) modal.classList.remove('show');
+  currentSkillsProfile = '';
+}
+
+function currentProfilePlatform(){
+  var sel = document.getElementById('profile-skills-platform');
+  var p = sel ? sel.value : '';
+  return p || 'cli';
+}
+
+function onProfilePlatformChange(plat){
+  refreshProfilePanel(plat === 'cli' ? '' : plat);
+}
+
+function refreshProfilePanel(platform){
+  if(!currentSkillsProfile) return;
+  loadProfileSkills(currentSkillsProfile, platform);
+  loadProfileTools(currentSkillsProfile, platform);
+}
+
+function fillProfilePlatformSelect(platforms, active){
+  var sel = document.getElementById('profile-skills-platform');
+  if(!sel) return;
+  var current = active || sel.value || 'cli';
+  var seen = {}, opts = [], list = (platforms && platforms.length) ? platforms : ['cli'];
+  for(var i = 0; i < list.length; i++){
+    var p = list[i];
+    if(!p || seen[p]) continue;
+    seen[p] = 1;
+    opts.push('<option value="' + escHtml(p) + '"' + (p === current ? ' selected' : '') + '>' + (p === 'cli' ? 'CLI' : escHtml(p)) + '</option>');
+  }
+  sel.innerHTML = opts.join('');
+}
+
+function loadProfileSkills(name, platform){
+  var loadGen = ++profileSkillsLoadGen;
+  var list = document.getElementById('profile-skills-list');
+  if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--text-dim)">Memuat skill...</div>';
+  fetchJsonChecked('/api/profile-skills?profile=' + encodeURIComponent(name) + '&platform=' + encodeURIComponent(platform || ''))
+    .then(function(res){
+      if(loadGen !== profileSkillsLoadGen) return;
+      if(res && res.ok){
+        profileSkillsCache = res.skills || [];
+        profileSkillsMeta = {profile: name, platform: res.platform || 'cli', platforms: res.platforms || ['cli'], source: res.source || ''};
+        var sub = document.getElementById('profile-skills-sub');
+        if(sub){
+          sub.textContent = res.enabled_count + ' aktif / ' + res.total + ' skill'
+            + (res.hidden_count ? ' · ' + res.hidden_count + ' tak berlaku di host ini' : '')
+            + ' · platform ' + (res.platform || 'cli')
+            + (res.source === 'panel-scan' ? ' · mode cadangan (hermes-lib tidak terbaca)' : '')
+            + ((res.list_mismatch && res.list_mismatch.length)
+                ? ' · ' + res.list_mismatch.length + ' skill nama ganda: loader memfilternya, `hermes skills list` menghitungnya aktif'
+                : '');
+        }
+        fillProfilePlatformSelect(profileSkillsMeta.platforms, profileSkillsMeta.platform);
+      } else {
+        profileSkillsCache = [];
+        if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Gagal: ' + escHtml((res && res.error) || 'unknown') + '</div>';
+      }
+      renderProfileSkillsList();
+    })
+    .catch(function(err){
+      if(loadGen !== profileSkillsLoadGen) return;
+      if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Error: ' + escHtml(err && err.message || err) + '</div>';
+    });
+}
+
+function switchProfileSkillsTab(which){
+  var panes = {skills: 'profile-skills-list', tools: 'profile-tools-list', config: 'profile-config-list'};
+  var tabs = {skills: 'pst-tab-skills', tools: 'pst-tab-tools', config: 'pst-tab-config'};
+  for(var key in panes){
+    var pane = document.getElementById(panes[key]);
+    var tab = document.getElementById(tabs[key]);
+    var active = (key === which);
+    if(pane) pane.style.display = active ? 'flex' : 'none';
+    if(tab){ if(active) tab.classList.add('active'); else tab.classList.remove('active'); }
+  }
+  var searchWrap = document.getElementById('profile-skills-searchwrap');
+  if(searchWrap) searchWrap.style.display = (which === 'config') ? 'none' : 'flex';
+  if(which === 'config') loadProfileConfig(currentSkillsProfile);
+  if(which === 'tools' && !profileToolsCache.rows.length){
+    loadProfileTools(currentSkillsProfile, currentProfilePlatform() === 'cli' ? '' : currentProfilePlatform());
+  }
+}
+
+function escHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function renderProfileSkillsList(){
+  var list = document.getElementById('profile-skills-list');
+  if(!list) return;
+  var q = ((document.getElementById('profile-skills-search') || {}).value || '').toLowerCase();
+  var hideOff = document.getElementById('profile-skills-hide-off');
+  hideOff = hideOff ? hideOff.checked : false;
+  var rows = [];
+  for(var i = 0; i < profileSkillsCache.length; i++){
+    var s = profileSkillsCache[i];
+    if(hideOff && s.state !== 'on') continue;
+    if(q && (s.name + ' ' + (s.description || '') + ' ' + (s.category || '')).toLowerCase().indexOf(q) === -1) continue;
+    var badge = s.state === 'on'
+      ? '<span class="live-badge badge-up" style="font-size:0.62rem;padding:0.1rem 0.4rem">Aktif</span>'
+      : (s.state === 'off'
+        ? '<span class="badge badge-muted" style="font-size:0.62rem">Mati</span>'
+        : '<span class="badge badge-muted" style="font-size:0.62rem" title="Tidak ditawarkan di host/platform ini' + (s.hidden_reason ? ': ' + escHtml(s.hidden_reason) : '') + '">Tak berlaku</span>');
+    var cat = s.category ? '<span class="badge" style="font-size:0.62rem">' + escHtml(s.category) + '</span>' : '';
+    var nameAttr = ' data-skill-name="' + escHtml(s.name) + '"';
+    var tgl;
+    if(s.essential){
+      tgl = '<span style="font-size:0.68rem;color:var(--text-dim)">esensial</span>';
+    } else if(s.state === 'hidden'){
+      tgl = '<span style="font-size:0.68rem;color:var(--text-dim)" title="Skill ini tidak lolos gate platform/environment/requires_apps, jadi tak akan dimuat Hermes di sini.">—</span>';
+    } else {
+      tgl = '<button type="button" class="btn-action-sm"' + nameAttr + ' onclick="toggleProfileSkill(this.getAttribute(\'data-skill-name\'), ' + (s.enabled ? 'false' : 'true') + ')">' + (s.enabled ? 'Matikan' : 'Nyalakan') + '</button>';
+    }
+    rows.push(
+      '<div style="display:flex;gap:0.5rem;align-items:flex-start;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.65rem">'
+      + '<div style="flex:1;min-width:0">'
+      + '<div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap"><strong style="font-family:var(--font-mono);font-size:0.8rem">' + escHtml(s.name) + '</strong>' + badge + cat + '</div>'
+      + '<div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.15rem;line-height:1.35">' + escHtml(s.description || '-') + '</div>'
+      + '</div>'
+      + '<div style="display:flex;gap:0.3rem;align-items:center;flex-shrink:0">'
+      + '<button type="button" class="btn-action-sm"' + nameAttr + ' onclick="readProfileSkill(this.getAttribute(\'data-skill-name\'))">Baca</button>'
+      + tgl
+      + '</div></div>'
+    );
+  }
+  list.innerHTML = rows.length ? rows.join('') : '<div style="font-size:0.8rem;color:var(--text-dim)">Tidak ada skill cocok.</div>';
+}
+
+function filterProfileSkills(){ renderProfileSkillsList(); }
+
+var profileSkillSubmitting = {};
+
+function toggleProfileSkill(skill, enable){
+  if(profileSkillSubmitting[skill]) return;
+  profileSkillSubmitting[skill] = true;
+  var btn = document.querySelector('button[data-skill-name="' + escHtml(skill) + '"]');
+  if(btn){ btn.disabled = true; btn.textContent = '...'; }
+  var mutationProfile = currentSkillsProfile;
+  var mutationLoadGen = profileSkillsLoadGen;
+  var plat = profileSkillsMeta.platform === 'cli' ? '' : profileSkillsMeta.platform;
+  var body = new URLSearchParams({ profile: mutationProfile, skill: skill, platform: plat, enabled: enable ? '1' : '0', ajax: '1' });
+  fetchJsonChecked('/toggle-profile-skill', {
+    method: 'POST',
+    headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString()
+  })
+  .then(function(res){
+    delete profileSkillSubmitting[skill];
+    if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
+    if(res && res.ok){
+      refreshProfilePanel(plat);
+      toast(res.message || ('Skill ' + skill + (enable ? ' diaktifkan' : ' dinonaktifkan')), 'ok');
+    } else {
+      renderProfileSkillsList();
+      toast('Gagal: ' + (res && res.error ? res.error : 'unknown'), 'err');
+    }
+  })
+  .catch(function(err){
+    delete profileSkillSubmitting[skill];
+    if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileSkillsLoadGen) return;
+    renderProfileSkillsList();
+    toast('Error: ' + err, 'err');
+  });
+}
+
+var currentProfileSkillRaw = '';
+var currentProfileSkillMode = 'preview';
+
+function toggleProfileSkillView(){
+  var b = document.getElementById('profile-skill-read-body');
+  var btn = document.getElementById('profile-skill-toggle-btn');
+  if(!b) return;
+  if(currentProfileSkillMode === 'preview'){
+    currentProfileSkillMode = 'raw';
+    if(btn) btn.textContent = 'Preview';
+    b.className = 'logbox';
+    b.style.whiteSpace = 'pre-wrap';
+    b.textContent = currentProfileSkillRaw;
+  } else {
+    currentProfileSkillMode = 'preview';
+    if(btn) btn.textContent = 'Raw';
+    b.className = 'markdown-body';
+    b.style.whiteSpace = 'normal';
+    b.innerHTML = renderMarkdown(currentProfileSkillRaw);
+  }
+}
+
+function readProfileSkill(skill){
+  var loadGen = ++profileSkillReadGen;
+  var box = document.getElementById('profile-skill-read');
+  var t = document.getElementById('profile-skill-read-title');
+  var b = document.getElementById('profile-skill-read-body');
+  var btn = document.getElementById('profile-skill-toggle-btn');
+  currentProfileSkillMode = 'preview';
+  if(btn) btn.textContent = 'Raw';
+  if(t) t.textContent = skill;
+  if(b){
+    b.className = 'markdown-body';
+    b.style.whiteSpace = 'normal';
+    b.innerHTML = '<span style="color:var(--text-dim)">Memuat...</span>';
+  }
+  if(box) box.style.display = 'flex';
+  fetchJsonChecked('/api/profile-skill?profile=' + encodeURIComponent(currentSkillsProfile) + '&skill=' + encodeURIComponent(skill))
+    .then(function(res){
+      if(loadGen !== profileSkillReadGen) return;
+      if(b){
+        if(res && res.ok){
+          currentProfileSkillRaw = res.content || '';
+          b.className = 'markdown-body';
+          b.style.whiteSpace = 'normal';
+          b.innerHTML = renderMarkdown(res.content);
+        } else {
+          b.textContent = 'Gagal: ' + ((res && res.error) || 'unknown');
+        }
+      }
+    })
+    .catch(function(err){
+      if(loadGen !== profileSkillReadGen) return;
+      if(b) b.textContent = 'Error: ' + (err && err.message || err);
+    });
+}
+
+function closeProfileSkillRead(){
+  ++profileSkillReadGen;
+  var box = document.getElementById('profile-skill-read');
+  if(box) box.style.display = 'none';
+}
+
+function loadProfileTools(name, platform){
+  var loadGen = ++profileToolsLoadGen;
+  var list = document.getElementById('profile-tools-list');
+  if(list && !profileToolsCache.rows.length) list.innerHTML = '<div style="font-size:0.8rem;color:var(--text-dim)">Memuat toolset...</div>';
+  fetchJsonChecked('/api/profile-toolsets?profile=' + encodeURIComponent(name) + '&platform=' + encodeURIComponent(platform || ''))
+    .then(function(res){
+      if(loadGen !== profileToolsLoadGen) return;
+      if(res && res.ok){
+        profileToolsCache = {
+          rows: res.rows || [], disabled: res.disabled || [], tools: res.tools || [],
+          count: res.tool_count || 0, other: res.other_toolsets || [], explicit: !!res.explicit,
+          source: res.source || '', platform: res.platform || 'cli', extraDisabled: res.extra_disabled || []
+        };
+        fillProfilePlatformSelect(res.platforms || profileSkillsMeta.platforms, res.platform);
+      } else {
+        profileToolsCache = {rows: [], disabled: [], tools: [], count: 0, other: [], explicit: true, source: '', platform: 'cli'};
+        if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Gagal: ' + escHtml((res && res.error) || 'unknown') + '</div>';
+      }
+      renderProfileToolsList();
+    })
+    .catch(function(err){
+      if(loadGen !== profileToolsLoadGen) return;
+      if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Error: ' + escHtml(err && err.message || err) + '</div>';
+    });
+}
+
+function renderProfileToolsList(){
+  var list = document.getElementById('profile-tools-list');
+  if(!list) return;
+  var t = profileToolsCache;
+  var activeToolsets = t.rows.filter(function(r){ return r.enabled; }).length;
+  var head = '<div style="font-size:0.72rem;color:var(--text-dim);padding:0 0.1rem 0.15rem">'
+    + '<strong style="color:var(--text)">' + t.count + ' tool</strong> aktif dari ' + activeToolsets + ' toolset'
+    + ' · platform ' + escHtml(t.platform || 'cli')
+    + (t.explicit ? '' : ' · bundle default: angka tool = isi penuh bundel, Hermes memangkasnya lewat `hermes tools`')
+    + (t.source === 'config' ? ' · mode cadangan (hermes-lib tidak terbaca)' : '')
+    + (t.disabled.length ? ' · ' + t.disabled.length + ' toolset dimatikan' : '')
+    + '</div>';
+  var rows = [];
+  for(var i = 0; i < t.rows.length; i++){
+    var r = t.rows[i];
+    var badge = r.enabled
+      ? '<span class="live-badge badge-up" style="font-size:0.62rem;padding:0.1rem 0.4rem">Aktif</span>'
+      : '<span class="badge badge-muted" style="font-size:0.62rem">Mati</span>';
+    var bundle = r.is_bundle ? '<span class="badge" style="font-size:0.62rem" title="Toolset gabungan (bundle)">bundle</span>' : '';
+    var unknown = r.known === false ? '<span class="badge" style="background:rgba(245,158,11,0.15);color:#fbbf24;font-size:0.62rem" title="Nama ini tidak ada di registry toolsets Hermes versi ini">tak dikenal</span>' : '';
+    var count = (r.tool_count == null) ? '?' : r.tool_count;
+    var nameAttr = ' data-ts-name="' + escHtml(r.name) + '"';
+    var toolsBtn = (r.tools && r.tools.length)
+      ? '<button type="button" class="btn-action-sm"' + nameAttr + ' onclick="toggleProfileToolTools(this.getAttribute(\'data-ts-name\'))">' + (profileToolsExpanded[r.name] ? 'Sembunyikan' : count + ' tool') + '</button>'
+      : '';
+    rows.push(
+      '<div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:0.45rem 0.65rem">'
+      + '<div style="display:flex;gap:0.45rem;align-items:center;flex-wrap:wrap">'
+      + '<strong style="font-family:var(--font-mono);font-size:0.8rem">' + escHtml(r.name) + '</strong>' + badge + bundle + unknown
+      + '<span style="flex:1"></span>' + toolsBtn
+      + '<button type="button" class="btn-action-sm"' + nameAttr + ' onclick="toggleProfileToolset(this.getAttribute(\'data-ts-name\'), ' + (r.enabled ? 'false' : 'true') + ')">' + (r.enabled ? 'Matikan' : 'Nyalakan') + '</button>'
+      + '</div>'
+      + (r.description ? '<div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.15rem;line-height:1.35">' + escHtml(r.description) + '</div>' : '')
+      + (profileToolsExpanded[r.name] && r.tools && r.tools.length
+          ? '<div style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-top:0.3rem">' + r.tools.map(function(tn){ return '<span class="badge" style="font-size:0.6rem;font-family:var(--font-mono)">' + escHtml(tn) + '</span>'; }).join('') + '</div>'
+          : '')
+      + '</div>'
+    );
+  }
+  var extra = t.extraDisabled || [];
+  if(extra.length){
+    rows.push('<div style="font-size:0.7rem;color:var(--text-dim)">Nonaktif di luar daftar platform ini: ' + escHtml(extra.join(', ')) + '</div>');
+  }
+  if(t.other && t.other.length){
+    var open = !!profileToolsExpanded['__others'];
+    rows.push('<div style="margin-top:0.35rem"><button type="button" class="btn-action-sm" onclick="toggleProfileToolOthers()">' + (open ? 'Sembunyikan' : 'Lihat') + ' ' + t.other.length + ' toolset lain di registry</button></div>');
+    if(open){
+      for(var j = 0; j < t.other.length; j++){
+        var o = t.other[j];
+        rows.push('<div style="display:flex;gap:0.45rem;align-items:center;font-size:0.7rem;color:var(--text-dim);padding:0.15rem 0.3rem">'
+          + '<span style="font-family:var(--font-mono)">' + escHtml(o.name) + '</span>'
+          + '<span>' + (o.tool_count == null ? '?' : o.tool_count) + ' tool</span>'
+          + '<span style="flex:1"></span><span>' + escHtml(o.description || '') + '</span></div>');
+      }
+    }
+  }
+  list.innerHTML = head + rows.join('');
+}
+
+function toggleProfileToolTools(name){
+  profileToolsExpanded[name] = !profileToolsExpanded[name];
+  renderProfileToolsList();
+}
+
+function toggleProfileToolOthers(){
+  profileToolsExpanded['__others'] = !profileToolsExpanded['__others'];
+  renderProfileToolsList();
+}
+
+var profileToolSubmitting = {};
+
+function toggleProfileToolset(toolset, enable){
+  if(profileToolSubmitting[toolset]) return;
+  profileToolSubmitting[toolset] = true;
+  var btn = document.querySelector('button[data-ts-name="' + escHtml(toolset) + '"]');
+  if(btn){ btn.disabled = true; btn.textContent = '...'; }
+  var mutationProfile = currentSkillsProfile;
+  var mutationLoadGen = profileToolsLoadGen;
+  var body = new URLSearchParams({ profile: mutationProfile, toolset: toolset, enabled: enable ? '1' : '0', ajax: '1' });
+  fetchJsonChecked('/toggle-profile-toolset', {
+    method: 'POST',
+    headers: { 'Accept': 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString()
+  })
+  .then(function(res){
+    delete profileToolSubmitting[toolset];
+    if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileToolsLoadGen) return;
+    if(res && res.ok){
+      refreshProfilePanel(currentProfilePlatform() === 'cli' ? '' : currentProfilePlatform());
+      toast(res.message || ('Toolset ' + toolset + (enable ? ' diaktifkan' : ' dimatikan')), 'ok');
+    } else {
+      renderProfileToolsList();
+      toast('Gagal: ' + (res && res.error ? res.error : 'unknown'), 'err');
+    }
+  })
+  .catch(function(err){
+    delete profileToolSubmitting[toolset];
+    if(mutationProfile !== currentSkillsProfile || mutationLoadGen !== profileToolsLoadGen) return;
+    renderProfileToolsList();
+    toast('Error: ' + err, 'err');
+  });
+}
+
+function loadProfileConfig(name){
+  var list = document.getElementById('profile-config-list');
+  if(!currentSkillsProfile) return;
+  if(profileConfigCache){ renderProfileConfig(); return; }
+  var loadGen = ++profileConfigLoadGen;
+  if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--text-dim)">Membaca config.yaml...</div>';
+  fetchJsonChecked('/api/profile-config?profile=' + encodeURIComponent(name))
+    .then(function(res){
+      if(loadGen !== profileConfigLoadGen) return;
+      if(res && res.ok){
+        profileConfigCache = res;
+      } else {
+        profileConfigCache = null;
+        if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Gagal: ' + escHtml((res && res.error) || 'unknown') + '</div>';
+        return;
+      }
+      renderProfileConfig();
+    })
+    .catch(function(err){
+      if(loadGen !== profileConfigLoadGen) return;
+      if(list) list.innerHTML = '<div style="font-size:0.8rem;color:var(--danger)">Error: ' + escHtml(err && err.message || err) + '</div>';
+    });
+}
+
+function renderProfileConfig(){
+  var list = document.getElementById('profile-config-list');
+  if(!list) return;
+  var cfg = profileConfigCache;
+  if(!cfg){ list.innerHTML = '<div style="font-size:0.8rem;color:var(--text-dim)">Belum ada data config.</div>'; return; }
+  var html = [];
+  html.push('<div style="font-size:0.7rem;color:var(--text-dim);padding:0 0.1rem 0.2rem">'
+    + escHtml((cfg.file && cfg.file.path) || '') + ' · ' + ((cfg.file && cfg.file.size) || 0) + ' B'
+    + (cfg.masked ? ' · kredensial disamarkan' : '') + '</div>');
+  var groups = cfg.groups || [];
+  for(var i = 0; i < groups.length; i++){
+    var g = groups[i];
+    var items = g.items || [];
+    var body = [];
+    for(var j = 0; j < items.length; j++){
+      body.push('<div style="display:flex;gap:0.5rem;font-size:0.72rem;padding:0.12rem 0;border-bottom:1px solid rgba(255,255,255,0.03)">'
+        + '<span style="color:var(--text-dim);min-width:132px;flex-shrink:0">' + escHtml(items[j][0]) + '</span>'
+        + '<span style="font-family:var(--font-mono);word-break:break-word">' + escHtml(items[j][1]) + '</span></div>');
+    }
+    html.push('<div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.65rem;margin-bottom:0.45rem">'
+      + '<div style="font-size:0.72rem;color:var(--accent);font-weight:600;margin-bottom:0.2rem">' + escHtml(g.label) + '</div>'
+      + body.join('') + '</div>');
+  }
+  html.push('<div style="margin-top:0.3rem"><button type="button" class="btn-action-sm" onclick="toggleProfileConfigRaw()">'
+    + (profileToolsExpanded['__rawconfig'] ? 'Sembunyikan YAML' : 'Lihat YAML mentah (disamarkan)') + '</button></div>');
+  if(profileToolsExpanded['__rawconfig']){
+    html.push('<pre class="logbox" style="white-space:pre-wrap;font-size:0.66rem;max-height:320px;overflow:auto;margin-top:0.35rem">'
+      + escHtml(cfg.raw_yaml || '') + (cfg.raw_truncated ? '\n... (dipotong)' : '') + '</pre>');
+  }
+  list.innerHTML = html.join('');
+}
+
+function toggleProfileConfigRaw(){
+  profileToolsExpanded['__rawconfig'] = !profileToolsExpanded['__rawconfig'];
+  renderProfileConfig();
+}
+
+"""
+
+
+def page_source() -> str:
+    """PAGE with the profile script inlined — the static source tests/linters inspect.
+
+    PAGE keeps `{profile_script}` as a .format() placeholder (the script's own JS
+    braces would otherwise collide with format fields); this is the same text a
+    browser receives, minus the dynamic fragments.
+    """
+    return PAGE.replace("{profile_script}", PROFILE_SCRIPT)
+
+
 SSE_SCRIPT = """<script>
 (function(){
     var pbar=document.getElementById('pbar'), spin=document.getElementById('spin');
@@ -11219,10 +11414,19 @@ def get_active_profile_name() -> str:
 
 def _invalidate_profile_cache(*names: str) -> None:
     keys = ["profiles_block"]
+    prefixes = []
     for n in names:
-        if n:
-            keys.append(f"profile_skill_tool_summary:{n.strip().lower()}")
-    _invalidate_status_cache(*keys)
+        if not n:
+            continue
+        nm = n.strip().lower()
+        keys.append(f"profile_skill_tool_summary:{nm}")
+        keys.append(f"profile_config:{nm}")
+        prefixes.append(f"profile_skill_inventory:{nm}:")
+        prefixes.append(f"profile_toolsets:{nm}:")
+    # Per-platform entries are keyed by "<prefix><platform>": bump and drop each.
+    with _status_probe_cache_lock:
+        stale = [k for k in _status_probe_cache if any(k.startswith(p) for p in prefixes)]
+    _invalidate_status_cache(*(keys + stale))
 
 
 def set_active_profile_name(name: str) -> bool:
@@ -11540,173 +11744,387 @@ def _write_profile_cfg(cfg_file: Path, cfg: dict) -> None:
     invalidate_config_cache()
 
 
-def get_profile_skill_inventory(name: str) -> dict:
-    """Inventaris skill per profil: scan SKILL.md + state disabled dari config.
+# --- Profile tab: parity with the Hermes runtime -----------------------------
+# The panel must never guess what Hermes will load. Skills come from the same
+# scanner/classifier the runtime uses (agent.skill_utils + resolve_skill_catalog),
+# toolsets from the toolsets registry, and every value in the Config view comes
+# from the profile's own config.yaml (credentials masked). Two deliberate limits,
+# both surfaced in the API as `source`:
+#   * roots: project skill dirs are excluded — they depend on a session's working
+#     directory, which a web panel cannot know;
+#   * effective toolsets under a bundle (e.g. an unset `platform_toolsets.cli`
+#     falling back to `hermes-cli`): the panel reports the bundle itself, while
+#     `hermes tools` also reverse-maps it to the concrete toolsets it enables.
+_HERMES_ESSENTIAL_SKILLS = frozenset({"hermes-agent"})
+_HERMES_LIB_CACHE: dict = {"dir": None, "tried": False}
+_HERMES_LIB_LOCK = threading.Lock()
+_HERMES_MOD_CACHE: dict = {}
+_HERMES_MOD_LOCK = threading.Lock()
+_HERMES_LIB_FALLBACK_DIRS = (
+    "/opt/AppData/hermes-native/hermes-lib",
+    "/opt/hermes-native/hermes-lib",
+    "/usr/local/lib/hermes-lib",
+    "/opt/hermes-lib",
+)
+# Composite bundles Hermes falls back to when a platform has no saved list.
+_HERMES_PLATFORM_BUNDLES = {"cli": "hermes-cli", "cron": "hermes-cron"}
 
-    WAJIB sinkron dgn hermes: direktori = <home-profil>/skills (persis
-    HERMES_HOME per profil), disabled = skills.disabled di config.yaml profil
-    itu SAJA (tanpa fallback — hermes baca HERMES_HOME profil tsb via
-    get_skills_dir() + get_disabled_skill_names()).
-    Platform gate (frontmatter platforms:) ikut: skill yg tak cocok OS
-    disembunyikan, sama spt skill_matches_platform hermes.
-    Return {skills:[{name,description,category,enabled,essential}], ...}.
-    """
-    nm = (name or "").strip().lower()
-    if not nm or not _PROFILE_NAME_RE.match(nm):
-        return {"ok": False, "error": f"Nama profil '{name}' tidak valid.", "skills": []}
-    root = get_hermes_root()
-    home = root if nm == "default" else (root / "profiles" / nm)
-    if not home.is_dir():
-        return {"ok": False, "error": f"Direktori profil '{nm}' tidak ditemukan.", "skills": []}
-    cfg_file, err = _profile_cfg_file(nm)
-    cfg = _read_profile_cfg(cfg_file) if cfg_file else {}
-    sk_cfg = cfg.get("skills") if isinstance(cfg.get("skills"), dict) else {}
-    raw_dis = sk_cfg.get("disabled") if isinstance(sk_cfg, dict) else []
-    disabled: set[str] = set()
-    try:
-        items = [raw_dis] if isinstance(raw_dis, str) else (list(raw_dis) if isinstance(raw_dis, (list, tuple, set)) else [])
-        disabled = {str(v).strip() for v in items if str(v).strip()}
-    except Exception:
-        disabled = set()
-    skills_dir = home / "skills"
-    found: dict[str, dict] = {}
-    excl = {".git", ".github", ".hub", ".archive", ".curator_backups", ".locks",
-            ".venv", "venv", "node_modules", "site-packages", "__pycache__",
-            ".tox", ".nox", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
-    support = {"references", "templates", "assets", "scripts"}
-    raw_entries: list[dict] = []
-    if skills_dir.is_dir():
-        for dirpath, dirnames, filenames in os.walk(skills_dir, followlinks=True):
-            dirnames[:] = sorted(d for d in dirnames if d not in excl)
-            if "SKILL.md" not in filenames:
+
+def _hermes_bin_shim_dirs() -> list:
+    """hermes-lib dirs named by the `hermes` wrapper scripts on this box."""
+    out = []
+    for shim in (HERMES_BIN, os.path.expanduser("~/.local/bin/hermes"), "/usr/local/bin/hermes"):
+        try:
+            head = Path(shim).read_text(encoding="utf-8", errors="ignore")[:2048]
+        except Exception:
+            continue
+        out += re.findall(r"/[^\s'\"]*?hermes-lib", head)
+    return out
+
+
+def get_hermes_lib_dir() -> str:
+    """Installed hermes-lib path (the runtime the panel mirrors), "" when none."""
+    with _HERMES_LIB_LOCK:
+        if _HERMES_LIB_CACHE["tried"]:
+            return _HERMES_LIB_CACHE["dir"] or ""
+        cands = [os.environ.get("HERMES_LIB_PATH", "").strip()]
+        cands += _hermes_bin_shim_dirs()
+        cands += list(_HERMES_LIB_FALLBACK_DIRS)
+        found = ""
+        for cand in cands:
+            if not cand:
                 continue
             try:
-                rel = Path(dirpath).relative_to(skills_dir)
-            except ValueError:
+                base = Path(cand)
+                if (base / "agent" / "skill_utils.py").is_file() and (base / "toolsets.py").is_file():
+                    found = str(base)
+                    break
+            except OSError:
                 continue
-            if any(p in support for p in rel.parts[:-1] if rel.parts[:-1]):
-                pass
-            # Lewati SKILL.md di dalam support dir milik skill root
-            skip = False
-            parts = rel.parts
-            for idx, part in enumerate(parts[:-1]):
-                if part in support:
-                    cand = skills_dir.joinpath(*parts[:idx]) / "SKILL.md"
-                    if cand.is_file():
-                        skip = True
-                        break
-            if skip:
-                continue
-            md = Path(dirpath) / "SKILL.md"
+        _HERMES_LIB_CACHE.update({"dir": found, "tried": True})
+        return found
+
+
+def _hermes_module(name: str):
+    """Import a module from hermes-lib once; None when this box cannot provide it."""
+    with _HERMES_MOD_LOCK:
+        if name in _HERMES_MOD_CACHE:
+            return _HERMES_MOD_CACHE[name]
+    lib = get_hermes_lib_dir()
+    mod = None
+    if lib:
+        if lib not in sys.path:
+            sys.path.insert(0, lib)
+        try:
+            mod = importlib.import_module(name)
+        except Exception as e:
+            _log_swallow("hermes-lib " + name, e)
+            mod = None
+    with _HERMES_MOD_LOCK:
+        _HERMES_MOD_CACHE[name] = mod
+    return mod
+
+
+def _cfg_str_list(value) -> list:
+    """Normalise a config list, including the JSON-array string `hermes config set` writes."""
+    if isinstance(value, str):
+        s = value.strip()
+        if s.startswith("["):
+            try:
+                parsed = ast.literal_eval(s)
+            except (ValueError, SyntaxError):
+                parsed = None
+            if isinstance(parsed, list):
+                return [str(v).strip() for v in parsed if str(v).strip()]
+        return [s] if s else []
+    if isinstance(value, (list, tuple, set)):
+        return [str(v).strip() for v in value if str(v).strip()]
+    return []
+
+
+def _profile_home(name: str):
+    """HERMES_HOME for a profile; the default profile is the hermes root itself."""
+    nm = (name or "").strip().lower()
+    if not nm or not _PROFILE_NAME_RE.match(nm):
+        return None
+    root = get_hermes_root()
+    return root if nm == "default" else (root / "profiles" / nm)
+
+
+def _profile_skills_disabled(cfg: dict, platform: str = "") -> set:
+    """Mirror get_disabled_skill_names(): skills.disabled + platform_disabled, minus essentials."""
+    sk_cfg = cfg.get("skills") if isinstance(cfg.get("skills"), dict) else {}
+    disabled = set(_cfg_str_list(sk_cfg.get("disabled")))
+    if platform:
+        per_platform = sk_cfg.get("platform_disabled")
+        if isinstance(per_platform, dict):
+            disabled |= set(_cfg_str_list(per_platform.get(platform)))
+    return disabled - _HERMES_ESSENTIAL_SKILLS
+
+
+def _expand_cfg_path(entry) -> Path:
+    return Path(os.path.expanduser(os.path.expandvars(str(entry))))
+
+
+def _profile_skill_roots(home: Path, cfg: dict) -> list:
+    """(tier, dir) skill roots in Hermes precedence: local > create_dir > external_dirs.
+
+    Tiers match agent.skill_utils (TIER_LOCAL 1, TIER_CREATE_DIR 2, TIER_EXTERNAL 3)
+    so resolve_skill_catalog() breaks same-name ties exactly as the runtime does.
+    """
+    sk_cfg = cfg.get("skills") if isinstance(cfg.get("skills"), dict) else {}
+    local = home / "skills"
+    try:
+        local_resolved = local.resolve()
+    except OSError:
+        local_resolved = local
+    roots = [(1, local)]
+    raw_create = sk_cfg.get("create_dir")
+    if isinstance(raw_create, (str, os.PathLike)) and str(raw_create).strip():
+        p = _expand_cfg_path(raw_create)
+        p = p if p.is_absolute() else home / p
+        try:
+            same = p.resolve() == local_resolved
+        except OSError:
+            same = False
+        if not same and p.is_dir():
+            roots.append((2, p))
+    seen = {local_resolved}
+    for entry in _cfg_str_list(sk_cfg.get("external_dirs")):
+        p = _expand_cfg_path(entry)
+        p = p if p.is_absolute() else home / p
+        try:
+            p = p.resolve()
+        except OSError:
+            pass
+        if p in seen or not p.is_dir():
+            continue
+        seen.add(p)
+        roots.append((3, p))
+    return roots
+
+
+def _parse_skill_md(text: str) -> tuple:
+    """(frontmatter dict, body) from SKILL.md text; tolerant of broken YAML."""
+    fm: dict = {}
+    body = text
+    if text.startswith("---"):
+        m = re.search(r"\n---\s*\n", text[3:])
+        if m:
+            raw_fm = text[3:3 + m.start()]
+            body = text[3 + m.end():]
+            try:
+                fm = yaml.safe_load(raw_fm) or {}
+            except Exception:
+                fm = {}
+            if not isinstance(fm, dict):
+                fm = {}
+            for ln in raw_fm.splitlines():
+                if ":" in ln and not ln.startswith((" ", "\t")):
+                    k, _, v = ln.partition(":")
+                    fm.setdefault(k.strip(), v.strip())
+    return fm, body
+
+
+def _skill_kanban_active(cfg: dict, toolsets_mod) -> bool:
+    """Mirror tools.kanban_tools._profile_has_kanban_toolset() without its heavy imports."""
+    if "kanban" in _cfg_str_list(cfg.get("toolsets")):
+        return True
+    pts = cfg.get("platform_toolsets")
+    if not isinstance(pts, dict):
+        return False
+    for names in pts.values():
+        if not isinstance(names, list):
+            continue
+        for name in _cfg_str_list(names):
+            if name == "kanban":
+                return True
+            if toolsets_mod is not None:
+                try:
+                    if any(t.startswith("kanban_") for t in toolsets_mod.resolve_toolset(name, include_registry=False)):
+                        return True
+                except Exception:
+                    continue
+    return False
+
+
+def _skill_visible(fm: dict, cfg: dict, toolsets_mod) -> tuple:
+    """(visible, reason) — mirrors skill_matches_platform/environment/apps gates."""
+    plats = fm.get("platforms")
+    if plats:
+        plats = plats if isinstance(plats, list) else [plats]
+        mapped = {"macos": "darwin"}
+        if not any(sys.platform.startswith(mapped.get(str(p).lower().strip(), str(p).lower().strip())) for p in plats):
+            return False, "platform"
+    envs = fm.get("environments")
+    if envs:
+        tags = [str(e).lower().strip() for e in (envs if isinstance(envs, list) else [envs]) if str(e).strip()]
+        known = {"kanban", "docker", "s6"}
+        checks = {
+            "kanban": lambda: _skill_kanban_active(cfg, toolsets_mod),
+            "docker": lambda: os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv"),
+            "s6": lambda: os.path.isdir("/run/s6") or os.path.isdir("/package/admin/s6-overlay"),
+        }
+        relevant = [t for t in tags if t in known]
+        if relevant and not any(checks[t]() for t in relevant):
+            # Any active known tag keeps it; unknown tags fail open like _detect_environment.
+            if not any(t not in known for t in tags):
+                return False, "environment"
+    if fm.get("requires_apps"):
+        # Hermes resolves app declarations through hermes_platform; the panel has no
+        # such registry, and the runtime fails closed for unknown names.
+        try:
+            from hermes_platform import declaration as _decl  # noqa: F401
+        except Exception:
+            return False, "requires_apps"
+    return True, ""
+
+
+def _profile_skill_rows(home: Path, cfg: dict, platform: str, toolsets_mod) -> list:
+    """Scan every skill root and classify each skill the way Hermes will load it."""
+    skill_utils = _hermes_module("agent.skill_utils")
+    disabled = _profile_skills_disabled(cfg, platform)
+    roots = _profile_skill_roots(home, cfg)
+    scanned = []
+    for tier, root in roots:
+        if not root.is_dir():
+            continue
+        if skill_utils is not None:
+            try:
+                walker = skill_utils.iter_skill_index_files
+                files = list(walker(root, "SKILL.md"))
+            except Exception:
+                files = []
+        else:
+            files = []
+            for dirpath, dirnames, filenames in os.walk(str(root), followlinks=True):
+                dirnames[:] = sorted(d for d in dirnames if d not in _SKILL_EXCLUDED_DIRS)
+                if "SKILL.md" in filenames:
+                    files.append(Path(dirpath) / "SKILL.md")
+            files.sort()
+        for md in files:
             try:
                 text = md.read_text(encoding="utf-8-sig")[:4000]
             except Exception:
                 continue
-            fm: dict = {}
-            body = text
-            if text.startswith("---"):
-                m = re.search(r"\n---\s*\n", text[3:])
-                if m:
-                    raw_fm = text[3:3 + m.start()]
-                    body = text[3 + m.end():]
-                    try:
-                        fm = yaml.safe_load(raw_fm) or {}
-                    except Exception:
-                        fm = {}
-                    if not isinstance(fm, dict):
-                        fm = {}
-                    for ln in raw_fm.splitlines():
-                        if ":" in ln and not ln.startswith((" ", "\t")):
-                            k, _, v = ln.partition(":")
-                            fm.setdefault(k.strip(), v.strip())
-            skill_name = str(fm.get("name") or md.parent.name).strip()[:64]
-            if not skill_name:
-                continue
-            # Platform gate ala skill_matches_platform: platforms: absen = semua OS
-            plats = fm.get("platforms")
-            if plats:
-                if not isinstance(plats, list):
-                    plats = [plats]
-                ok_plat = False
-                for pl in plats:
-                    norm = str(pl).lower().strip()
-                    mapped = {"macos": "darwin"}.get(norm, norm)
-                    if sys.platform.startswith(mapped):
-                        ok_plat = True
-                        break
-                if not ok_plat:
-                    continue
-            # environments: = relevance gate (fail open utk tag asing);
-            # 'kanban' aktif bila config kanban ada (cermin _detect_kanban).
-            envs = fm.get("environments")
-            if envs:
-                tags = [str(e).lower().strip() for e in (envs if isinstance(envs, list) else [envs]) if str(e).strip()]
-                known_env = {"kanban", "coding", "desktop", "mobile", "gateway", "cron"}
-                rel_tags = [t for t in tags if t in known_env]
-                if rel_tags:
-                    kanban_on = False
-                    try:
-                        kc = cfg.get("kanban") if isinstance(cfg.get("kanban"), dict) else None
-                        kanban_on = bool(kc) or bool((cfg.get("toolsets") or []) and "kanban" in (cfg.get("toolsets") or []))
-                        if not kanban_on:
-                            pts_cfg = cfg.get("platform_toolsets") or {}
-                            cli_ts = pts_cfg.get("cli") if isinstance(pts_cfg, dict) else None
-                            kanban_on = bool(isinstance(cli_ts, list) and "kanban" in cli_ts)
-                    except Exception:
-                        kanban_on = False
-                    if "kanban" in rel_tags and not kanban_on and len(rel_tags) == len([t for t in rel_tags if t == "kanban"]):
-                        continue
+            fm, body = _parse_skill_md(text)
+            declared = str(fm.get("name") or md.parent.name).strip()[:64] or md.parent.name
             desc = str(fm.get("description") or "").strip()
             if not desc:
-                for ln in body.strip().split("\n"):
-                    s = ln.strip()
-                    if s and not s.startswith("#"):
-                        desc = s[:300]
-                        break
-            cat = None
-            if len(rel.parts) >= 2:
-                cat = rel.parts[0]
-            raw_entries.append({
-                "tier": 1,
-                "root": skills_dir,
-                "path": md,
-                "name": skill_name,
-                "description": desc[:300],
-                "category": cat,
-                "visible": True,
+                desc = next((ln.strip()[:300] for ln in body.strip().splitlines()
+                             if ln.strip() and not ln.strip().startswith("#")), "")
+            visible, why = _skill_visible(fm, cfg, toolsets_mod)
+            try:
+                rel = md.parent.relative_to(root)
+                category = rel.parts[0] if len(rel.parts) >= 2 else None
+            except ValueError:
+                category = None
+            scanned.append({
+                "tier": tier, "root": root, "path": md, "name": declared,
+                "description": desc[:300], "category": category,
+                "visible": visible, "hidden_reason": why,
             })
-    try:
-        if "/opt/AppData/hermes-native/hermes-lib" not in sys.path:
-            sys.path.insert(0, "/opt/AppData/hermes-native/hermes-lib")
-        from agent.skill_utils import resolve_skill_catalog as _resolve_cat, is_disabled_entry as _is_dis
-        resolved = _resolve_cat(raw_entries)
-        for s in resolved:
-            load_name = s.get("load_name")
-            if not load_name:
-                continue
-            found[load_name] = {
-                "name": load_name,
-                "description": s["description"],
-                "category": s["category"],
-                "enabled": not _is_dis(s, disabled),
-                "essential": s["name"] == "hermes-agent" or load_name == "hermes-agent",
-            }
-    except Exception:
-        for s in raw_entries:
-            nm_cand = s["name"]
-            if nm_cand in found:
-                continue
-            found[nm_cand] = {
-                "name": nm_cand,
-                "description": s["description"],
-                "category": s["category"],
-                "enabled": nm_cand not in disabled,
-                "essential": nm_cand == "hermes-agent",
-            }
-    skills = sorted(found.values(), key=lambda s: ((s["category"] or ""), s["name"]))
-    n_en = sum(1 for s in skills if s["enabled"])
-    return {"ok": True, "profile": nm, "skills": skills, "total": len(skills),
-            "enabled_count": n_en, "disabled_count": len(skills) - n_en}
+    if skill_utils is not None:
+        try:
+            resolved = skill_utils.resolve_skill_catalog(scanned)
+        except Exception as e:
+            _log_swallow("resolve_skill_catalog", e)
+            resolved = scanned
+    else:
+        resolved = scanned
+    rows = []
+    seen = set()
+    for entry in resolved:
+        load_name = entry.get("load_name")
+        if skill_utils is not None and not load_name:
+            # Shadowed copy: a higher-tier skill owns this name, the model cannot
+            # load it, and `hermes skills list` hides it too.
+            continue
+        if not load_name:
+            load_name = entry.get("name")
+        if not load_name or load_name in seen:
+            continue
+        seen.add(load_name)
+        is_dis = False
+        if skill_utils is not None:
+            try:
+                is_dis = bool(skill_utils.is_disabled_entry(entry, disabled))
+            except Exception:
+                is_dis = False
+        else:
+            is_dis = entry["name"] in disabled or load_name in disabled
+        visible = bool(entry.get("visible", True))
+        state = "off" if is_dis else ("on" if visible else "hidden")
+        rows.append({
+            "name": load_name,
+            "declared_name": entry.get("name"),
+            "description": entry.get("description", ""),
+            "category": entry.get("category"),
+            "state": state,
+            "enabled": state == "on",
+            # `hermes skills list` compares the load name only, so a config entry
+            # naming a duplicated declared name (e.g. "comfyui" in two categories)
+            # still shows as enabled there while the loader filters both copies.
+            "list_enabled": load_name not in disabled,
+            "essential": str(entry.get("name")) in _HERMES_ESSENTIAL_SKILLS,
+            "hidden_reason": entry.get("hidden_reason", ""),
+            "tier": entry.get("tier"),
+            "root": str(entry.get("root", "")),
+            "path": str(entry.get("path", "")),
+        })
+    rows.sort(key=lambda r: ((r["category"] or ""), r["name"]))
+    return rows
+
+
+_SKILL_EXCLUDED_DIRS = frozenset((
+    ".git", ".github", ".hub", ".archive", ".curator_backups", ".locks",
+    ".venv", "venv", "node_modules", "site-packages", "__pycache__",
+    ".tox", ".nox", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+))
+
+
+def get_profile_skill_inventory(name: str, platform: str = "") -> dict:
+    """What Hermes will actually load for this profile, per platform.
+
+    `state` is one of on / off (in skills.disabled or platform_disabled) / hidden
+    (the skill's own platforms:/environments:/requires_apps: gate excludes it here),
+    which is exactly the split `hermes skills list` shows as enabled/disabled plus
+    the skills the runtime silently never offers.
+    """
+    nm = (name or "").strip().lower()
+    if not nm or not _PROFILE_NAME_RE.match(nm):
+        return {"ok": False, "error": f"Nama profil '{name}' tidak valid.", "skills": []}
+    home = _profile_home(nm)
+    if home is None or not home.is_dir():
+        return {"ok": False, "error": f"Direktori profil '{nm}' tidak ditemukan.", "skills": []}
+    cfg_file, err = _profile_cfg_file(nm)
+    cfg = _read_profile_cfg(cfg_file) if cfg_file else {}
+    plat = (platform or "").strip().lower()
+    toolsets_mod = _hermes_module("toolsets")
+    rows = _profile_skill_rows(home, cfg, plat, toolsets_mod)
+    on = sum(1 for r in rows if r["state"] == "on")
+    off = sum(1 for r in rows if r["state"] == "off")
+    hidden = sum(1 for r in rows if r["state"] == "hidden")
+    roots = [{"tier": t, "dir": str(d)} for t, d in _profile_skill_roots(home, cfg)]
+    pts = cfg.get("platform_toolsets") if isinstance(cfg.get("platform_toolsets"), dict) else {}
+    platforms = sorted(set(list(pts.keys())) | {"cli"})
+    sk_cfg = cfg.get("skills") if isinstance(cfg.get("skills"), dict) else {}
+    return {
+        "ok": True, "profile": nm, "platform": plat or "cli", "platforms": platforms,
+        "skills": rows, "total": len(rows), "enabled_count": on,
+        "disabled_count": off, "hidden_count": hidden,
+        # Counts `hermes skills list` would print for the same profile (it keys on
+        # the load name only); `list_mismatch` names the rows where the loader and
+        # that listing disagree, so the UI can explain a difference instead of
+        # silently showing another number than the CLI.
+        "list_enabled_count": sum(1 for r in rows if r["list_enabled"] and r["state"] != "hidden"),
+        "list_mismatch": sorted(r["name"] for r in rows if r["list_enabled"] != r["enabled"]),
+        "disabled_names": sorted(_profile_skills_disabled(cfg, plat)),
+        "essential_skills": sorted(_HERMES_ESSENTIAL_SKILLS),
+        "roots": roots,
+        "external_dirs": _cfg_str_list(sk_cfg.get("external_dirs")),
+        "source": "hermes-lib" if _hermes_module("agent.skill_utils") is not None else "panel-scan",
+    }
 
 
 def get_profile_skill_content(name: str, skill: str) -> dict:
@@ -11763,61 +12181,209 @@ def get_profile_skill_content(name: str, skill: str) -> dict:
     return {"ok": True, "profile": nm, "skill": sk, "content": text}
 
 
-def set_profile_skill_enabled(name: str, skill: str, enabled: bool) -> tuple[bool, str]:
-    """Aktif/nonaktif skill per profil via skills.disabled di config.yaml.
+def set_profile_skill_enabled(name: str, skill: str, enabled: bool, platform: str = "") -> tuple[bool, str]:
+    """Aktif/nonaktif skill per profil lewat skema yang dibaca Hermes.
 
-    Tulis memakai merge (baca dulu, ubah key skills.disabled saja) agar
-    section lain (model/providers) tak hilang. hermes-agent esensial:
-    tak bisa dimatikan (cermin ESSENTIAL_SKILLS hermes).
+    Platform kosong/"cli" → `skills.disabled` (berlaku semua platform). Platform
+    lain → `skills.platform_disabled.<platform>`, karena disable global tidak bisa
+    di-override per platform (get_disabled_skill_names() menggabungkan keduanya).
+    Tulis memakai merge agar section lain (model/providers) tak hilang.
     """
     nm = (name or "").strip().lower()
     sk = (skill or "").strip()
+    plat = (platform or "").strip().lower()
     if not nm or not _PROFILE_NAME_RE.match(nm):
         return False, "Nama profil tidak valid."
     if not sk or "\\" in sk or ".." in sk or sk.startswith("/") or sk.endswith("/") or not re.match(r"^[A-Za-z0-9 _/-]+$", sk):
         return False, "Nama skill tidak valid."
-    if sk == "hermes-agent" and not enabled:
+    if plat and not re.match(r"^[a-z0-9_-]{1,32}$", plat):
+        return False, "Nama platform tidak valid."
+    if str(sk).split("/")[-1] in _HERMES_ESSENTIAL_SKILLS and not enabled:
         return False, "Skill 'hermes-agent' esensial, tak bisa dinonaktifkan."
     cfg_file, err = _profile_cfg_file(nm)
     if cfg_file is None:
         return False, err
+    per_platform = bool(plat) and plat != "cli"
     try:
-        inv = get_profile_skill_inventory(nm)
+        inv = get_profile_skill_inventory(nm, plat if per_platform else "")
         known = {s["name"] for s in inv.get("skills", [])} if inv.get("ok") else set()
+        glob_disabled = _profile_skills_disabled(_read_profile_cfg(cfg_file), "")
+        if per_platform and not enabled and sk in glob_disabled:
+            return False, f"Skill '{sk}' sudah dimatikan global — matikan di tampilan CLI, bukan per platform."
         with _config_write_lock:
             cfg = _read_profile_cfg(cfg_file)
             sk_cfg = cfg.get("skills")
             if not isinstance(sk_cfg, dict):
                 sk_cfg = {}
                 cfg["skills"] = sk_cfg
-            raw = sk_cfg.get("disabled")
-            cur: set[str] = set()
-            try:
-                items = [raw] if isinstance(raw, str) else (list(raw) if isinstance(raw, (list, tuple, set)) else [])
-                cur = {str(v).strip() for v in items if str(v).strip()}
-            except Exception:
-                cur = set()
-            # Validasi: skill harus ada di direktori profil
+            if per_platform:
+                pd = sk_cfg.get("platform_disabled")
+                if not isinstance(pd, dict):
+                    pd = {}
+                    sk_cfg["platform_disabled"] = pd
+                cur = set(_cfg_str_list(pd.get(plat)))
+            else:
+                cur = set(_cfg_str_list(sk_cfg.get("disabled")))
+            # Validasi: skill harus ada di direktori profil (atau sudah tercatat).
             if known and sk not in known and sk not in cur:
                 return False, f"Skill '{sk}' tidak ditemukan di profil '{nm}'."
             if enabled:
                 cur.discard(sk)
             else:
                 cur.add(sk)
-            sk_cfg["disabled"] = sorted(cur)
+            if per_platform:
+                if cur:
+                    pd[plat] = sorted(cur)
+                else:
+                    pd.pop(plat, None)
+                if not pd:
+                    sk_cfg.pop("platform_disabled", None)
+            else:
+                sk_cfg["disabled"] = sorted(cur)
             _write_profile_cfg(cfg_file, cfg)
         _invalidate_status_cache("gateway_platforms")
         _invalidate_profile_cache(nm)
-        return True, f"Skill '{sk}' {'diaktifkan' if enabled else 'dinonaktifkan'} di profil '{nm}'."
+        where = f"platform {plat}" if per_platform else "semua platform"
+        return True, f"Skill '{sk}' {'diaktifkan' if enabled else 'dinonaktifkan'} di profil '{nm}' ({where})."
     except Exception as e:
-        return False, f"Gagal menyimpan skills.disabled: {e}"
+        return False, f"Gagal menyimpan daftar skill: {e}"
 
 
-def get_profile_toolsets(name: str) -> dict:
-    """Toolset per profil: enabled cli + disabled global (agent.disabled_toolsets).
+def _platform_bundle(platform: str) -> str:
+    """Composite toolset hermes falls back to when a platform has no saved list."""
+    plat = (platform or "cli").strip().lower() or "cli"
+    return _HERMES_PLATFORM_BUNDLES.get(plat, f"hermes-{plat}")
 
-    Sumber sama dgn runtime (tanpa fallback): platform_toolsets.cli +
-    agent.disabled_toolsets di config.yaml profil itu saja.
+
+def _toolset_catalog(toolsets_mod) -> dict:
+    """{name: {description, tool_count, tools, includes, is_bundle}} from the registry."""
+    catalog = {}
+    if toolsets_mod is None:
+        return catalog
+    registry = getattr(toolsets_mod, "TOOLSETS", {}) or {}
+    for tname, defn in registry.items():
+        if not isinstance(defn, dict):
+            continue
+        try:
+            tools = toolsets_mod.resolve_toolset(tname, include_registry=False)
+        except Exception:
+            tools = list(defn.get("tools") or [])
+        includes = list(defn.get("includes") or [])
+        catalog[str(tname)] = {
+            "description": str(defn.get("description") or ""),
+            "tools": tools,
+            "tool_count": len(tools),
+            "includes": includes,
+            "is_bundle": bool(tname.startswith("hermes-")) or bool(includes),
+        }
+    return catalog
+
+
+def get_profile_toolsets(name: str, platform: str = "") -> dict:
+    """Toolsets Hermes enables for this profile on *platform*.
+
+    Effective list = `platform_toolsets.<platform>` (or the platform's composite
+    bundle when unset) minus `agent.disabled_toolsets` — the same subtraction the
+    runtime applies. Tool names/counts come from the toolsets registry, so the
+    numbers match what the model actually receives.
+    """
+    nm = (name or "").strip().lower()
+    if not nm or not _PROFILE_NAME_RE.match(nm):
+        return {"ok": False, "error": "Nama profil tidak valid."}
+    home = _profile_home(nm)
+    if home is None or not home.is_dir():
+        return {"ok": False, "error": f"Direktori profil '{nm}' tidak ditemukan."}
+    cfg_file, err = _profile_cfg_file(nm)
+    cfg = _read_profile_cfg(cfg_file) if cfg_file else {}
+    toolsets_mod = _hermes_module("toolsets")
+    catalog = _toolset_catalog(toolsets_mod)
+
+    pts = cfg.get("platform_toolsets") if isinstance(cfg.get("platform_toolsets"), dict) else {}
+    platforms = sorted(set(list(pts.keys())) | {"cli"})
+    plat = (platform or "cli").strip().lower() or "cli"
+    if plat not in platforms:
+        platforms.append(plat)
+        platforms.sort()
+
+    raw = pts.get(plat)
+    explicit = isinstance(raw, list)
+    configured = _cfg_str_list(raw) if explicit else [_platform_bundle(plat)]
+    expanded = []
+    for ts_name in configured:
+        # hermes_cli.tools_config._LEGACY_TOOLSET_ALIASES: bare "hermes" = cli + api server.
+        expanded += ["hermes-cli", "hermes-api-server"] if ts_name == "hermes" else [ts_name]
+
+    agent_cfg = cfg.get("agent") if isinstance(cfg.get("agent"), dict) else {}
+    disabled = sorted(set(_cfg_str_list(agent_cfg.get("disabled_toolsets"))))
+
+    rows = []
+    effective_tools: set = set()
+    dropped_tools: set = set()
+    for ts_name in expanded:
+        info = catalog.get(ts_name)
+        is_dis = ts_name in disabled
+        tool_count = info["tool_count"] if info else None
+        if info is None:
+            # Unknown to this install: keep it visible, it is still what config says.
+            pass
+        elif is_dis:
+            dropped_tools |= set(info["tools"])
+        else:
+            effective_tools |= set(info["tools"])
+        rows.append({
+            "name": ts_name,
+            "description": info["description"][:300] if info else "",
+            "tool_count": tool_count,
+            "tools": (info["tools"] if info else [])[:60],
+            "includes": info["includes"] if info else [],
+            "is_bundle": bool(info["is_bundle"]) if info else False,
+            "known": info is not None,
+            "enabled": not is_dis,
+        })
+    # Also surface disabled toolsets that are not part of the configured list, so a
+    # stale entry in agent.disabled_toolsets cannot hide from the UI.
+    extra_disabled = [d for d in disabled if d not in expanded]
+    tools = sorted(effective_tools)
+    others = [
+        {"name": n, "description": v["description"][:200], "tool_count": v["tool_count"],
+         "is_bundle": v["is_bundle"]}
+        for n, v in sorted(catalog.items())
+        if n not in expanded and n not in disabled
+    ]
+    return {
+        "ok": True, "profile": nm, "platform": plat, "platforms": platforms,
+        "explicit": explicit, "configured": configured, "enabled": [r["name"] for r in rows if r["enabled"]],
+        "disabled": disabled, "disabled_toolsets": disabled, "extra_disabled": extra_disabled,
+        "rows": rows, "tools": tools, "tool_count": len(tools),
+        "other_toolsets": others,
+        "source": "hermes-lib" if toolsets_mod is not None else "config",
+    }
+
+
+def _fmt_cfg_value(value, limit: int = 160) -> str:
+    """One-line rendering of a config value for the read-only config view."""
+    if value is None or value == "":
+        return "-"
+    if isinstance(value, bool):
+        return "ya" if value else "tidak"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v) for v in value) if value else "[]"
+    if isinstance(value, dict):
+        text = json.dumps(value, ensure_ascii=False, default=str)
+        return text if len(text) <= limit else text[:limit] + "…"
+    text = str(value)
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def get_profile_config_summary(name: str) -> dict:
+    """Read-only view of a profile's effective config, credentials masked.
+
+    This is the profile's own config.yaml (the file Hermes loads for `-p <name>`),
+    grouped so the panel can show what the profile is actually configured to do:
+    model + fallbacks, agent limits, toolsets per platform, skills, messaging
+    platforms, auxiliary models and MCP servers.
     """
     nm = (name or "").strip().lower()
     if not nm or not _PROFILE_NAME_RE.match(nm):
@@ -11825,30 +12391,114 @@ def get_profile_toolsets(name: str) -> dict:
     cfg_file, err = _profile_cfg_file(nm)
     if cfg_file is None:
         return {"ok": False, "error": err}
-    cfg = _read_profile_cfg(cfg_file)
-    pts = cfg.get("platform_toolsets") or {}
-    cli_list = pts.get("cli") if isinstance(pts, dict) else None
-    agent_cfg = cfg.get("agent") or {}
-    raw_dis = agent_cfg.get("disabled_toolsets") if isinstance(agent_cfg, dict) else []
-    dis: list[str] = []
+    if not cfg_file.is_file():
+        return {"ok": False, "error": f"config.yaml profil '{nm}' tidak ditemukan."}
+    raw_cfg = _read_profile_cfg(cfg_file)
+    cfg = _mask_secret_values(raw_cfg)
+    masked = json.dumps(cfg, sort_keys=True) != json.dumps(raw_cfg, sort_keys=True)
+
+    groups = []
+
+    model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
+    model_items = [
+        ("default", _fmt_cfg_value(model_cfg.get("default"))),
+        ("provider", _fmt_cfg_value(model_cfg.get("provider"))),
+    ]
+    for key in ("context_length", "supports_vision", "reasoning_effort", "base_url", "api_mode"):
+        if key in model_cfg:
+            model_items.append((key, _fmt_cfg_value(model_cfg.get(key))))
+    if isinstance(cfg.get("fallback_providers"), list):
+        model_items.append(("fallback", _fmt_cfg_value(cfg.get("fallback_providers"))))
+    groups.append({"id": "model", "label": "Model & Provider", "items": model_items})
+
+    agent_cfg = cfg.get("agent") if isinstance(cfg.get("agent"), dict) else {}
+    agent_items = []
+    for key, label in (
+        ("reasoning_effort", "reasoning_effort"), ("max_turns", "max_turns"),
+        ("coding_context", "coding_context"), ("tool_use_enforcement", "tool_use_enforcement"),
+        ("image_input_mode", "image_input_mode"), ("verify_on_stop", "verify_on_stop"),
+        ("disabled_toolsets", "disabled_toolsets"), ("gateway_timeout", "gateway_timeout"),
+    ):
+        if key in agent_cfg:
+            agent_items.append((label, _fmt_cfg_value(agent_cfg.get(key))))
+    if isinstance(cfg.get("toolsets"), list):
+        agent_items.append(("toolsets (global)", _fmt_cfg_value(cfg.get("toolsets"))))
+    groups.append({"id": "agent", "label": "Agent & Batas", "items": agent_items})
+
+    pts = cfg.get("platform_toolsets") if isinstance(cfg.get("platform_toolsets"), dict) else {}
+    ts_items = [(p, _fmt_cfg_value(v)) for p, v in sorted(pts.items())]
+    groups.append({"id": "toolsets", "label": "Toolset per Platform", "items": ts_items or [("-", "belum diatur")]})
+
+    sk_cfg = cfg.get("skills") if isinstance(cfg.get("skills"), dict) else {}
+    sk_items = [
+        ("disabled", f"{len(_cfg_str_list(sk_cfg.get('disabled')))} skill"),
+        ("external_dirs", _fmt_cfg_value(sk_cfg.get("external_dirs"))),
+        ("create_dir", _fmt_cfg_value(sk_cfg.get("create_dir"))),
+    ]
+    for key in ("write_approval", "inline_shell", "guard_agent_created", "project_discovery"):
+        if key in sk_cfg:
+            sk_items.append((key, _fmt_cfg_value(sk_cfg.get(key))))
+    if isinstance(sk_cfg.get("platform_disabled"), dict) and sk_cfg.get("platform_disabled"):
+        sk_items.append(("platform_disabled", _fmt_cfg_value(sk_cfg.get("platform_disabled"))))
+    groups.append({"id": "skills", "label": "Skills", "items": sk_items})
+
+    platforms_cfg = cfg.get("platforms") if isinstance(cfg.get("platforms"), dict) else {}
+    plat_items = []
+    known_platforms = ("telegram", "discord", "whatsapp", "slack", "matrix", "mattermost",
+                       "signal", "teams", "google_chat", "qqbot", "yuanbao", "homeassistant", "email", "ntfy")
+    for plat_name in known_platforms:
+        block = None
+        if isinstance(platforms_cfg.get(plat_name), dict):
+            block = platforms_cfg[plat_name]
+        elif isinstance(cfg.get(plat_name), dict):
+            block = cfg.get(plat_name)
+        if block is None:
+            continue
+        state = "aktif" if block.get("enabled") else "nonaktif"
+        extra = []
+        if block.get("allowed_chats"):
+            extra.append(f"{len(_cfg_str_list(block.get('allowed_chats')))} chat diizinkan")
+        if block.get("home_channel"):
+            extra.append("home_channel" in block and "home_channel set" or "")
+        plat_items.append((plat_name, state + ((" · " + ", ".join(x for x in extra if x)) if extra else "")))
+    groups.append({"id": "platforms", "label": "Platform Messaging", "items": plat_items or [("-", "tidak ada platform terkonfigurasi")]})
+
+    aux_cfg = cfg.get("auxiliary") if isinstance(cfg.get("auxiliary"), dict) else {}
+    aux_items = []
+    if isinstance(aux_cfg.get("tasks"), dict):
+        for task, spec in sorted(aux_cfg["tasks"].items()):
+            if isinstance(spec, dict):
+                aux_items.append((task, f"{spec.get('provider') or '-'} / {spec.get('model') or 'auto'}"))
+            else:
+                aux_items.append((task, _fmt_cfg_value(spec)))
+    groups.append({"id": "aux", "label": "Model Auxiliary", "items": aux_items or [("-", "semua otomatis")]})
+
+    mcp_cfg = cfg.get("mcp_servers") if isinstance(cfg.get("mcp_servers"), dict) else {}
+    mcp_items = []
+    for srv, spec in sorted(mcp_cfg.items()):
+        spec = spec if isinstance(spec, dict) else {}
+        shell = spec.get("command") or spec.get("url") or ""
+        mcp_items.append((srv, ("aktif" if spec.get("enabled", True) else "nonaktif") + (f" · {_fmt_cfg_value(shell, 60)}" if shell else "")))
+    groups.append({"id": "mcp", "label": "MCP Server", "items": mcp_items or [("-", "tidak ada")]})
+
     try:
-        if isinstance(raw_dis, str):
-            s = raw_dis.strip()
-            if s.startswith("["):
-                import ast as _ast
-                try:
-                    p = _ast.literal_eval(s)
-                    dis = [str(x).strip() for x in p if str(x).strip()]
-                except Exception:
-                    dis = [s]
-            elif s:
-                dis = [s]
-        elif isinstance(raw_dis, (list, tuple, set)):
-            dis = [str(x).strip() for x in raw_dis if str(x).strip()]
+        raw_yaml = yaml.safe_dump(cfg, default_flow_style=False, sort_keys=False, allow_unicode=True)
     except Exception:
-        dis = []
-    return {"ok": True, "profile": nm, "cli_toolsets": list(cli_list) if isinstance(cli_list, list) else None,
-            "disabled_toolsets": sorted(set(dis)), "explicit_cli": isinstance(cli_list, list)}
+        raw_yaml = ""
+    truncated = False
+    if len(raw_yaml) > 60000:
+        raw_yaml = raw_yaml[:60000]
+        truncated = True
+    try:
+        st = cfg_file.stat()
+        meta = {"path": str(cfg_file), "size": st.st_size, "mtime": int(st.st_mtime)}
+    except OSError:
+        meta = {"path": str(cfg_file), "size": 0, "mtime": 0}
+    return {
+        "ok": True, "profile": nm, "groups": groups, "raw_yaml": raw_yaml,
+        "raw_truncated": truncated, "masked": masked, "file": meta,
+        "source": "config.yaml",
+    }
 
 
 def set_profile_toolset_enabled(name: str, toolset: str, enabled: bool) -> tuple[bool, str]:
@@ -12067,33 +12717,32 @@ def render_gateway_profile_badge(name: str, statuses: dict[str, dict] | None = N
         return ""
 
 
-def _profile_skill_tool_summary(name: str, total_skills: int | None = None) -> tuple[int, object, str]:
-    """Ringkasan kecil utk kartu profil: (skills_aktif, tools_aktif, ket_nonaktif)."""
+def _profile_skill_tool_summary(name: str) -> dict:
+    """Ringkasan kartu profil, dihitung dari sumber yang sama dengan tab Profil.
+
+    Skills memakai inventaris Hermes (state on/off/hidden), tools memakai resolusi
+    registry toolset untuk platform cli — bukan angka tebakan.
+    """
     def _compute():
+        nm = (name or "").strip().lower()
+        out = {"skills_on": None, "skills_total": None, "toolsets": None,
+               "tools": None, "hidden": None, "source": "hermes-lib"}
         try:
-            nm = (name or "").strip().lower()
-            root = get_hermes_root()
-            home = root if nm == "default" else (root / "profiles" / nm)
-            tot = total_skills if total_skills is not None else _count_skills_in_dir(home / "skills")
-            cfg_file, _ = _profile_cfg_file(nm)
-            cfg = _read_profile_cfg(cfg_file) if cfg_file else {}
-            sk_cfg = cfg.get("skills") if isinstance(cfg.get("skills"), dict) else {}
-            raw_dis = sk_cfg.get("disabled") if isinstance(sk_cfg, dict) else []
-            items = [raw_dis] if isinstance(raw_dis, str) else (list(raw_dis) if isinstance(raw_dis, (list, tuple, set)) else [])
-            dis_skills = {str(v).strip() for v in items if str(v).strip()}
-            skills_en = max(0, tot - len(dis_skills))
-        except Exception:
-            skills_en = 0
+            inv = get_profile_skill_inventory(nm, "")
+            if inv.get("ok"):
+                out.update({"skills_on": inv["enabled_count"], "skills_total": inv["total"],
+                            "hidden": inv["hidden_count"], "source": inv["source"]})
+        except Exception as e:
+            _log_swallow("profile skill summary", e)
         try:
-            ts = get_profile_toolsets(name)
-            dis = ts.get("disabled_toolsets", []) if ts.get("ok") else []
-            cli = ts.get("cli_toolsets") if ts.get("ok") else None
-            base = len(cli) if isinstance(cli, list) else 22
-            tools_en = max(0, base - len([d for d in dis if isinstance(cli, list) and d in (cli or [])]) if isinstance(cli, list) else base)
-            tools_dis = f" · {len(dis)} mati" if dis else ""
-        except Exception:
-            tools_en, tools_dis = "?", ""
-        return skills_en, tools_en, tools_dis
+            ts = get_profile_toolsets(nm, "")
+            if ts.get("ok"):
+                out.update({"toolsets": len(ts["enabled"]), "tools": ts["tool_count"],
+                            "explicit": bool(ts.get("explicit")),
+                            "source": ts.get("source", out["source"])})
+        except Exception as e:
+            _log_swallow("profile toolset summary", e)
+        return out
 
     return _ttl_cached(f"profile_skill_tool_summary:{name}", 60.0, _compute)
 
@@ -12130,7 +12779,27 @@ def _render_profiles_block_uncached() -> str:
         has_env = p.get("has_env", False)
         has_soul = p.get("has_soul", False)
         gw_badge = render_gateway_profile_badge(name, gw_statuses)
-        skills_en, tools_en, tools_dis = _profile_skill_tool_summary(name, total_skills=skills_cnt)
+        summary = _profile_skill_tool_summary(name) or {}
+        skills_on = summary.get("skills_on")
+        skills_total = summary.get("skills_total") if summary.get("skills_total") is not None else skills_cnt
+        hidden_cnt = summary.get("hidden") or 0
+        toolsets_cnt = summary.get("toolsets")
+        tools_cnt = summary.get("tools")
+        if skills_on is None:
+            skills_txt = "Skills: ?"
+        else:
+            skills_txt = f"Skills: {skills_on}/{skills_total} aktif"
+            if hidden_cnt:
+                skills_txt += f" ({hidden_cnt} tak berlaku)"
+        if toolsets_cnt is not None or tools_cnt is not None:
+            parts = []
+            if toolsets_cnt is not None:
+                parts.append(f"{toolsets_cnt} toolset")
+            if tools_cnt is not None:
+                parts.append(f"{tools_cnt} tool" + ("" if summary.get("explicit", True) else " (bundel)"))
+            skills_txt += " · " + " · ".join(parts)
+        if summary.get("source") == "config":
+            skills_txt += " · dari config"
 
         act_badge = '<span class="live-badge badge-up" style="font-size:0.65rem;padding:0.15rem 0.45rem">AKTIF</span>' if is_act else ''
         type_badge = '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">Default</span>' if is_def else '<span class="badge" style="background:rgba(59,130,246,0.12);color:var(--accent);font-size:0.65rem">Profil</span>'
@@ -12171,14 +12840,14 @@ def _render_profiles_block_uncached() -> str:
             f'      <div style="font-size:0.68rem;color:var(--text-dim);margin-top:0.1rem">{html.escape(prov)}</div>'
             f'    </div>'
             f'    <div style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-top:0.4rem">'
-            f'      <span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">{skills_cnt} skills</span>'
+            f'      <span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">{skills_total} skills</span>'
             f'      {env_badge}'
             f'      {soul_badge}'
             f'      {gw_badge}'
             f'    </div>'
             f'    <div style="display:flex;flex-wrap:wrap;gap:0.35rem;align-items:center;margin-top:0.4rem">'
-            f'      <span style="font-size:0.68rem;color:var(--text-dim)">Skills: {skills_en}/{skills_cnt} aktif · Tools: {tools_en} aktif{tools_dis}</span>'
-            f'      <button type="button" class="btn-action-sm" onclick="openProfileSkillsModal(\'{safe_name}\')">Kelola Skills &amp; Tools</button>'
+            f'      <span style="font-size:0.68rem;color:var(--text-dim)">{html.escape(skills_txt)}</span>'
+            f'      <button type="button" class="btn-action-sm" onclick="openProfileSkillsModal(\'{safe_name}\')">Kelola Skills · Tools · Config</button>'
             f'    </div>'
             f'    {desc_html}'
             f'  </div>'
@@ -17071,6 +17740,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
 
     return PAGE.format(
         icon_hermes_logo=ICON_HERMES_LOGO,
+        profile_script=PROFILE_SCRIPT,
         cell_dash=frag["cells"]["dash"],
         cell_bot=frag["cells"]["bot"],
         cell_gw=frag["cells"]["gw"],
@@ -18077,7 +18747,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/profile-skills":
             prof = (qs.get("profile") or ["default"])[0]
-            self._send_json(get_profile_skill_inventory(prof))
+            plat = (qs.get("platform") or [""])[0]
+            nm = (prof or "").strip().lower()
+            key = f"profile_skill_inventory:{nm}:{(plat or '').strip().lower()}"
+            self._send_json(_ttl_cached(key, 45.0, lambda: get_profile_skill_inventory(prof, plat)))
             return
 
         if parsed.path == "/api/profile-skill":
@@ -18088,7 +18761,17 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/profile-toolsets":
             prof = (qs.get("profile") or ["default"])[0]
-            self._send_json(get_profile_toolsets(prof))
+            plat = (qs.get("platform") or [""])[0]
+            nm = (prof or "").strip().lower()
+            key = f"profile_toolsets:{nm}:{(plat or '').strip().lower()}"
+            self._send_json(_ttl_cached(key, 45.0, lambda: get_profile_toolsets(prof, plat)))
+            return
+
+        if parsed.path == "/api/profile-config":
+            prof = (qs.get("profile") or ["default"])[0]
+            nm = (prof or "").strip().lower()
+            self._send_json(_ttl_cached(f"profile_config:{nm}", 30.0,
+                                        lambda: get_profile_config_summary(prof)))
             return
 
         if parsed.path == "/api/profile-soul":
@@ -18436,8 +19119,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/toggle-profile-skill":
             prof = str(json_data.get("profile") or (qs.get("profile") or [""])[0]).strip().lower()
             skill = str(json_data.get("skill") or (qs.get("skill") or [""])[0]).strip()
+            plat = str(json_data.get("platform") or (qs.get("platform") or [""])[0]).strip().lower()
             en_raw = json_data.get("enabled") if "enabled" in json_data else (qs.get("enabled") or [""])[0]
-            ok, msg = set_profile_skill_enabled(prof, skill, _to_bool(en_raw))
+            ok, msg = set_profile_skill_enabled(prof, skill, _to_bool(en_raw), platform=plat)
             self._send_json({"ok": ok, "message": msg, "error": "" if ok else msg}, code=200 if ok else 400)
             return
 
