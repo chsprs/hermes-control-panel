@@ -11490,6 +11490,60 @@ def _count_skills_in_dir(skills_dir: Path) -> int:
     return count
 
 
+def _read_profile_description(home: Path) -> str:
+    """Deskripsi profil seperti `hermes profile describe` membacanya.
+
+    Hermes 0.22.5 menyimpannya di `profile.yaml` (description + description_auto);
+    layout lama memakai `meta.json`. Deskripsi YAML multi-baris dirapatkan jadi satu
+    baris supaya kartu profil tidak menampilkan spasi aneh.
+    """
+    for fname in ("profile.yaml", "meta.json"):
+        path = home / fname
+        try:
+            if not path.is_file():
+                continue
+            raw = path.read_text(encoding="utf-8-sig")
+            data = json.loads(raw) if fname.endswith(".json") else (yaml.safe_load(raw) or {})
+            if isinstance(data, dict):
+                desc = str(data.get("description") or "").strip()
+                if desc:
+                    return " ".join(desc.split())
+        except Exception as e:
+            _log_swallow(f"profile description {fname}", e)
+    return ""
+
+
+def _profile_skill_count(name: str) -> int:
+    """Jumlah skill yang benar-benar dimuat profil (angka yang sama dengan tab Profil).
+
+    Walker lama menghitung setiap SKILL.md dua level ke bawah, termasuk `.archive`,
+    `.curator_backups` dan direktori support — 158 untuk profil yang runtime-nya
+    memuat 130. Memakai inventaris kanonik membuat kartu, badge dan modal konsisten.
+    """
+    nm = (name or "").strip().lower()
+    home = _profile_home(nm)
+    try:
+        inv = _ttl_cached(f"profile_skill_inventory:{nm}:", 45.0,
+                          lambda: get_profile_skill_inventory(nm, ""))
+        if isinstance(inv, dict) and inv.get("ok"):
+            return int(inv.get("total") or 0)
+    except Exception as e:
+        _log_swallow("profile skill count", e)
+    return _count_skills_in_dir(home / "skills") if home is not None else 0
+
+
+def _run_hermes_cli(args: list, timeout: int = 180) -> tuple:
+    """Run the hermes CLI; (returncode, combined output). (-1, err) when it cannot start."""
+    env = os.environ.copy()
+    env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
+    try:
+        r = subprocess.run([HERMES_BIN, *args], capture_output=True, text=True,
+                           timeout=timeout, env=env)
+        return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()
+    except Exception as e:
+        return -1, str(e)
+
+
 def list_agent_profiles() -> list[dict]:
     """Return list of all Hermes profiles (default + named profiles)."""
     root = get_hermes_root()
@@ -11509,15 +11563,7 @@ def list_agent_profiles() -> list[dict]:
     except Exception:
         pass
 
-    def_desc = ""
-    def_meta_path = root / "meta.json"
-    try:
-        if def_meta_path.is_file():
-            meta = json.loads(def_meta_path.read_text(encoding="utf-8"))
-            if isinstance(meta, dict):
-                def_desc = str(meta.get("description") or "").strip()
-    except Exception:
-        pass
+    def_desc = _read_profile_description(root)
 
     profiles.append({
         "name": "default",
@@ -11528,7 +11574,7 @@ def list_agent_profiles() -> list[dict]:
         "provider": def_provider,
         "has_env": (root / ".env").is_file(),
         "has_soul": (root / "SOUL.md").is_file(),
-        "skill_count": _count_skills_in_dir(root / "skills"),
+        "skill_count": _profile_skill_count("default"),
         "description": def_desc,
     })
 
@@ -11551,15 +11597,7 @@ def list_agent_profiles() -> list[dict]:
                 except Exception:
                     pass
 
-                p_desc = ""
-                p_meta_path = entry / "meta.json"
-                try:
-                    if p_meta_path.is_file():
-                        meta = json.loads(p_meta_path.read_text(encoding="utf-8"))
-                        if isinstance(meta, dict):
-                            p_desc = str(meta.get("description") or "").strip()
-                except Exception:
-                    pass
+                p_desc = _read_profile_description(entry)
 
                 profiles.append({
                     "name": entry.name,
@@ -11570,7 +11608,7 @@ def list_agent_profiles() -> list[dict]:
                     "provider": p_provider or def_provider,
                     "has_env": (entry / ".env").is_file(),
                     "has_soul": (entry / "SOUL.md").is_file(),
-                    "skill_count": _count_skills_in_dir(entry / "skills"),
+                    "skill_count": _profile_skill_count(entry.name),
                     "description": p_desc,
                 })
         except Exception:
@@ -11580,7 +11618,12 @@ def list_agent_profiles() -> list[dict]:
 
 
 def create_agent_profile(name: str, clone_from: str = "", description: str = "") -> tuple[bool, str]:
-    """Create a new named profile."""
+    """Buat profil baru lewat `hermes profile create` (perilaku = CLI, bukan tafsiran panel).
+
+    CLI yang menyinkronkan skill bawaan, membuat wrapper, dan mendaftarkan profil ke
+    gateway. Kalau CLI tidak tersedia/gagal, panel jatuh ke pembuatan manual lama
+    supaya fitur tetap jalan di instalasi tanpa `hermes` di PATH.
+    """
     name = (name or "").strip()
     if not name or name.lower() == "default" or not _PROFILE_NAME_RE.match(name):
         return False, "Nama profil tidak valid. Gunakan huruf kecil, angka, '-' atau '_', maksimal 64 karakter."
@@ -11592,12 +11635,26 @@ def create_agent_profile(name: str, clone_from: str = "", description: str = "")
     target_dir = root / "profiles" / name
     if target_dir.exists():
         return False, f"Profil '{name}' sudah ada."
+
+    cli_args = ["profile", "create", name]
+    if description:
+        cli_args += ["--description", description.strip()]
+    if clone_from:
+        cli_args += ["--clone-from", clone_from]
+    rc, out = _run_hermes_cli(cli_args)
+    if rc == 0 and target_dir.is_dir():
+        _invalidate_profile_cache(name)
+        synced = re.search(r"(\d+)\s+bundled skills synced", out)
+        extra = f" ({synced.group(1)} skill bawaan disinkronkan)" if synced else ""
+        return True, f"Profil '{name}' berhasil dibuat lewat hermes CLI{extra}."
+
+    # Fallback: buat manual (tanpa sinkronisasi skill bawaan).
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
         if clone_from:
             clone_src = root if clone_from == "default" else (root / "profiles" / clone_from)
             if clone_src.is_dir():
-                for fname in ("config.yaml", "SOUL.md", "meta.json"):
+                for fname in ("config.yaml", "SOUL.md", "profile.yaml", "meta.json"):
                     src_f = clone_src / fname
                     if src_f.is_file():
                         shutil.copy2(src_f, target_dir / fname)
@@ -11620,10 +11677,17 @@ def create_agent_profile(name: str, clone_from: str = "", description: str = "")
             (target_dir / "config.yaml").write_text(cfg_content, encoding="utf-8")
             os.chmod(target_dir / "config.yaml", 0o600)
         if description:
-            meta = {"description": description.strip(), "description_auto": False}
-            (target_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+            # profile.yaml yang dibaca Hermes 0.22.5; meta.json untuk layout lama.
+            (target_dir / "profile.yaml").write_text(
+                yaml.safe_dump({"description": description.strip(), "description_auto": False},
+                               default_flow_style=False, sort_keys=False, allow_unicode=True),
+                encoding="utf-8")
+            (target_dir / "meta.json").write_text(
+                json.dumps({"description": description.strip(), "description_auto": False}, indent=2),
+                encoding="utf-8")
         _invalidate_profile_cache(name)
-        return True, f"Profil '{name}' berhasil dibuat."
+        note = "" if rc == 0 else f" (hermes CLI gagal: {out.splitlines()[-1][:120] if out else 'tidak tersedia'})"
+        return True, f"Profil '{name}' dibuat manual tanpa skill bawaan{note}."
     except Exception as e:
         return False, f"Gagal membuat profil: {e}"
 
@@ -11660,7 +11724,11 @@ def delete_agent_profile(name: str) -> tuple[bool, str]:
 
 
 def rename_agent_profile(old_name: str, new_name: str) -> tuple[bool, str]:
-    """Rename a named profile."""
+    """Ubah nama profil lewat `hermes profile rename` (ikut migrasi identitas sesi).
+
+    Rename direktori mentah meninggalkan identitas sesi/routing lama di state Hermes,
+    jadi CLI dipakai lebih dulu; fallback ke `os.rename` hanya bila CLI tak tersedia.
+    """
     old_name = (old_name or "").strip().lower()
     new_name = (new_name or "").strip()
     if not old_name or old_name == "default":
@@ -11677,13 +11745,21 @@ def rename_agent_profile(old_name: str, new_name: str) -> tuple[bool, str]:
         return False, f"Profil '{old_name}' tidak ditemukan."
     if dst_dir.exists():
         return False, f"Profil '{new_name}' sudah ada."
+
+    rc, out = _run_hermes_cli(["profile", "rename", old_name, new_name])
+    if rc == 0 and dst_dir.is_dir() and not src_dir.is_dir():
+        if get_active_profile_name() == old_name:
+            set_active_profile_name(new_name)
+        _invalidate_profile_cache(old_name, new_name)
+        return True, f"Profil '{old_name}' diubah menjadi '{new_name}' lewat hermes CLI."
     try:
         src_dir.rename(dst_dir)
         active = get_active_profile_name()
         if active == old_name:
             set_active_profile_name(new_name)
         _invalidate_profile_cache(old_name, new_name)
-        return True, f"Profil '{old_name}' berhasil diubah menjadi '{new_name}'."
+        note = "" if rc == 0 else f" (hermes CLI gagal: {out.splitlines()[-1][:120] if out else 'tidak tersedia'})"
+        return True, f"Profil '{old_name}' diubah menjadi '{new_name}'{note}."
     except Exception as e:
         return False, f"Gagal mengubah nama profil: {e}"
 
@@ -12600,7 +12676,12 @@ def save_agent_profile_soul(name: str, content: str) -> tuple[bool, str]:
 
 
 def set_agent_profile_model(name: str, provider: str, model: str) -> tuple[bool, str]:
-    """Update model assignment in a profile's config.yaml."""
+    """Update model assignment in a profile's config.yaml.
+
+    Saat provider berubah, kunci routing lama (`base_url`, `api_key`, `api_mode`)
+    ikut dibuang: menyisakannya membuat profil menembak endpoint provider sebelumnya
+    walaupun model/provider sudah diganti — mis. pindah dari 9router ke provider lain.
+    """
     name = (name or "").strip().lower()
     if not name or (name != "default" and not _PROFILE_NAME_RE.match(name)):
         return False, "Nama profil tidak valid."
@@ -12609,20 +12690,29 @@ def set_agent_profile_model(name: str, provider: str, model: str) -> tuple[bool,
     if not cfg_file.parent.is_dir():
         return False, f"Direktori profil '{name}' tidak ditemukan."
     try:
+        dropped = []
         with _config_write_lock:
             cfg = _read_profile_cfg(cfg_file)
             m = cfg.setdefault("model", {})
             if not isinstance(m, dict):
                 m = cfg["model"] = {}
+            prev_provider = str(m.get("provider") or "").strip()
             if model:
                 m["default"] = model
             if provider:
                 m["provider"] = provider
             elif not m.get("provider"):
                 m["provider"] = "9router"
+            new_provider = str(m.get("provider") or "").strip()
+            if prev_provider and new_provider != prev_provider:
+                for stale in ("base_url", "api_key", "api_mode"):
+                    if stale in m:
+                        m.pop(stale, None)
+                        dropped.append(stale)
             _write_profile_cfg(cfg_file, cfg)
         _invalidate_profile_cache(name)
-        return True, "Model profil berhasil diperbarui."
+        extra = f" Kunci routing lama dibuang: {', '.join(dropped)}." if dropped else ""
+        return True, "Model profil berhasil diperbarui." + extra
     except Exception as e:
         return False, f"Gagal memperbarui model profil: {e}"
 

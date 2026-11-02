@@ -28,6 +28,11 @@ spec = importlib.util.spec_from_file_location(
 panel = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(panel)
 
+# Unit test tidak boleh menjalankan `hermes` sungguhan: CLI-nya belasan detik per
+# panggilan dan menyentuh state profil/ gateway nyata. Test yang memang menguji
+# jalur CLI mem-patch fungsi ini sendiri.
+panel._run_hermes_cli = lambda *args, **kwargs: (-1, "disabled in tests")
+
 
 class TestHermesControlPanel(unittest.TestCase):
     @classmethod
@@ -2726,7 +2731,9 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
         self.assertIn("Accept-Encoding", headers.get("Vary", ""))
         decompressed = zlib.decompress(raw).decode("utf-8")
         self.assertIn("<!doctype html>", decompressed.lower())
-        self.assertLess(len(raw), 85000)
+        # 85 KB → 90 KB: tab Profil sekarang membawa modal Skills/Tools/Config
+        # (selector platform + pane config). Guard tetap menangkap bloat 2×.
+        self.assertLess(len(raw), 90000)
         self.assertGreater(len(decompressed), 350000)
 
     def test_no_compression_without_accept_encoding(self):
@@ -6778,6 +6785,121 @@ class TestProfileRuntimeParity(unittest.TestCase):
         self.assertIn('"/api/profile-toolsets"', src)
         self.assertIn('qs.get("platform")', src)
         self.assertNotIn("/api/profile-config", panel.MUTATING_PATHS)
+
+
+class TestProfileManagementParity(unittest.TestCase):
+    """Buat/ubah/hapus profil harus mengikuti CLI Hermes, bukan tafsiran panel."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="hermes-mgmt-")
+        self.root = panel.Path(self.tmpdir)
+        self._orig_config_path = panel.CONFIG_PATH
+        panel.CONFIG_PATH = str(self.root / "config.yaml")
+        (self.root / "config.yaml").write_text("model:\n  default: m\n  provider: 9router\n", encoding="utf-8")
+        panel._status_probe_cache.clear()
+
+    def tearDown(self):
+        import shutil
+        panel.CONFIG_PATH = self._orig_config_path
+        panel._status_probe_cache.clear()
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_description_comes_from_profile_yaml(self):
+        prof = self.root / "profiles" / "worker"
+        prof.mkdir(parents=True)
+        (prof / "profile.yaml").write_text(
+            "description: Full-stack developer and DevOps generalist — writes code,\n"
+            "  manages Docker homelab infrastructure.\n"
+            "description_auto: false\n", encoding="utf-8")
+        self.assertEqual(panel._read_profile_description(prof),
+                         "Full-stack developer and DevOps generalist — writes code, "
+                         "manages Docker homelab infrastructure.")
+
+    def test_description_falls_back_to_meta_json(self):
+        prof = self.root / "profiles" / "legacy"
+        prof.mkdir(parents=True)
+        (prof / "meta.json").write_text('{"description": "profil lama"}', encoding="utf-8")
+        self.assertEqual(panel._read_profile_description(prof), "profil lama")
+        self.assertEqual(panel._read_profile_description(self.root / "nowhere"), "")
+
+    def test_skill_count_matches_runtime_not_raw_walk(self):
+        skills = self.root / "skills"
+        for rel in ("a", "b", ".archive/old-skill", "a/references/sub"):
+            d = skills / rel
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "SKILL.md").write_text(f"---\nname: {rel.split('/')[-1]}\ndescription: d\n---\n")
+        profiles = panel.list_agent_profiles()
+        default = {p["name"]: p for p in profiles}["default"]
+        self.assertEqual(default["skill_count"], 2,
+                         "skill_count harus sama dengan inventaris runtime, bukan hitungan walk mentah")
+
+    def test_create_profile_uses_hermes_cli(self):
+        calls = []
+
+        def fake_cli(args, timeout=180):
+            calls.append(args)
+            target = self.root / "profiles" / args[2]
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "config.yaml").write_text("model:\n  default: m\n", encoding="utf-8")
+            return 0, "Profile 'x' created\n58 bundled skills synced."
+
+        with mock.patch.object(panel, "_run_hermes_cli", side_effect=fake_cli):
+            ok, msg = panel.create_agent_profile("worker", description="bot kerja")
+        self.assertTrue(ok, msg)
+        self.assertEqual(calls[0][:3], ["profile", "create", "worker"])
+        self.assertIn("--description", calls[0])
+        self.assertIn("58 skill bawaan", msg)
+        self.assertTrue((self.root / "profiles" / "worker" / "config.yaml").is_file())
+
+    def test_create_profile_falls_back_when_cli_unavailable(self):
+        with mock.patch.object(panel, "_run_hermes_cli", return_value=(-1, "hermes tidak ada")):
+            ok, msg = panel.create_agent_profile("manual", description="tanpa cli")
+        self.assertTrue(ok, msg)
+        prof = self.root / "profiles" / "manual"
+        self.assertTrue((prof / "config.yaml").is_file())
+        yaml_txt = (prof / "profile.yaml").read_text(encoding="utf-8")
+        self.assertIn("tanpa cli", yaml_txt)
+        self.assertIn("manual", msg)
+
+    def test_rename_profile_uses_cli(self):
+        old = self.root / "profiles" / "lama"
+        old.mkdir(parents=True)
+        calls = []
+
+        def fake_cli(args, timeout=180):
+            calls.append(args)
+            if args[:2] == ["profile", "rename"]:
+                (self.root / "profiles" / args[3]).mkdir(parents=True, exist_ok=True)
+                old.rmdir()
+                return 0, "renamed"
+            return -1, "no"
+
+        with mock.patch.object(panel, "_run_hermes_cli", side_effect=fake_cli):
+            ok, msg = panel.rename_agent_profile("lama", "baru")
+        self.assertTrue(ok, msg)
+        self.assertEqual(calls[0], ["profile", "rename", "lama", "baru"])
+        self.assertIn("hermes CLI", msg)
+
+    def test_model_change_drops_stale_routing_keys(self):
+        import yaml as _yaml
+        self.root.joinpath("profiles", "p1").mkdir(parents=True)
+        cfg_file = self.root / "profiles" / "p1" / "config.yaml"
+        cfg_file.write_text(
+            "model:\n  default: lama\n  provider: 9router\n  base_url: http://127.0.0.1:20128/v1\n"
+            "  api_mode: chat_completions\n", encoding="utf-8")
+        ok, msg = panel.set_agent_profile_model("p1", "openrouter", "baru")
+        self.assertTrue(ok, msg)
+        data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+        self.assertEqual(data["model"]["provider"], "openrouter")
+        self.assertNotIn("base_url", data["model"])
+        self.assertNotIn("api_mode", data["model"])
+        self.assertIn("base_url", msg)
+
+        # Provider sama: kunci routing tidak boleh ikut terhapus.
+        ok, _ = panel.set_agent_profile_model("p1", "openrouter", "lain")
+        data = _yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+        self.assertEqual(data["model"]["default"], "lain")
+        self.assertEqual(data["model"]["provider"], "openrouter")
 
 
 if __name__ == "__main__":
