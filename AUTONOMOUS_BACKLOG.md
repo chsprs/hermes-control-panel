@@ -369,4 +369,4 @@ sedangkan panel melaporkan isi penuh bundle (51 tool) karena replikasinya butuh 
   Gateway default tetap jalan (PID 51466, `served: true`).
 
 ### Commit
-- (lihat `git log -1` untuk hash Wave 81)
+- `7357816` fix(panel): tab Profil baca runtime Hermes (skills, toolset, config).
