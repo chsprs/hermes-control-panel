@@ -432,3 +432,49 @@ script, dan payload deflate (87,4 KB, guard dinaikkan 85→90 KB karena tab Conf
   (`agent/provider_media.py`, `gateway/slash_commands_model.py`) — `hermes update`
   bisa menolak/menimpa; sengaja tidak disentuh.
 - Ada `git stash@{0}` lama (28 Okt) di repo panel, bukan dari sesi ini.
+
+## Wave 83 — Loop audit lanjutan: tab Kontrol, Kanban, Model, Log, Update
+
+**Bug diperbaiki**
+- **Memori layanan**: tabel proses memakai RSS MainPID. 9router.service MainPID 741
+  hanya wrapper (6 MB) sementara anak `next-server`-nya 240 MB → layanan tampil
+  "6 MB". Sekarang `_service_mem_mb()` menjumlahkan RSS semua PID di cgroup unit
+  (`_cgroup_procs`). `MemoryCurrent` systemd sengaja tidak dipakai: ikut menghitung
+  page cache (gateway 977 MB RSS → dilaporkan 1.816 MB).
+- **Layanan hantu**: Pi-hole (tidak ada container), CasaOS & OpenClaw Gateway (tidak
+  ada unit systemd) tampil "Berhenti" + tombol Nyalakan yang pasti gagal. Sekarang
+  `get_docker_metric()` mengembalikan `missing` (di-cache, tidak memanggil docker
+  tiap render) dan `_unit_installed()` membedakan unit terpasang vs tidak →
+  status "Tidak terpasang", badge abu-abu, tanpa aksi.
+- **Blok pembaruan nyangkut**: `_refresh_hermes_update()` tidak meng-invalidate
+  fragmen cache, jadi blok tetap "Mengecek pembaruan Hermes…" sampai TTL habis
+  padahal sel dasbor sudah "pembaruan tersedia". Sekarang fragmen terkait
+  di-invalidate di `finally`.
+- **Hint OpenClaw**: "mati — nyalakan dulu" → "tidak terpasang di server ini" bila
+  unitnya memang tidak ada.
+- **Regresi proses patch**: blok docker "missing" sempat tersisip ke
+  `tail_gateway_log` (anchor `if r.returncode == 0` tidak unik). Dipulihkan, dan
+  7 test baru mengunci perilaku benar.
+
+**Diperiksa, sudah benar (tidak diubah)**
+- Kanban: kolom & jumlah task sama dengan DB; daftar board sama dengan
+  `hermes kanban boards list` (2 board, `test-board-val` diabaikan CLI juga);
+  selisih hitungan = baris `archived` yang memang dikecualikan.
+- Tidak ada kebocoran kredensial di 24 fragmen `/api/status` (regex sk-/ghp_/api_key).
+- Kartu log gateway hidup (16,6 KB, tail file), catatan pembaruan 9router (v0.5.112
+  terbaru) dan Hermes (stable v0.22.6 tersedia) konsisten dengan sumbernya.
+- Tab Jaringan dirender client-side dari endpoint POST/ter-token → tidak ada
+  fragmen server yang bisa basi; nilai lan/tailscale/route cocok dengan `ip route`.
+
+### Verifikasi
+- `tests.test_install tests.test_panel` → **384 test OK** (+9: 7
+  `TestServiceTableTruth`, 2 `TestStaleFragmentsAfterBackgroundChecks`, plus 1 kasus
+  "tidak terpasang" di test CasaOS).
+- Live: gateway 999 MB, 9router 240 MB (dulu 6 MB), panel 82 MB, Pi-hole/CasaOS/
+  OpenClaw "Tidak terpasang" tanpa tombol; blok pembaruan berubah jadi
+  "Pembaruan tersedia: stable v0.22.6" ±45 dtk setelah restart (dulu nyangkut).
+- `/status` 0,156 s, `/api/status` 0,038 s, RSS 63,5 MB, md5 runtime = repo.
+
+### Commit
+- `314820d` fix(panel): tabel layanan jujur soal memori dan layanan hantu
+- `ddff6ea` fix(panel): blok pembaruan tidak nyangkut "Mengecek…" + jujur soal OpenClaw
