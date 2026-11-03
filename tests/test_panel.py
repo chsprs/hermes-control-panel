@@ -7379,5 +7379,77 @@ class TestQuotaTabControls(unittest.TestCase):
         self.assertIn("function quotaAccountMatches", panel.PAGE)
 
 
+def _quota_js() -> str:
+    """JS tab Kuota persis seperti dirender (PAGE memakai str.format)."""
+    start = panel.PAGE.index("var QUOTA = ")
+    end = panel.PAGE.index("function quotaEnsure")
+    return panel.PAGE[start:end].replace("{{", "{").replace("}}", "}")
+
+
+_QUOTA_HARNESS = r"""
+function escHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+var document = { getElementById: function(){ return null; }, querySelectorAll: function(){ return []; } };
+function mkAccounts(n){
+  var out = [];
+  for(var i = 1; i <= n; i++) out.push({name: 'Key ' + i, email: 'user' + i + '@mail.com', status: 'ok', isActive: true, groups: []});
+  return out;
+}
+"""
+
+
+@unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
+class TestQuotaTabBehaviourJs(unittest.TestCase):
+    """Perilaku JS Kuota: batas 6 akun, kritis didahulukan, pencarian."""
+
+    def _run(self, body: str) -> str:
+        script = _QUOTA_HARNESS + _quota_js() + body
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_provider_caps_accounts_and_offers_more(self):
+        out = self._run("""
+var p = {provider: 'qoder', label: 'Qoder', accountCount: 8, accounts: mkAccounts(8)};
+var h = quotaProviderHtml(p);
+process.stdout.write(String((h.match(/Key /g) || []).length) + '|' + (h.indexOf('2 akun lainnya') !== -1));
+""")
+        self.assertEqual(out, "6|true")
+
+    def test_exhausted_account_is_not_hidden_by_the_cap(self):
+        out = self._run("""
+var acc = mkAccounts(8);
+acc[7].status = 'exhausted';
+var h = quotaProviderHtml({provider: 'qoder', label: 'Q', accounts: acc});
+process.stdout.write(String(h.indexOf('Key 8') !== -1));
+""")
+        self.assertEqual(out, "true")
+
+    def test_show_all_renders_every_account(self):
+        out = self._run("""
+QUOTA.showAllProv.qoder = true;
+var h = quotaProviderHtml({provider: 'qoder', label: 'Q', accounts: mkAccounts(9)});
+process.stdout.write(String((h.match(/Key /g) || []).length) + '|' + (h.indexOf('akun lainnya') !== -1));
+""")
+        self.assertEqual(out, "9|false")
+
+    def test_search_matches_email_and_hides_other_providers(self):
+        out = self._run("""
+QUOTA.filter = 'user7@mail.com';
+var hit = quotaProviderHtml({provider: 'qoder', label: 'Q', accounts: mkAccounts(8)});
+var miss = quotaProviderHtml({provider: 'gemini', label: 'G', accounts: mkAccounts(2)});
+process.stdout.write(String((hit.match(/Key /g) || []).length) + '|' + String(miss === ''));
+""")
+        self.assertEqual(out, "1|true")
+
+    def test_rank_orders_problem_accounts_first(self):
+        out = self._run("""
+var a = {status: 'ok', isActive: true};
+var b = {status: 'exhausted', isActive: true};
+var c = {status: 'ok', isActive: false};
+process.stdout.write([quotaAccountRank(a), quotaAccountRank(b), quotaAccountRank(c)].join(','));
+""")
+        self.assertEqual(out, "2,0,1")
+
+
 if __name__ == "__main__":
     unittest.main()

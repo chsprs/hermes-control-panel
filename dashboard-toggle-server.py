@@ -2959,6 +2959,12 @@ function quotaAccountHtml(a){{
   h += '</div>';
   return h;
 }}
+function quotaAccountRank(a){{
+  var s = (a.status || '').toLowerCase();
+  if(s === 'exhausted' || s === 'expired' || s === 'invalid' || s === 'error') return 0;
+  if(a.isActive === false) return 1;
+  return 2;
+}}
 function quotaAccountMatches(a, q){{
   if(!q) return true;
   var hay = ((a.name || '') + ' ' + (a.email || '') + ' ' + (a.provider || '')).toLowerCase();
@@ -2985,6 +2991,8 @@ function quotaProviderHtml(p){{
   // 156 akun qoder tidak dirender semua: 6 pertama + tombol sisanya.
   var q = (QUOTA.filter || '').toLowerCase();
   var accounts = (p.accounts || []).filter(function(a){{ return quotaAccountMatches(a, q); }});
+  // Akun bermasalah/non-aktif didahulukan supaya tidak tersembunyi di balik batas 6.
+  accounts = accounts.slice().sort(function(x, y){{ return quotaAccountRank(x) - quotaAccountRank(y); }});
   var showAll = QUOTA.showAllProv[p.provider] === true || !!q;
   var visible = showAll ? accounts : accounts.slice(0, QUOTA_ACCOUNT_PAGE);
   visible.forEach(function(a){{ h += quotaAccountHtml(a); }});
