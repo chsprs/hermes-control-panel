@@ -13720,9 +13720,7 @@ def create_kanban_task(
     title = (title or "").strip()
     if not title:
         return False, "Judul tugas tidak boleh kosong.", ""
-    status = (status or "todo").strip().lower()
-    if status not in _KANBAN_VALID_STATUSES:
-        status = "todo"
+    status = _normalize_kanban_status(status)
     assignee = (assignee or "").strip().lower() or None
     model_override = (model_override or "").strip() or None
 
@@ -13759,6 +13757,19 @@ def create_kanban_task(
         return False, f"Gagal membuat tugas: {e}", ""
 
 
+def _normalize_kanban_status(status: str, default: str = "todo") -> str:
+    """Terima alias CLI (`completed`) tapi selalu simpan status kanonik Hermes (`done`).
+
+    Menyimpan `completed` apa adanya membuat papan punya dua bucket untuk hal yang
+    sama, dan hitungan `done` di `hermes kanban boards list` tidak lagi cocok dengan
+    kolom Done panel.
+    """
+    s = (status or "").strip().lower()
+    if s == "completed":
+        s = "done"
+    return s if s in _KANBAN_VALID_STATUSES else default
+
+
 def update_kanban_task_status(
     task_id: str,
     new_status: str,
@@ -13767,9 +13778,10 @@ def update_kanban_task_status(
     kind: str = ""
 ) -> tuple[bool, str]:
     """Update task lifecycle status."""
-    new_status = (new_status or "").strip().lower()
-    if new_status not in _KANBAN_VALID_STATUSES:
-        return False, f"Status '{new_status}' tidak valid."
+    raw_status = (new_status or "").strip().lower()
+    new_status = _normalize_kanban_status(new_status, default="")
+    if not new_status:
+        return False, f"Status '{raw_status}' tidak valid."
 
     db_path = get_kanban_db_path(board)
     try:

@@ -7179,5 +7179,52 @@ class TestStaleFragmentsAfterBackgroundChecks(unittest.TestCase):
         self.assertIn("mati", stopped)
 
 
+class TestKanbanStatusCanonical(unittest.TestCase):
+    """Alias `completed` diterima, tapi DB selalu menyimpan status kanonik `done`."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="hermes-kanban-")
+        self.db = panel.Path(self.tmpdir) / "kanban.db"
+        self._orig = panel.get_kanban_db_path
+        panel.get_kanban_db_path = lambda board="": self.db
+
+    def tearDown(self):
+        import shutil
+        panel.get_kanban_db_path = self._orig
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_normalize_helper(self):
+        self.assertEqual(panel._normalize_kanban_status("completed"), "done")
+        self.assertEqual(panel._normalize_kanban_status("DONE"), "done")
+        self.assertEqual(panel._normalize_kanban_status("blocked"), "blocked")
+        self.assertEqual(panel._normalize_kanban_status("ngawur"), "todo")
+        self.assertEqual(panel._normalize_kanban_status("ngawur", default=""), "")
+
+    def test_create_with_completed_stores_done(self):
+        ok, msg, tid = panel.create_kanban_task("uji", status="completed")
+        self.assertTrue(ok, msg)
+        with panel.closing(panel.ensure_kanban_db(self.db)) as con:
+            row = con.execute("SELECT status, completed_at FROM tasks WHERE id=?", (tid,)).fetchone()
+        self.assertEqual(row["status"], "done")
+        self.assertTrue(row["completed_at"])
+
+    def test_update_with_completed_stores_done(self):
+        ok, msg, tid = panel.create_kanban_task("uji2", status="todo")
+        self.assertTrue(ok, msg)
+        ok, msg = panel.update_kanban_task_status(tid, "completed")
+        self.assertTrue(ok, msg)
+        with panel.closing(panel.ensure_kanban_db(self.db)) as con:
+            row = con.execute("SELECT status, completed_at FROM tasks WHERE id=?", (tid,)).fetchone()
+        self.assertEqual(row["status"], "done")
+        self.assertTrue(row["completed_at"])
+
+    def test_invalid_status_still_rejected(self):
+        ok, msg, tid = panel.create_kanban_task("uji3")
+        self.assertTrue(ok, msg)
+        ok, msg = panel.update_kanban_task_status(tid, "ngawur")
+        self.assertFalse(ok)
+        self.assertIn("ngawur", msg)
+
+
 if __name__ == "__main__":
     unittest.main()
