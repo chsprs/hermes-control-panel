@@ -25,6 +25,7 @@ Routes:
   GET /check-update?token=TOKEN   -> force a fresh 9router update check
   GET /status?token=TOKEN         -> read-only status panel (safe to refresh)
   GET /api/status?token=TOKEN     -> JSON of all live fragments (panel auto-poll)
+  GET /api/export/snapshot?token=TOKEN -> JSON status snapshot for diagnostics (no secrets)
   GET /?token=TOKEN               -> alias for /status
 
 Auto-refresh: the panel polls /api/status on an interval and swaps the dynamic
@@ -94,6 +95,12 @@ SERVICE = os.environ.get("HERMES_DASHBOARD_SERVICE", "hermes-dashboard")
 DEBOUNCE_SECONDS = 3.0
 STARTUP_COUNTDOWN_SECONDS = 15  # systemd reports "active" almost instantly,
 # but the actual web server takes ~10-15s to bind and answer.
+# Versi panel, dilaporkan di /api/export/snapshot (env override agar rilis bisa
+# diberi tag tanpa menyentuh kode).
+PANEL_VERSION = (os.environ.get("PANEL_VERSION") or "").strip() or "1.0.0"
+# Waktu mulai proses, dipakai snapshot diagnostik untuk uptime proses panel
+# (bukan uptime host: dua angka itu sering tertukar saat melapor masalah).
+PANEL_START_TS = time.time()
 ROUTER_MODELS_URL = "http://{host}:20128/v1/models"
 ROUTER_VERSION_URL = "http://{host}:20128/api/version"
 MODELS_TIMEOUT = 8.0  # 9router /v1/models upstream fan-out can take 3-5s under load; 4.0s timed out during heavy test suites
@@ -2172,6 +2179,20 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   <div id="hermes-log-show" style="display:none;margin-top:.6rem">
     <button type="button" class="btn" style="width:auto;padding:0.35rem 0.8rem;font-size:0.75rem;margin:0"
       onclick="toggleLog('hermesLogDismissed','hermes-log-show')">Tampilkan Log Hermes</button>
+  </div>
+  <div class="card card-info" id="snapshot-card">
+    <div class="aux-header">
+      <div class="card-title" style="margin-bottom:0">{icon_shield} Snapshot Diagnostik</div>
+      <button type="button" class="btn-action-sm" id="btn-snapshot-download" onclick="downloadSnapshot()"
+        title="Unduh status panel sebagai berkas JSON untuk dilampirkan saat melapor masalah">Unduh Snapshot</button>
+    </div>
+    <div class="aux-desc">
+      Mengunduh <code>hermes-snapshot-YYYYMMDD-HHMM.json</code> berisi versi panel, uptime proses,
+      nilai sel (CPU/RAM/suhu/disk/eMMC), status layanan, serta versi Hermes/9router.
+      Rahasia (token, <code>api_key</code>, cookie, isi <code>.env</code>) tidak ikut disertakan —
+      URL yang memuat kredensial disamarkan.
+    </div>
+    <div class="aux-desc" id="snapshot-note" style="display:none"></div>
   </div>
 </div>
 
@@ -6686,6 +6707,56 @@ syncLogUI();
 document.addEventListener('DOMContentLoaded', scrollAllLogsToBottom);
 setTimeout(scrollAllLogsToBottom, 100);
 setTimeout(scrollAllLogsToBottom, 600);
+// snapshot-export:start — Unduh Snapshot (diagnostik)
+function snapshotFilename(d){{
+  d = d || new Date();
+  function p2(n){{ return (n < 10 ? '0' : '') + n; }}
+  return 'hermes-snapshot-' + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate())
+    + '-' + p2(d.getHours()) + p2(d.getMinutes()) + '.json';
+}}
+function snapshotNote(msg, colour){{
+  var el = document.getElementById('snapshot-note');
+  if(!el) return;
+  el.textContent = msg || '';
+  el.style.display = msg ? '' : 'none';
+  el.style.color = (msg && colour) ? colour : '';
+}}
+function downloadSnapshot(){{
+  var btn = document.getElementById('btn-snapshot-download');
+  if(btn && btn.disabled) return;
+  if(btn) btn.disabled = true;
+  snapshotNote('Menyiapkan snapshot…', '');
+  function finish(){{ if(btn) btn.disabled = false; }}
+  return fetch('/api/export/snapshot', {{headers: {{'Accept': 'application/json'}}}})
+    .then(function(r){{
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }})
+    .then(function(data){{
+      if(!data || typeof data !== 'object') throw new Error('payload bukan objek JSON');
+      if(typeof Blob === 'undefined' || !window.URL || !window.URL.createObjectURL){{
+        throw new Error('peramban ini tidak mendukung Blob/URL.createObjectURL');
+      }}
+      var name = snapshotFilename(new Date());
+      var blob = new Blob([JSON.stringify(data, null, 2)], {{type: 'application/json'}});
+      var url = window.URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      if(a.parentNode) a.parentNode.removeChild(a);
+      setTimeout(function(){{ window.URL.revokeObjectURL(url); }}, 1000);
+      var extra = (data.errors && data.errors.length) ? ' — ' + data.errors.length + ' fragmen gagal (partial)' : '';
+      snapshotNote('Snapshot terunduh: ' + name + extra, data.partial ? 'var(--warning)' : 'var(--success)');
+    }})
+    .catch(function(err){{
+      snapshotNote('Gagal mengunduh snapshot: ' + ((err && err.message) || err), 'var(--danger)');
+    }})
+    .then(finish, finish);
+}}
+// snapshot-export:end
 </script>
 <div id="toast-wrap" aria-live="polite" aria-atomic="false"></div>
 </body></html>"""
@@ -7637,6 +7708,257 @@ def redact_sensitive_tokens(text: str) -> str:
             _redact_cache.clear()
         _redact_cache[text] = out
     return out
+
+
+_SNAPSHOT_SECRET_KEY_PARTS = (
+    "apikey", "token", "secret", "password", "passwd", "passphrase", "cookie",
+    "authorization", "credential", "privatekey", "sessionid", "sessiontoken",
+    "sessionkey", "bearer",
+)
+_SNAPSHOT_SECRET_KEY_EXACT = {"key", "keys", "pwd", "sig", "signature", "salt"}
+
+_URL_USERINFO_RE = re.compile(r"([A-Za-z][A-Za-z0-9+.\-]*://)([^/@\s\"'<>]+)@")
+
+
+def _snapshot_key_is_secret(name) -> bool:
+    """True untuk nama kunci yang bernuansa kredensial (api_key, token, cookie…)."""
+    norm = re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+    if not norm:
+        return False
+    if norm in _SNAPSHOT_SECRET_KEY_EXACT:
+        return True
+    return any(part in norm for part in _SNAPSHOT_SECRET_KEY_PARTS)
+
+
+def _strip_secret_query_params(text: str) -> str:
+    """Buang parameter query bernuansa kredensial (nama maupun nilainya)."""
+    if "?" not in text:
+        return text
+    head, _, tail = text.partition("?")
+    if "=" not in tail:
+        return text  # "?" di teks biasa, bukan query string: biarkan utuh
+    query, sep, fragment = tail.partition("#")
+    kept = []
+    for pair in query.split("&"):
+        if not pair:
+            continue
+        if _snapshot_key_is_secret(pair.split("=", 1)[0]):
+            continue
+        kept.append(pair)
+    out = head + ("?" + "&".join(kept) if kept else "")
+    if sep:
+        out += "#" + fragment
+    return out
+
+
+def mask_secret_url(value: str) -> str:
+    """Samarkan kredensial di dalam URL: userinfo dan parameter kunci/token.
+
+    Snapshot diagnostik tetap berguna kalau host/endpoint terlihat, jadi yang
+    dibuang hanya bagian rahasianya: ``https://user:pass@api.host/v1?api_key=sk-x``
+    → ``https://[REDACTED]@api.host/v1``.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = _URL_USERINFO_RE.sub(r"\1[REDACTED]@", text)
+    text = _strip_secret_query_params(text)
+    return redact_sensitive_tokens(text)
+
+
+def scrub_snapshot_secrets(value, _depth: int = 0):
+    """Salinan payload snapshot tanpa kunci/URL bernuansa rahasia.
+
+    Pertahanan berlapis: payload snapshot memang disusun dari field yang aman,
+    tetapi berkas ini berpindah tangan (chat/issue), jadi setiap kunci yang
+    menyerupai kredensial dibuang dan setiap string disamarkan sebelum dikirim.
+    """
+    if _depth > 12:
+        return None
+    if isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            if _snapshot_key_is_secret(key):
+                continue
+            out[str(key)] = scrub_snapshot_secrets(item, _depth + 1)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [scrub_snapshot_secrets(item, _depth + 1) for item in value]
+    if isinstance(value, str):
+        return mask_secret_url(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return mask_secret_url(str(value))
+
+
+def _snapshot_text(fragment) -> str:
+    """Teks polos dari fragmen sel: buang tag, decode entitas, rapikan spasi."""
+    try:
+        plain = re.sub(r"<[^>]*>", " ", str(fragment or ""))
+        return " ".join(html.unescape(plain).split())
+    except Exception:
+        return ""
+
+
+_SNAPSHOT_CELL_STATE_RE = re.compile(r'class="value\s+([a-z]+)"')
+
+
+def _snapshot_cell_state(fragment) -> str:
+    """Kelas status sel fragmen (up/warn/down) — sumber boolean layanan."""
+    match = _SNAPSHOT_CELL_STATE_RE.search(str(fragment or ""))
+    return match.group(1) if match else ""
+
+
+def _snapshot_uptime_text(seconds: float) -> str:
+    try:
+        total = max(0, int(seconds))
+    except (TypeError, ValueError):
+        return "?"
+    days, rem = divmod(total, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, _ = divmod(rem, 60)
+    if days:
+        return f"{days} hari {hours} jam {minutes} mnt"
+    if hours:
+        return f"{hours} jam {minutes} mnt"
+    return f"{minutes} mnt"
+
+
+def build_export_snapshot() -> dict:
+    """Snapshot status JSON untuk diagnostik (GET /api/export/snapshot).
+
+    Semua angka diambil dari fragmen yang sudah ada (``build_fragments``), jadi
+    nilainya identik dengan UI dan tidak ada subprocess tambahan. Fragmen yang
+    gagal tidak menggagalkan endpoint: diagnostik justru paling dibutuhkan saat
+    sebagian panel rusak, jadi payload tetap dikirim dengan ``partial: true``
+    beserta daftar ``errors``.
+    """
+    errors: list[str] = []
+    fragments: dict = {}
+    try:
+        fragments = build_fragments()
+    except Exception as exc:
+        errors.append(f"fragments: {type(exc).__name__}: {exc}")
+    if not isinstance(fragments, dict):
+        errors.append("fragments: bukan objek JSON")
+        fragments = {}
+    raw_cells = fragments.get("cells")
+    if not isinstance(raw_cells, dict):
+        if not errors:
+            errors.append("cells: fragmen sel tidak tersedia")
+        raw_cells = {}
+
+    cells = {}
+    try:
+        cells = {
+            "cpu_pct": fragments.get("cpu_pct"),
+            "ram_pct": fragments.get("ram_pct"),
+            "load_avg": str(fragments.get("cell_load") or ""),
+            "ram": _snapshot_text(raw_cells.get("ram")),
+            "temp": _snapshot_text(raw_cells.get("temp")),
+            "zram": _snapshot_text(raw_cells.get("zram")),
+            "disk": _snapshot_text(raw_cells.get("disk")),
+            "emmc": _snapshot_text(raw_cells.get("emmc")),
+            "uptime": _snapshot_text(raw_cells.get("uptime")),
+            "model": _snapshot_text(raw_cells.get("model")),
+        }
+    except Exception as exc:
+        errors.append(f"cells: {type(exc).__name__}: {exc}")
+
+    services = {}
+    try:
+        router_state = _snapshot_cell_state(raw_cells.get("router"))
+        internet_state = _snapshot_cell_state(raw_cells.get("internet"))
+        services = {
+            "dashboard": {
+                "active": bool(fragments.get("dash_active")),
+                "detail": _snapshot_text(raw_cells.get("dash")),
+            },
+            "gateway": {
+                "active": bool(fragments.get("gw_active")),
+                "detail": _snapshot_text(raw_cells.get("bot")),
+            },
+            "router": {
+                "up": router_state == "up",
+                "state": router_state or "unknown",
+                "detail": _snapshot_text(raw_cells.get("router")),
+            },
+            "internet": {
+                "up": internet_state == "up",
+                "state": internet_state or "unknown",
+                "detail": _snapshot_text(raw_cells.get("internet")),
+            },
+            "gateway_platforms": _snapshot_text(raw_cells.get("gw_platforms")),
+        }
+    except Exception as exc:
+        errors.append(f"services: {type(exc).__name__}: {exc}")
+
+    versions = {"panel": PANEL_VERSION}
+    try:
+        hermes_upd = get_hermes_update() or {}
+        versions["hermes"] = str(hermes_upd.get("local") or "?")
+        versions["hermes_status"] = str(hermes_upd.get("status") or "unknown")
+        versions["hermes_channel"] = str(hermes_upd.get("channel") or "")
+    except Exception as exc:
+        errors.append(f"hermes_version: {type(exc).__name__}: {exc}")
+    try:
+        router_info = get_cached_router_info() or {}
+        versions["router"] = str(router_info.get("version") or get_cached_router_version() or "?")
+        versions["router_latest"] = str(router_info.get("latest_version") or "")
+    except Exception as exc:
+        errors.append(f"router_version: {type(exc).__name__}: {exc}")
+
+    providers: list[dict] = []
+    try:
+        base_urls: dict[str, str] = {}
+        for entry in iter_custom_provider_entries(get_parsed_config()):
+            if isinstance(entry, dict) and entry.get("name"):
+                base_urls[str(entry["name"])] = mask_secret_url(entry.get("base_url") or "")
+        for prov in get_all_configured_providers():
+            if not isinstance(prov, dict):
+                continue
+            item = {"name": str(prov.get("name") or "?"), "type": str(prov.get("type") or "")}
+            base_url = base_urls.get(item["name"])
+            if base_url:
+                item["base_url"] = base_url
+            providers.append(item)
+    except Exception as exc:
+        errors.append(f"providers: {type(exc).__name__}: {exc}")
+
+    panel_section = {"version": PANEL_VERSION}
+    try:
+        now = time.time()
+        uptime_seconds = max(0.0, now - PANEL_START_TS)
+        panel_section = {
+            "version": PANEL_VERSION,
+            "pid": os.getpid(),
+            "started_at": datetime.fromtimestamp(PANEL_START_TS).astimezone().isoformat(timespec="seconds"),
+            "uptime_seconds": round(uptime_seconds, 1),
+            "uptime_human": _snapshot_uptime_text(uptime_seconds),
+            "python": sys.version.split()[0],
+            "hostname": socket.gethostname(),
+        }
+    except Exception as exc:
+        errors.append(f"panel: {type(exc).__name__}: {exc}")
+        now = time.time()
+
+    try:
+        generated_at = datetime.fromtimestamp(now).astimezone().isoformat(timespec="seconds")
+    except Exception:
+        generated_at = ""
+
+    payload = {
+        "ok": True,
+        "partial": bool(errors),
+        "generated_at": generated_at,
+        "panel": panel_section,
+        "cells": cells,
+        "services": services,
+        "versions": versions,
+        "providers": providers,
+        "errors": errors,
+    }
+    return scrub_snapshot_secrets(payload)
 
 
 def tail_gateway_log(n: int = 60) -> str:
@@ -19475,6 +19797,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/status":
             self._send_json(build_fragments())
+            return
+        if parsed.path == "/api/export/snapshot":
+            # Snapshot diagnostik: selalu 200 — fragmen yang rusak justru alasan
+            # pengguna mengunduh berkas ini (lihat build_export_snapshot).
+            self._send_json(build_export_snapshot())
             return
         if parsed.path == "/api/provider-quota":
             want_refresh = (qs.get("refresh") or ["0"])[0] in ("1", "true", "yes")

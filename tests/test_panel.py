@@ -8443,5 +8443,410 @@ class TestDockerAppsOpenButtonJsEscaping(unittest.TestCase):
         self.assertIn("/x", href)
 
 
+def _snapshot_fragments() -> dict:
+    """Fragmen minimal tapi lengkap, sama bentuknya dengan /api/status."""
+    return {
+        "cells": {
+            "dash": '<span class="value" style="font-size:.72rem">native v1.2.3 · 2026-01-01</span>',
+            "bot": '<span class="value up"><span class="dot up"></span>Aktif</span>',
+            "gw": '<span class="value up">@gerbang</span>',
+            "model": '<span class="value">glm-5</span>',
+            "providers": '<div style="display:flex"><span class="model-chip">9router</span></div>',
+            "router": '<span class="value up"><span class="dot up"></span>Terhubung · 127.0.0.1 (12ms)</span>',
+            "ram": '<span class="value warn"><span class="dot warn"></span>61.2% (512 MB tersedia)</span>',
+            "zram": '<span class="value">512 MB</span>',
+            "temp": '<span class="value up"><span class="dot up"></span>51.0 °C</span>',
+            "emmc": '<span class="value up"><span class="dot up"></span>Sehat</span>',
+            "disk": '<span class="value up"><span class="dot up"></span>42% terpakai</span>',
+            "uptime": '<span class="value">3 hari 4 jam 5 mnt</span>',
+            "lan": '<span class="value">192.168.1.9</span>',
+            "ts": '<span class="value">–</span>',
+            "internet": '<span class="value down"><span class="dot down"></span>Terputus (1.1.1.1)</span>',
+            "gw_platforms": '<span class="value up">1 Terhubung</span>',
+        },
+        "cpu_pct": 12.5,
+        "ram_pct": 61.2,
+        "cell_load": "0.31, 0.44, 0.51",
+        "dash_active": True,
+        "gw_active": False,
+    }
+
+
+def _snapshot_config() -> dict:
+    """config.yaml uji yang penuh rahasia: snapshot tidak boleh membocorkannya."""
+    return {
+        "model": {"provider": "custom:gw", "default": "glm-5"},
+        "custom_providers": [
+            {
+                "name": "gw",
+                "base_url": "https://paneluser:hunter2secret@api.internal.test/v1?api_key=sk-live-deadbeef0011",
+                "api_key": "sk-live-deadbeef0011",
+            }
+        ],
+        "fallback_providers": [
+            {
+                "provider": "custom:backup",
+                "api_key": "sk-live-cafe0042",
+                "base_url": "https://backup.internal.test/v1?token=tok-live-777",
+            }
+        ],
+        "platforms": {"telegram": {"enabled": True, "bot_token": "987654321:AAF-sentinel-bot-token"}},
+        "cookie": "panel_session=sentinel-cookie-value",
+        "env": {"PANEL_TOKEN": "sentinel-env-token"},
+    }
+
+
+def _build_snapshot(fragments=None, config=None):
+    frag = _snapshot_fragments() if fragments is None else fragments
+    cfg = _snapshot_config() if config is None else config
+    with mock.patch.object(panel, "build_fragments", return_value=frag), \
+         mock.patch.object(panel, "get_parsed_config", return_value=cfg), \
+         mock.patch.object(panel, "get_hermes_update",
+                           return_value={"local": "v0.9.2", "status": "current", "channel": "stable"}), \
+         mock.patch.object(panel, "get_cached_router_info",
+                           return_value={"version": "1.2.3", "latest_version": "1.2.3"}):
+        return panel.build_export_snapshot()
+
+
+def _all_keys(value) -> list[str]:
+    keys: list[str] = []
+    if isinstance(value, dict):
+        for k, v in value.items():
+            keys.append(str(k))
+            keys.extend(_all_keys(v))
+    elif isinstance(value, list):
+        for item in value:
+            keys.extend(_all_keys(item))
+    return keys
+
+
+class TestExportSnapshot(unittest.TestCase):
+    """Snapshot diagnostik: bentuk payload, tanpa rahasia, tahan fragmen rusak."""
+
+    def test_payload_shape_mirrors_ui_cells(self):
+        snap = _build_snapshot()
+        self.assertTrue(snap["ok"])
+        self.assertFalse(snap["partial"])
+        self.assertEqual(snap["errors"], [])
+        self.assertEqual(snap["panel"]["version"], panel.PANEL_VERSION)
+        self.assertIsInstance(snap["panel"]["uptime_seconds"], float)
+        self.assertGreaterEqual(snap["panel"]["uptime_seconds"], 0.0)
+        self.assertTrue(snap["panel"]["uptime_human"])
+        self.assertEqual(snap["cells"]["cpu_pct"], 12.5)
+        self.assertEqual(snap["cells"]["ram_pct"], 61.2)
+        self.assertEqual(snap["cells"]["load_avg"], "0.31, 0.44, 0.51")
+        self.assertEqual(snap["cells"]["ram"], "61.2% (512 MB tersedia)")
+        self.assertEqual(snap["cells"]["temp"], "51.0 °C")
+        self.assertEqual(snap["cells"]["disk"], "42% terpakai")
+        self.assertEqual(snap["cells"]["emmc"], "Sehat")
+        self.assertEqual(snap["cells"]["uptime"], "3 hari 4 jam 5 mnt")
+        self.assertEqual(snap["cells"]["model"], "glm-5")
+        self.assertTrue(snap["services"]["dashboard"]["active"])
+        self.assertFalse(snap["services"]["gateway"]["active"])
+        self.assertTrue(snap["services"]["router"]["up"])
+        self.assertFalse(snap["services"]["internet"]["up"])
+        self.assertEqual(snap["services"]["gateway_platforms"], "1 Terhubung")
+        self.assertEqual(snap["versions"]["hermes"], "v0.9.2")
+        self.assertEqual(snap["versions"]["hermes_status"], "current")
+        self.assertEqual(snap["versions"]["router"], "1.2.3")
+        self.assertTrue(snap["generated_at"].startswith("20"))
+        # Nilai sel diambil dari fragmen yang sudah ada (tanpa subprocess baru).
+        self.assertEqual(sorted(p["name"] for p in snap["providers"]), ["backup", "gw"])
+
+    def test_payload_never_carries_secrets(self):
+        snap = _build_snapshot()
+        blob = json.dumps(snap)
+        for secret in ("sk-live-deadbeef0011", "sk-live-cafe0042", "tok-live-777",
+                       "hunter2secret", "paneluser", "AAF-sentinel-bot-token",
+                       "sentinel-cookie-value", "sentinel-env-token"):
+            self.assertNotIn(secret, blob, f"rahasia bocor ke snapshot: {secret}")
+        for key in _all_keys(snap):
+            self.assertFalse(panel._snapshot_key_is_secret(key), f"kunci rahasia ikut terkirim: {key}")
+        # Tetap berguna: host endpoint terlihat, hanya kredensialnya yang hilang.
+        self.assertIn("api.internal.test", blob)
+        self.assertIn("[REDACTED]", blob)
+
+    def test_negative_control_unmasked_url_would_leak(self):
+        """Negatif kontrol: tanpa penyamaran, URL provider membawa kredensial mentah."""
+        raw = dict(_snapshot_config()["custom_providers"][0])
+        self.assertIn("hunter2secret", raw["base_url"])
+        self.assertIn("sk-live-deadbeef0011", raw["api_key"])
+        masked = panel.mask_secret_url(raw["base_url"])
+        self.assertNotIn("hunter2secret", masked)
+        self.assertNotIn("sk-live-deadbeef0011", masked)
+        self.assertIn("api.internal.test", masked)
+        # Scrubber-lah yang membersihkan: payload mentah bocor, payload tersapu bersih.
+        self.assertIn("hunter2secret", json.dumps({"providers": [raw]}))
+        scrubbed = json.dumps(panel.scrub_snapshot_secrets({"providers": [raw]}))
+        self.assertNotIn("hunter2secret", scrubbed)
+        self.assertNotIn("sk-live-deadbeef0011", scrubbed)
+        self.assertNotIn("api_key", scrubbed)
+
+    def test_partial_payload_when_fragments_raise(self):
+        with mock.patch.object(panel, "build_fragments", side_effect=RuntimeError("fragmen rusak")), \
+             mock.patch.object(panel, "get_parsed_config", return_value=_snapshot_config()), \
+             mock.patch.object(panel, "get_hermes_update", return_value={"local": "v0.9.2"}), \
+             mock.patch.object(panel, "get_cached_router_info", return_value={}):
+            snap = panel.build_export_snapshot()
+            # Negatif kontrol: kegagalan fragmen itu nyata, bukan error yang ditelan diam-diam.
+            self.assertRaises(RuntimeError, panel.build_fragments)
+        self.assertTrue(snap["ok"])
+        self.assertTrue(snap["partial"])
+        self.assertTrue(any(e.startswith("fragments:") for e in snap["errors"]))
+        self.assertEqual(snap["cells"]["temp"], "")
+        self.assertFalse(snap["services"]["router"]["up"])
+        self.assertFalse(snap["services"]["dashboard"]["active"])
+        self.assertEqual(snap["panel"]["version"], panel.PANEL_VERSION)
+        json.dumps(snap)  # tetap serializable
+
+    def test_partial_when_cells_fragment_missing(self):
+        snap = _build_snapshot(fragments={"dash_active": True, "gw_active": True})
+        self.assertTrue(snap["ok"])
+        self.assertTrue(snap["partial"])
+        self.assertTrue(any(e.startswith("cells:") for e in snap["errors"]))
+        self.assertTrue(snap["services"]["gateway"]["active"])
+
+    def test_scrub_keeps_plain_values_intact(self):
+        """Penyamaran tidak boleh merusak nilai biasa/host tanpa kredensial."""
+        self.assertEqual(panel.mask_secret_url("http://127.0.0.1:20128/v1"), "http://127.0.0.1:20128/v1")
+        self.assertEqual(panel.mask_secret_url(""), "")
+        # Tanda tanya di teks biasa (mis. sel "?") bukan query string yang harus dipangkas.
+        self.assertEqual(panel.mask_secret_url("?"), "?")
+        self.assertEqual(panel.mask_secret_url("Terputus?"), "Terputus?")
+        self.assertEqual(panel.mask_secret_url("https://api.host/v1?x=1&y=2"), "https://api.host/v1?x=1&y=2")
+        self.assertFalse(panel._snapshot_key_is_secret("uptime_human"))
+        self.assertFalse(panel._snapshot_key_is_secret("router"))
+        self.assertTrue(panel._snapshot_key_is_secret("api_key"))
+        self.assertTrue(panel._snapshot_key_is_secret("botToken"))
+
+
+class TestExportSnapshotEndpoint(unittest.TestCase):
+    """GET /api/export/snapshot: 200 + JSON, tetap 200 saat fragmen rusak."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = panel.TimeoutThreadingHTTPServer(("127.0.0.1", 0), panel.Handler)
+        cls.port = cls.server.server_address[1]
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        cls.opener = urllib.request.build_opener(NoRedirect)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def setUp(self):
+        self._auth = (panel.PASSWORD, panel.TOKEN, panel.AUTH_SECRET, panel.SESSION_VALUE)
+        panel.PASSWORD = ""
+        panel.TOKEN = ""
+        panel.AUTH_SECRET = ""
+        panel.SESSION_VALUE = ""
+        self.addCleanup(self._restore_auth)
+
+    def _restore_auth(self):
+        panel.PASSWORD, panel.TOKEN, panel.AUTH_SECRET, panel.SESSION_VALUE = self._auth
+
+    def _get(self, path: str):
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}")
+        try:
+            res = self.opener.open(req)
+            return res.code, res.headers, res.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers, e.read().decode("utf-8", errors="replace")
+
+    def test_endpoint_returns_200_json_without_secrets(self):
+        with mock.patch.object(panel, "build_fragments", return_value=_snapshot_fragments()), \
+             mock.patch.object(panel, "get_parsed_config", return_value=_snapshot_config()), \
+             mock.patch.object(panel, "get_hermes_update", return_value={"local": "v0.9.2"}), \
+             mock.patch.object(panel, "get_cached_router_info", return_value={"version": "1.2.3"}):
+            code, headers, body = self._get("/api/export/snapshot")
+        self.assertEqual(code, 200)
+        self.assertIn("application/json", headers.get("Content-Type", ""))
+        self.assertEqual(headers.get("Cache-Control"), "no-store")
+        data = json.loads(body)
+        self.assertTrue(data["ok"])
+        self.assertFalse(data["partial"])
+        self.assertEqual(data["versions"]["panel"], panel.PANEL_VERSION)
+        self.assertEqual(data["cells"]["emmc"], "Sehat")
+        self.assertNotIn("sk-live-", body)
+        self.assertNotIn("hunter2secret", body)
+
+    def test_endpoint_stays_200_when_fragments_fail(self):
+        with mock.patch.object(panel, "build_fragments", side_effect=RuntimeError("fragmen rusak")):
+            code, headers, body = self._get("/api/export/snapshot")
+        self.assertEqual(code, 200)
+        data = json.loads(body)
+        self.assertTrue(data["ok"])
+        self.assertTrue(data["partial"])
+        self.assertTrue(data["errors"])
+
+    def test_endpoint_requires_auth_when_password_set(self):
+        panel.PASSWORD = "test-panel-password"
+        panel.TOKEN = "test-token-secret-12345"
+        panel.AUTH_SECRET = panel.PASSWORD
+        code, _, body = self._get("/api/export/snapshot")
+        self.assertEqual(code, 401)
+        self.assertIn("unauthorized", body.lower())
+
+
+class TestSnapshotButtonUi(unittest.TestCase):
+    """Tombol Unduh Snapshot ada di tab Kontrol dan memakai Blob + createObjectURL."""
+
+    def test_button_lives_in_control_tab(self):
+        page = panel.page_source()
+        control = page[page.index('id="tab-control"'):page.index('id="tab-auxiliary"')]
+        self.assertIn('id="btn-snapshot-download"', control)
+        self.assertIn('onclick="downloadSnapshot()"', control)
+        self.assertIn('id="snapshot-note"', control)
+        self.assertIn("Unduh Snapshot", control)
+
+    def test_handler_uses_blob_and_object_url(self):
+        page = panel.page_source()
+        start = page.index("function downloadSnapshot(")
+        fn = page[start:page.index("// snapshot-export:end")]
+        self.assertIn("new Blob(", fn)
+        self.assertIn("window.URL.createObjectURL(", fn)
+        self.assertIn("a.download = name", fn)
+        self.assertIn("/api/export/snapshot", fn)
+        self.assertIn("revokeObjectURL", fn)
+
+
+def _snapshot_js() -> str:
+    """JS unduh snapshot persis seperti dirender (PAGE memakai str.format)."""
+    start = panel.PAGE.index("// snapshot-export:start")
+    end = panel.PAGE.index("// snapshot-export:end")
+    return panel.PAGE[start:end].replace("{{", "{").replace("}}", "}")
+
+
+_SNAPSHOT_HARNESS = r"""
+var els = {};
+function makeEl(id){
+  return {
+    id: id, style: {}, textContent: '', disabled: false, parentNode: null, removed: false,
+    href: '', download: '',
+    click: function(){ clicked.push(this); }
+  };
+}
+var clicked = [];
+els['btn-snapshot-download'] = makeEl('btn-snapshot-download');
+els['snapshot-note'] = makeEl('snapshot-note');
+var appended = [];
+var document = {
+  getElementById: function(id){
+    if(!els[id]) els[id] = makeEl(id);
+    return els[id];
+  },
+  createElement: function(tag){ return makeEl(tag); },
+  body: {
+    children: [],
+    appendChild: function(el){ el.parentNode = this; this.children.push(el); appended.push(el); },
+    removeChild: function(el){ el.removed = true; this.children.pop(); el.parentNode = null; }
+  }
+};
+var blobs = [];
+function Blob(parts, opts){ this.parts = parts; this.type = opts && opts.type; blobs.push(this); }
+var createdUrls = [];
+var revokedUrls = [];
+var window = { URL: {
+  createObjectURL: function(b){ createdUrls.push(b); return 'blob:snapshot-' + createdUrls.length; },
+  revokeObjectURL: function(u){ revokedUrls.push(u); }
+}};
+var fetchCalls = [];
+var nextResponse = null;
+function fetch(url, opts){
+  fetchCalls.push({url: url, opts: opts});
+  return Promise.resolve(nextResponse);
+}
+"""
+
+
+@unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
+class TestSnapshotDownloadJs(unittest.TestCase):
+    """Perilaku tombol Unduh Snapshot di node: nama berkas, Blob, jalur gagal."""
+
+    def _run(self, body: str) -> str:
+        script = _SNAPSHOT_HARNESS + _snapshot_js() + body
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_filename_uses_yyyymmdd_hhmm(self):
+        out = self._run("process.stdout.write(snapshotFilename(new Date(2026, 10, 4, 1, 37, 5)));")
+        self.assertEqual(out, "hermes-snapshot-20261104-0137.json")
+
+    def test_download_builds_valid_json_blob(self):
+        out = self._run(r"""
+nextResponse = {ok: true, status: 200, json: function(){
+  return Promise.resolve({ok: true, partial: false, errors: [], panel: {version: '1.0.0'}});
+}};
+downloadSnapshot().then(function(){
+  var a = appended[0];
+  var parsed = JSON.parse(blobs[0].parts[0]);
+  var note = document.getElementById('snapshot-note');
+  process.stdout.write([
+    fetchCalls.length,
+    fetchCalls[0].url,
+    /^hermes-snapshot-\d{8}-\d{4}\.json$/.test(a.download),
+    note.textContent.indexOf('Snapshot terunduh: hermes-snapshot-') === 0,
+    a.href.indexOf('blob:') === 0,
+    parsed.ok === true,
+    parsed.panel.version,
+    blobs[0].type,
+    a.removed === true,
+    clicked.length,
+    revokedUrls.length,
+    els['btn-snapshot-download'].disabled
+  ].join('|'));
+});
+""")
+        self.assertEqual(
+            out,
+            "1|/api/export/snapshot|true|true|true|true|1.0.0|application/json|true|1|0|false",
+        )
+
+    def test_partial_payload_is_flagged_in_note(self):
+        out = self._run(r"""
+nextResponse = {ok: true, status: 200, json: function(){
+  return Promise.resolve({ok: true, partial: true, errors: ['fragments: boom']});
+}};
+downloadSnapshot().then(function(){
+  var note = document.getElementById('snapshot-note');
+  process.stdout.write([note.textContent.indexOf('partial') !== -1, note.style.color].join('|'));
+});
+""")
+        self.assertEqual(out, "true|var(--warning)")
+
+    def test_failed_fetch_reports_error_and_reenables_button(self):
+        out = self._run(r"""
+nextResponse = {ok: false, status: 500, json: function(){ return Promise.resolve({}); }};
+downloadSnapshot().then(function(){
+  var note = document.getElementById('snapshot-note');
+  process.stdout.write([
+    blobs.length,
+    clicked.length,
+    note.textContent.indexOf('Gagal mengunduh snapshot: HTTP 500') === 0,
+    note.style.display,
+    note.style.color,
+    els['btn-snapshot-download'].disabled
+  ].join('|'));
+});
+""")
+        self.assertEqual(out, "0|0|true||var(--danger)|false")
+
+    def test_second_click_while_disabled_does_not_refetch(self):
+        out = self._run(r"""
+els['btn-snapshot-download'].disabled = true;
+var ret = downloadSnapshot();
+process.stdout.write(String(ret === undefined) + '|' + fetchCalls.length);
+""")
+        self.assertEqual(out, "true|0")
+
+
 if __name__ == "__main__":
     unittest.main()
