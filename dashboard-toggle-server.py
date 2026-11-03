@@ -14252,7 +14252,8 @@ def _render_kanban_task_card(t: dict, col_id: str) -> str:
     jadi kolom Done dengan 101 tugas tidak ikut membayar probe per tugas.
     """
     tid = t.get("id", "")
-    title = t.get("title", "")
+    title = t.get("title") or ""
+    title_label = title or "(Tanpa Judul)"
     assignee = t.get("assignee") or ""
     pri = t.get("priority", 0)
     pri_badge = ""
@@ -14291,7 +14292,7 @@ def _render_kanban_task_card(t: dict, col_id: str) -> str:
         f'    <div style="display:flex;gap:0.3rem;align-items:center">{pri_badge}{running_badge}</div>'
         f'  </div>'
         f'  <div style="font-size:0.82rem;font-weight:500;color:var(--text);line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'
-        f'    {html.escape(title)}'
+        f'    {html.escape(title_label)}'
         f'  </div>'
         f'  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.2rem">'
         f'    {ass_badge}'

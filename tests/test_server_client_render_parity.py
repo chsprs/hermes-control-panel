@@ -259,6 +259,19 @@ class TestServerClientRenderParity(unittest.TestCase):
         assert "None" not in empty_card
         assert ">@</span>" not in empty_card, "empty assignee must not create an empty @ badge"
 
+    def test_kanban_empty_title_uses_client_fallback(self):
+        assert "titleDiv.textContent = t.title || '(Tanpa Judul)'" in panel.PAGE
+        for empty_title in ("", None):
+            with self.subTest(title=empty_title):
+                card = panel._render_kanban_task_card(
+                    _kanban_task(0, title=empty_title), "done"
+                )
+                assert 'data-title=""' in card
+                assert "(Tanpa Judul)" in card, (
+                    "server and refreshed client must show the same empty-title fallback"
+                )
+                assert "None" not in card
+
     def test_process_table_empty_and_placeholder_fields(self):
         with mock.patch.object(panel, "get_process_list", return_value=[]):
             empty = panel._render_processes_table_uncached()
