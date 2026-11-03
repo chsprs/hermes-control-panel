@@ -936,3 +936,17 @@ dipangkas gelombang ini).
 
 ### Commit
 - (lihat git log) perf(panel): parsing YAML via libyaml (CSafeLoader)
+
+## Wave 102 — Audit tab Jaringan: sehat; kontrak validasi dikunci
+
+Audit kode + uji live seluruh endpoint `/api/network/*`:
+- **Sehat, tanpa patch produksi.** Input invalid ditolak rapi; subprocess argv
+  list (tanpa shell); timeout penuh; tulis config atomik mode-preserving;
+  proxy di-masking dalam respons; attempts dibatasi; cache TTL.
+- Live: DNS 56 ms; tes rute relay Telegram 3/3 (avg 0,84 s).
+- Gap ditutup: +5 `TestNetworkValidationContracts` mengunci kontrak penolakan
+  (host invalid — ditolak sebelum subprocess, platform/rute tak dikenal,
+  skema proxy, host kosong). Suite **474 OK**.
+
+### Commit
+- (lihat git log) test(panel): kunci kontrak validasi endpoint Jaringan
