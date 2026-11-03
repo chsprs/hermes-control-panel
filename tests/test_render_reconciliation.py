@@ -311,3 +311,76 @@ class TestHermesUpdateBlockLive(TestRenderReconciliation):
         self.assertIn("hermes_update_block", panel.SSE_CLIENT_KEYS)
         js = panel.PAGE + getattr(panel, "SSE_SCRIPT", "")
         self.assertIn("set('hermes-update-slot', d.hermes_update_block)", js)
+
+
+class TestPerfSparklineHistory(TestRenderReconciliation):
+    """Riwayat performa: ring buffer server + seed klien tanpa data dummy.
+
+    Negatif kontrol (pada kode tanpa patch): seluruh test kelas ini gagal —
+    `_record_perf_sample` belum ada, seed dummy `[10, 15, 12, ...]` masih ada,
+    dan label min/maks belum dirender.
+    """
+
+    def setUp(self):
+        with panel._perf_ring_lock:
+            panel._perf_ring.clear()
+            self._saved_last = panel._perf_ring_last_sample
+            panel._perf_ring_last_sample = 0.0
+        self._t = [1000.0]
+
+    def tearDown(self):
+        with panel._perf_ring_lock:
+            panel._perf_ring.clear()
+            panel._perf_ring_last_sample = self._saved_last
+
+    def test_record_respects_min_interval_and_rounds(self):
+        with mock.patch.object(panel.time, "time", side_effect=lambda: self._t[0]):
+            panel._record_perf_sample(33.456, 51.23, 44.56)
+            panel._record_perf_sample(90.0, 90.0, 90.0)  # < interval → diabaikan
+            self._t[0] += panel._PERF_SAMPLE_MIN_INTERVAL
+            panel._record_perf_sample(10.05, 20.04, None)
+        series = panel.get_perf_series()
+        self.assertEqual(series["count"], 2)
+        self.assertEqual(series["cpu"], [33.5, 10.1])
+        self.assertEqual(series["ram"], [51.2, 20.0])
+        self.assertEqual(series["temp"], [44.6, None])
+        self.assertTrue(series["ok"])
+        self.assertGreater(series["at"], 0)
+
+    def test_ring_is_capped(self):
+        t = 1000.0
+        for i in range(panel._PERF_RING_MAX + 40):
+            with mock.patch.object(panel.time, "time", return_value=t):
+                panel._record_perf_sample(float(i), float(i), None)
+            t += panel._PERF_SAMPLE_MIN_INTERVAL
+        series = panel.get_perf_series()
+        self.assertEqual(series["count"], panel._PERF_RING_MAX)
+        self.assertEqual(series["cpu"][0], 40.0)  # titik tertua terpangkas
+
+    def test_get_perf_series_empty(self):
+        series = panel.get_perf_series()
+        self.assertEqual(series, {"ok": True, "count": 0, "cpu": [], "ram": [], "temp": [], "at": 0.0})
+
+    def test_build_fragments_records_sample(self):
+        with ExitStack() as stack:
+            self._mock_fragment_dependencies(stack)
+            with mock.patch.object(panel, "_record_perf_sample") as rec:
+                panel.build_fragments(sse_only=True)
+        rec.assert_called_once()
+
+    def test_api_route_and_js_seed_present(self):
+        src = panel.PAGE + getattr(panel, "SSE_SCRIPT", "")
+        self.assertIn("/api/perf/series", src)
+        self.assertIn("function seedPerfHistory()", src)
+        # Seed dummy HARUS hilang: tren palsu ±30 dtk pertama setelah reload.
+        self.assertNotIn("var cpuHistory = [10, 15, 12, 18", src)
+        self.assertNotIn("var ramHistory = [30, 30, 30, 31", src)
+        self.assertIn("var cpuHistory = [];", src)
+        self.assertIn("var ramHistory = [];", src)
+        # Label min/maks/sekarang + slot meta.
+        self.assertIn("cpu-spark-meta", panel.PAGE)
+        self.assertIn("ram-spark-meta", panel.PAGE)
+        self.assertIn("· sekarang ", src)
+        # Lazy: seed hanya saat tab Performa aktif.
+        self.assertIn("maybeSeedPerf", src)
+        self.assertIn("tab-performance", src)

@@ -1090,6 +1090,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .perf-big-val{{font-size:1.6rem;font-weight:700;font-family:var(--font-mono);color:var(--accent-light);letter-spacing:-.02em}}
 .sparkline-box{{width:100%;height:85px;background:rgba(0,0,0,0.32);border-radius:var(--radius-md);border:1px solid rgba(255,255,255,0.06);overflow:hidden;position:relative;margin-top:.75rem}}
 .sparkline-svg{{width:100%;height:100%;display:block}}
+.spark-meta{{display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-dim);margin-top:.3rem;min-height:32px;align-items:center}}
 .spark-poly{{fill:none;stroke:var(--accent-light);stroke-width:2;vector-effect:non-scaling-stroke}}
 .spark-fill{{fill:rgba(96,165,250,0.12);stroke:none}}
 .spark-poly.ram{{stroke:#c084fc}}
@@ -1997,6 +1998,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         <polyline class="spark-poly" points="0,40 300,40"/>
       </svg>
     </div>
+    <div class="spark-meta" id="cpu-spark-meta">menunggu data…</div>
   </div>
 
   <div class="perf-tile">
@@ -2016,6 +2018,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         <polyline class="spark-poly ram" points="0,40 300,40"/>
       </svg>
     </div>
+    <div class="spark-meta" id="ram-spark-meta">menunggu data…</div>
   </div>
 
   <div class="perf-grid-2col">
@@ -3137,6 +3140,7 @@ function switchTab(name, tab){{
     }} catch(e) {{}}
   }}
   safeStore('setItem', 'activeTab', name);
+  if(name === 'performance' && !window._perfSeeded && typeof window.seedPerfHistory === 'function') window.seedPerfHistory();
   scrollAllLogsToBottom();
   restorePatchPages();
   syncGwLogTabUI();
@@ -8857,8 +8861,11 @@ SSE_SCRIPT = """<script>
 (function(){
     var pbar=document.getElementById('pbar'), spin=document.getElementById('spin');
   var es=null, retryTimer=null, esGeneration=0;
-  var cpuHistory = [10, 15, 12, 18, 22, 19, 14, 16, 20, 25, 22, 18, 15, 12, 10, 14, 18, 22, 19, 15, 20, 25, 18, 14, 12, 16, 18, 20, 15, 16];
-  var ramHistory = [30, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 30, 31, 31, 31, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 30];
+  // Riwayat mulai KOSONG: dulu di-seed angka dummy sehingga grafik menampilkan tren palsu
+  // ±30 detik pertama sebelum delta SSE mengisinya. Riwayat asli di-seed dari
+  // /api/perf/series saat tab Performa pertama kali dibuka (lihat seedPerfHistory).
+  var cpuHistory = [];
+  var ramHistory = [];
   var deferredProcessesTable = null;
   function updateSparkline(svgId, val, historyArr){
     if(typeof val !== 'number' || isNaN(val)) return;
@@ -8868,7 +8875,14 @@ SSE_SCRIPT = """<script>
     if(!svg) return;
     var poly = svg.querySelector('.spark-poly');
     var fill = svg.querySelector('.spark-fill');
-    if(!poly || !fill || historyArr.length < 2) return;
+    var meta = document.getElementById(svgId.replace('-sparkline', '-spark-meta'));
+    if(!poly || !fill) return;
+    if(historyArr.length < 2){
+      poly.setAttribute('points', '');
+      fill.setAttribute('points', '');
+      if(meta) meta.textContent = 'menunggu data…';
+      return;
+    }
     var pts = [];
     var w = 300, h = 80;
     var step = w / (historyArr.length - 1);
@@ -8879,6 +8893,28 @@ SSE_SCRIPT = """<script>
     }
     poly.setAttribute('points', pts.join(' '));
     fill.setAttribute('points', '0,' + h + ' ' + pts.join(' ') + ' ' + w + ',' + h);
+    if(meta){
+      var mn = Math.min.apply(null, historyArr), mx = Math.max.apply(null, historyArr);
+      meta.textContent = 'min ' + mn.toFixed(0) + '% · maks ' + mx.toFixed(0) + '% · sekarang ' + val.toFixed(1) + '%';
+    }
+  }
+  function seedPerfHistory(){
+    // Ambil riwayat asli dari server sekali saat tab Performa terlihat, supaya reload
+    // tidak menghapus tren dan tidak ada lagi data dummy.
+    window._perfSeeded = true;
+    fetch('/api/perf/series').then(function(r){ return r.json(); }).then(function(s){
+      if(!s || !s.ok) return;
+      if(s.cpu && s.cpu.length) cpuHistory = s.cpu.slice(-120);
+      if(s.ram && s.ram.length) ramHistory = s.ram.slice(-120);
+      updateSparkline('cpu-sparkline', cpuHistory.length ? cpuHistory[cpuHistory.length - 1] : NaN, cpuHistory);
+      updateSparkline('ram-sparkline', ramHistory.length ? ramHistory[ramHistory.length - 1] : NaN, ramHistory);
+    }).catch(function(){ window._perfSeeded = false; });
+  }
+  window.seedPerfHistory = seedPerfHistory;
+  function maybeSeedPerf(){
+    if(window._perfSeeded) return;
+    var tp = document.getElementById('tab-performance');
+    if(tp && tp.classList.contains('active')) seedPerfHistory();
   }
   // BEGIN sse-render-gate
   // SSE pushes every second. Rebuilding ~30 slots each tick (identical HTML included) kept the
@@ -9056,6 +9092,7 @@ SSE_SCRIPT = """<script>
     }
     if(d.cpu_pct !== undefined) {{
       updateSparkline('cpu-sparkline', d.cpu_pct, cpuHistory);
+      maybeSeedPerf();
       var cval = document.getElementById('perf-cpu-val');
       if(cval) cval.textContent = d.cpu_pct.toFixed(1) + '%';
     }}
@@ -10220,6 +10257,48 @@ def render_log_card(log_text: str, result: dict | None = None) -> str:
 
 
 HERMES_LIB_DIR = "/opt/AppData/hermes-native/hermes-lib"
+_PERF_RING_MAX = 120            # titik riwayat performa (±4 menit @ jeda sampel 2 dtk)
+_PERF_SAMPLE_MIN_INTERVAL = 2.0  # detik antar sampel — render hangat tidak menduplikasi titik
+_perf_ring = []                  # [(epoch, cpu_pct, ram_pct, temp_c)]
+_perf_ring_lock = threading.Lock()
+_perf_ring_last_sample = 0.0
+
+
+def _record_perf_sample(cpu, ram, temp) -> None:
+    """Satu titik riwayat performa; dipanggil dari build_fragments saat nilai segar dihitung.
+
+    Jeda minimum antar sampel mencegah render yang di-cache/marak menggandakan titik
+    dengan nilai identik; ring dipangkas manual supaya memori tetap beberapa KB.
+    """
+    global _perf_ring_last_sample
+    now = time.time()
+    with _perf_ring_lock:
+        if now - _perf_ring_last_sample < _PERF_SAMPLE_MIN_INTERVAL:
+            return
+        _perf_ring_last_sample = now
+        try:
+            temp_v = round(float(temp), 1) if isinstance(temp, (int, float)) else None
+        except (TypeError, ValueError):
+            temp_v = None
+        _perf_ring.append((now, round(float(cpu), 1), round(float(ram), 1), temp_v))
+        if len(_perf_ring) > _PERF_RING_MAX:
+            del _perf_ring[: len(_perf_ring) - _PERF_RING_MAX]
+
+
+def get_perf_series() -> dict:
+    """Riwayat performa ringkas untuk klien; urutan lama → baru, `at` = waktu titik terakhir."""
+    with _perf_ring_lock:
+        rows = list(_perf_ring)
+    return {
+        "ok": True,
+        "count": len(rows),
+        "cpu": [r[1] for r in rows],
+        "ram": [r[2] for r in rows],
+        "temp": [r[3] for r in rows],
+        "at": rows[-1][0] if rows else 0.0,
+    }
+
+
 _hermes_update_cache = {"status": "checking", "local": "?", "remote": "?", "behind": 0, "at": 0}
 _hermes_update_lock = threading.Lock()
 _hermes_update_running = False
@@ -17876,6 +17955,7 @@ def build_fragments(sse_only: bool = False) -> dict:
         )
 
     cpu_pct = get_cpu_percent()
+    _record_perf_sample(cpu_pct, ram_pct, cpu_temp)
     try:
         load1, load5, load15 = os.getloadavg()
         cell_load = f"{load1:.2f}, {load5:.2f}, {load15:.2f}"
@@ -19368,6 +19448,10 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/profile-soul":
             prof = (qs.get("profile") or ["default"])[0]
             self._send_json({"ok": True, "profile": prof, "content": get_agent_profile_soul(prof)})
+            return
+
+        if parsed.path == "/api/perf/series":
+            self._send_json(get_perf_series())
             return
 
         if parsed.path == "/api/kanban/boards":
