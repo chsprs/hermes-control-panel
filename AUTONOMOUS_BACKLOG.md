@@ -1001,3 +1001,17 @@ suite **481 OK**; live dingin 2,2 dtk / hangat 44 ms.
 
 ### Commit
 - (lihat git log) perf(panel): TTL 300 dtk untuk status container "missing"
+
+## Wave 106 — Draf laporan bug upstream untuk regresi dispatch worker Kanban
+
+Regresi v0.22.6 (dispatch worker kanban mati deterministik; seluruh task
+gelombang 3 dikerjakan manual oleh root) kini punya **laporan siap kirim**:
+`/root/hermes-v0.22.6-kanban-worker-bug.md` — environment, signature 6/6,
+analisis jalur kode (`_await_receipt` + komentar race-nya sendiri), hipotesis
+Python 3.14/host lambat, langkah repro, tawaran data. Referensi dicatat di
+komentar task `t_e42bba09`.
+
+**Keputusan yang menunggu pengguna**: (1) kirim laporan upstream (atau minta
+saya kirim via `gh issue create` ke repo NousResearch/hermes-agent), (2)
+`git push origin main` (153 commit), (3) hapus/pertahankan board yatim
+`test-board-val`.
