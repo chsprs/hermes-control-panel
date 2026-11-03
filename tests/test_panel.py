@@ -8297,6 +8297,43 @@ class TestGithubTokenCache(unittest.TestCase):
             panel._github_token_env({})
         self.assertEqual(run.call_count, 1)
 
+import re
+
+
+class TestInlineUiCallbacksResolve(unittest.TestCase):
+    """Menutup item backlog lama: audit callback UI.
+
+    Semua atribut on* inline (onclick/oninput/onchange/onsubmit) di template
+    PAGE harus menunjuk ke fungsi atau variabel JS yang terdefinisi di sumber —
+    handler yatim (typos saat refactor) mati diam-diam di runtime, tanpa error
+    load. Audit Wave 104: 88/88 sehat; test ini menjaga agar tetap begitu.
+    """
+
+    def test_every_inline_handler_resolves(self):
+        src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                "dashboard-toggle-server.py")).read()
+        page = panel.PAGE + getattr(panel, "SSE_SCRIPT", "")
+        handlers = set()
+        for m in re.finditer(r"""\son(?:click|input|change|submit)=(["\\'])([a-zA-Z_][\w]*)\(""", src):
+            handlers.add(m.group(2))
+        self.assertGreater(len(handlers), 60)  # guard: ekstraksi regex tidak rusak diam-diam
+        functions = set(re.findall(r"\bfunction\s+([a-zA-Z_][\w]*)\s*\(", src))
+        variables = set(re.findall(r"\b(?:var|let|const)\s+([a-zA-Z_][\w]*)\s*=", src))
+        window_assigned = set(re.findall(r"window\.([a-zA-Z_][\w]*)\s*=", src))
+        defined = functions | variables | window_assigned
+        missing = sorted(handlers - defined)
+        self.assertEqual(missing, [], f"handler inline tanpa definisi: {missing}")
+        # Nama yang dipanggil harus muncul di permukaan yang benar-benar dilayani:
+        # halaman utama (page_source menyisipkan profile_script) + SSE_SCRIPT +
+        # semua konstanta script lain yang dilayani sebagai aset (mis. jaringan).
+        served = panel.page_source() + getattr(panel, "SSE_SCRIPT", "")
+        extra_scripts = [v for k, v in vars(panel).items()
+                         if isinstance(v, str) and k.endswith("_SCRIPT") and k not in ("SSE_SCRIPT",)]
+        for name in handlers:
+            if name not in served:
+                self.assertTrue(any(name in js for js in extra_scripts),
+                                f"{name} tidak ada di halaman/aset manapun")
+
 
 if __name__ == "__main__":
     unittest.main()
