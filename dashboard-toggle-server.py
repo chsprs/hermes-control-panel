@@ -8856,6 +8856,7 @@ SSE_SCRIPT = """<script>
   var es=null, retryTimer=null, esGeneration=0;
   var cpuHistory = [10, 15, 12, 18, 22, 19, 14, 16, 20, 25, 22, 18, 15, 12, 10, 14, 18, 22, 19, 15, 20, 25, 18, 14, 12, 16, 18, 20, 15, 16];
   var ramHistory = [30, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 30, 31, 31, 31, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 31, 31, 30, 30, 30];
+  var deferredProcessesTable = null;
   function updateSparkline(svgId, val, historyArr){
     if(typeof val !== 'number' || isNaN(val)) return;
     historyArr.push(val);
@@ -9014,8 +9015,11 @@ SSE_SCRIPT = """<script>
       set('cell-internet',d.cells.internet);
       if(d.cells.gw_platforms) set('cell-gw-platforms', d.cells.gw_platforms); }
     // Static controls stay untouched: replacing them resets scroll/focus.
-    // SSE updates only live metrics, process data, and active update logs.
+    // SSE updates live metrics, process data, update state, and active update logs.
     if(d.processes_table){
+      deferredProcessesTable = d.processes_table;
+    }
+    if(deferredProcessesTable){
       var pts = document.getElementById('process-table-slot');
       var isInteracting = false;
       if(pts){
@@ -9030,9 +9034,12 @@ SSE_SCRIPT = """<script>
         }catch(e){}
       }
       if(!isInteracting){
+        d.processes_table = deferredProcessesTable;
         set('process-table-slot',d.processes_table);
+        deferredProcessesTable = null;
       }
     }
+    if(d.update_block) set('update-content-slot',d.update_block);
     if(d.gateway_list_block) set('gateway-list-slot', d.gateway_list_block);
     if(d.profiles_block) set('profiles-slot', d.profiles_block);
     if(d.gw_summary_text){
@@ -9069,17 +9076,17 @@ SSE_SCRIPT = """<script>
     }}
     if(!safeStore('getItem','logDismissed')) stickySet('log-slot',d.log_card);
     else {{ var rc=document.getElementById('router-log-card'); if(rc) {{ window._lastRouterLogCard = rc.outerHTML; window._hasRouterLog = true; rc.remove(); }} }}
-    if(d.hermes_log_card){{
-      window._lastHermesLogCard = d.hermes_log_card;
-      window._hasHermesLog = true;
-    }}
-    if(!safeStore('getItem','hermesLogDismissed')) {{
-      var hls = document.getElementById('hermes-log-slot');
-      if(hls && d.hermes_log_card) stickySet('hermes-log-slot', d.hermes_log_card);
-    }} else {{
-      var hc = document.getElementById('hermes-log-card');
-      if(hc) {{ window._lastHermesLogCard = hc.outerHTML; window._hasHermesLog = true; hc.remove(); }}
-    }}
+    if(d.hermes_log_card !== undefined){
+      var hermesLogHtml = d.hermes_log_card || '';
+      window._lastHermesLogCard = hermesLogHtml;
+      window._hasHermesLog = !!hermesLogHtml;
+      if(!safeStore('getItem','hermesLogDismissed')){
+        stickySet('hermes-log-slot', hermesLogHtml);
+      } else {
+        var hc = document.getElementById('hermes-log-card');
+        if(hc) hc.remove();
+      }
+    }
     if(d.clean_junk_card) {{
       window._lastCleanJunkCard = d.clean_junk_card;
       window._hasCleanLog = true;
@@ -15347,13 +15354,16 @@ def get_9router_patch_notes() -> list[str]:
             return notes
     except Exception:
         pass
-    if cached:
-        return list(cached)
-    return [
+    notes = list(cached) if cached else [
         "Support DeepSeek-V4.1-Flash and Xiaomi MiMo models",
         "Resolve 403 FreeTierError and 429 rate limits on OpenCode",
         "Add 1M-context toggle option on Claude Code interface"
     ]
+    # SSE also renders update_block; cache fallback notes too so an offline
+    # GitHub check cannot repeat on every one-second tick.
+    with _router_patch_notes_lock:
+        _router_patch_notes_cache = {"at": time.time(), "notes": list(notes)}
+    return notes
 
 
 def get_dockerhub_latest_tag() -> str:
@@ -16505,7 +16515,8 @@ def _render_processes_table_uncached() -> str:
         status_text = html.escape(p["status"])
         name = html.escape(p["name"])
         kind = html.escape(p.get("kind", ""))
-        pid = html.escape(str(p.get("pid", "-")))
+        pid_value = p.get("pid")
+        pid = html.escape(str(pid_value)) if pid_value not in (None, "") else "-"
         mem = f"{p['mem_mb']:.0f} MB" if isinstance(p["mem_mb"], (int, float)) and p["mem_mb"] > 0 else "-"
 
         actions = []
@@ -17860,6 +17871,51 @@ def build_fragments(sse_only: bool = False) -> dict:
     except Exception:
         cell_load = "?"
 
+    if updating:
+        update_block = '<div class="update-hint">{}</div>'.format(
+            f'{ICON_CLOCK}Menjalankan pembaruan 9router di {html.escape(router_host)}…'
+        )
+    else:
+        upd = get_update_status()
+        cached_info = get_cached_router_info()
+        installed_version = cached_info.get("version") or get_cached_router_version() or "?"
+        latest_version = cached_info.get("latest_version") or ""
+        npm_ahead = cached_info.get("npm_ahead", False)
+        npm_latest = cached_info.get("npm_latest") or ""
+        installed_label = html.escape(str(installed_version))
+        latest_label = html.escape(str(latest_version))
+
+        version_label = f"v{installed_label} &rarr; v{latest_label}" if (latest_version and latest_version != "?" and latest_version != installed_version) else f"v{installed_label}"
+        cek_btn = (f'<a class="toggle restart" href="/check-update">'
+                   f'{ICON_REFRESH}Cek Pembaruan 9router</a>')
+        router_notes = get_9router_patch_notes()
+        router_patch_notes_html = render_patch_notes_block("9router", router_notes)
+        if upd == "available":
+            update_block = (
+                f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);'
+                f'color:#141922" href="/update-router">'
+                f'{ICON_ARROW_UP_CIRCLE}Pembaruan 9router tersedia ({version_label})</a>'
+                + cek_btn
+                + router_patch_notes_html
+            )
+        elif upd == "current":
+            npm_note = ""
+            if not is_native_router and npm_ahead and npm_latest and npm_latest != installed_version:
+                npm_note = f' <span style="font-size:0.75rem;color:var(--text-dim)">(v{html.escape(str(npm_latest))} rilis di npm, menunggu build image Docker Hub)</span>'
+            src_label = "npm" if is_native_router else "Docker Hub"
+            update_block = (
+                f'<div class="update-hint">{ICON_CHECK}9router sudah versi terbaru di {src_label}'
+                f' (v{installed_label}){npm_note}</div>' + cek_btn + router_patch_notes_html
+            )
+        elif upd == "unknown":
+            src_label = "npm" if is_native_router else "Docker Hub"
+            update_block = (
+                f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek pembaruan {src_label} — '
+                f'<a href="/update-router">paksa perbarui</a></div>' + cek_btn + router_patch_notes_html
+            )
+        else:  # checking — the auto-poll picks up the settled result
+            update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan 9router…</div>' + cek_btn + router_patch_notes_html
+
     if sse_only:
         return {
             "cells": cells,
@@ -17874,6 +17930,7 @@ def build_fragments(sse_only: bool = False) -> dict:
             "hermes_log_card": hermes_log_card,
             "clean_junk_card": render_clean_junk_card(),
             "gateway_log_card": gateway_log_card,
+            "update_block": update_block,
             "profiles_block": render_profiles_block(),
             "updating": updating,
             "dash_active": dash_active,
@@ -17974,59 +18031,16 @@ def build_fragments(sse_only: bool = False) -> dict:
         rows = "".join(
             f'<div class="rl-row" style="flex-direction:column;align-items:flex-start;gap:.25rem;padding:.5rem 0;border-bottom:1px solid rgba(255,255,255,0.06)">'
             f'<div style="display:flex;justify-content:space-between;width:100%">'
-            f'<span class="rl-warn" style="font-weight:600">{html.escape(item["provider"].upper())} · {html.escape(item["name"])}</span>'
-            f'<span style="font-size:.72rem;color:var(--text-dim);font-family:var(--font-mono)">{item["error_at"]} WIB</span>'
+            f'<span class="rl-warn" style="font-weight:600">{html.escape(str(item.get("provider") or "unknown").upper())} · {html.escape(str(item.get("name") or "unknown"))}</span>'
+            f'<span style="font-size:.72rem;color:var(--text-dim);font-family:var(--font-mono)">{html.escape(str(item.get("error_at") or "--:--:--"))} WIB</span>'
             f'</div>'
-            f'<div style="font-size:.75rem;color:#fca5a5;font-family:var(--font-mono);word-break:break-all;line-height:1.3">{html.escape(item["error"][:180])}</div>'
+            f'<div style="font-size:.75rem;color:#fca5a5;font-family:var(--font-mono);word-break:break-all;line-height:1.3">{html.escape(str(item.get("error") or "")[:180])}</div>'
             f'</div>'
             for item in rl_errors
         )
         rate_limit_card = RATE_LIMIT_CARD.format(rows=rows, icon=ICON_ALERT_TRIANGLE)
     else:
         rate_limit_card = ""
-
-    if updating:
-        update_block = '<div class="update-hint">{}</div>'.format(
-            f'{ICON_CLOCK}Menjalankan pembaruan 9router di {html.escape(router_host)}…'
-        )
-    else:
-        upd = get_update_status()
-        cached_info = get_cached_router_info()
-        installed_version = cached_info.get("version") or get_cached_router_version()
-        latest_version = cached_info.get("latest_version", "")
-        npm_ahead = cached_info.get("npm_ahead", False)
-        npm_latest = cached_info.get("npm_latest", "")
-
-        version_label = f"v{installed_version} &rarr; v{latest_version}" if (latest_version and latest_version != "?" and latest_version != installed_version) else f"v{installed_version}"
-        cek_btn = (f'<a class="toggle restart" href="/check-update">'
-                   f'{ICON_REFRESH}Cek Pembaruan 9router</a>')
-        router_notes = get_9router_patch_notes()
-        router_patch_notes_html = render_patch_notes_block("9router", router_notes)
-        if upd == "available":
-            update_block = (
-                f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);'
-                f'color:#141922" href="/update-router">'
-                f'{ICON_ARROW_UP_CIRCLE}Pembaruan 9router tersedia ({version_label})</a>'
-                + cek_btn
-                + router_patch_notes_html
-            )
-        elif upd == "current":
-            npm_note = ""
-            if not is_native_router and npm_ahead and npm_latest and npm_latest != installed_version:
-                npm_note = f' <span style="font-size:0.75rem;color:var(--text-dim)">(v{npm_latest} rilis di npm, menunggu build image Docker Hub)</span>'
-            src_label = "npm" if is_native_router else "Docker Hub"
-            update_block = (
-                f'<div class="update-hint">{ICON_CHECK}9router sudah versi terbaru di {src_label}'
-                f' (v{installed_version}){npm_note}</div>' + cek_btn + router_patch_notes_html
-            )
-        elif upd == "unknown":
-            src_label = "npm" if is_native_router else "Docker Hub"
-            update_block = (
-                f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek pembaruan {src_label} — '
-                f'<a href="/update-router">paksa perbarui</a></div>' + cek_btn + router_patch_notes_html
-            )
-        else:  # checking — the auto-poll picks up the settled result
-            update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan 9router…</div>' + cek_btn + router_patch_notes_html
 
     hermes_notes = get_hermes_patch_notes()
     hermes_patch_notes_html = render_patch_notes_block("Hermes Agent", hermes_notes)
@@ -18445,7 +18459,7 @@ trim_memory = _trim_memory
 SSE_CLIENT_KEYS = (
     "cells", "cell_load", "cpu_pct", "ram_pct", "processes_table", "gateway_list_block",
     "gw_summary_text", "gw_summary_badge_class", "log_card", "hermes_log_card",
-    "clean_junk_card", "gateway_log_card", "profiles_block",
+    "clean_junk_card", "gateway_log_card", "profiles_block", "update_block",
 )
 
 
