@@ -7592,5 +7592,67 @@ setTimeout(function(){
         self.assertIn("refreshKanbanArchive();", panel.PAGE)
 
 
+def _kanban_filter_js() -> str:
+    start = panel.PAGE.index("function kanbanFilterActive()")
+    end = panel.PAGE.index("function filterKanbanCards()")
+    return panel.PAGE[start:end].replace("{{", "{").replace("}}", "}")
+
+
+_KANBAN_FILTER_DOM = r"""
+var els = {};
+var document = {
+  getElementById: function(id){ return els[id] || null; },
+  querySelectorAll: function(){ return []; }
+};
+var filterCalls = 0;
+function filterKanbanCards(){ filterCalls++; }
+var refreshCalls = 0;
+function refreshKanbanBoard(silent){ refreshCalls++; }
+"""
+
+
+@unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
+class TestKanbanFilterJs(unittest.TestCase):
+    """Pencarian/filter Kanban harus menjangkau tugas di luar 12 kartu pertama."""
+
+    def _run(self, body: str) -> str:
+        script = _KANBAN_FILTER_DOM + _kanban_filter_js() + body
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_filter_active_detection(self):
+        out = self._run("""
+els['kanban-search-input'] = {value: ''};
+els['kanban-filter-assignee'] = {value: ''};
+els['kanban-filter-priority'] = {value: ''};
+var a = kanbanFilterActive();
+els['kanban-search-input'].value = 'tugas';
+var b = kanbanFilterActive();
+els['kanban-search-input'].value = '   ';
+var c = kanbanFilterActive();
+els['kanban-filter-priority'].value = 'urgent';
+var d = kanbanFilterActive();
+process.stdout.write([a, b, c, d].join(','));
+""")
+        self.assertEqual(out, "false,true,false,true")
+
+    def test_filter_change_debounces_board_refresh(self):
+        out = self._run("""
+onKanbanFilterChanged();
+onKanbanFilterChanged();
+onKanbanFilterChanged();
+setTimeout(function(){
+  process.stdout.write(filterCalls + '|' + refreshCalls);
+}, 400);
+""")
+        self.assertEqual(out, "3|1")
+
+    def test_renderer_bypasses_cap_only_when_filtering(self):
+        self.assertIn("kanbanFilterActive() ? items : items.slice(0, KANBAN_COL_PAGE)", panel.PAGE)
+        self.assertIn('oninput="onKanbanFilterChanged()"', panel.PAGE)
+        self.assertEqual(panel.PAGE.count('onchange="onKanbanFilterChanged()"'), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

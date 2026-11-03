@@ -2214,11 +2214,11 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       </div>
     </div>
     <div class="kanban-filter-bar">
-      <input type="text" id="kanban-search-input" class="search-input" placeholder="Cari ID atau judul tugas..." oninput="filterKanbanCards()" style="flex:1;min-width:180px;height:32px;font-size:0.76rem">
-      <select id="kanban-filter-assignee" onchange="filterKanbanCards()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.75rem;height:32px">
+      <input type="text" id="kanban-search-input" class="search-input" placeholder="Cari ID atau judul tugas..." oninput="onKanbanFilterChanged()" style="flex:1;min-width:180px;height:32px;font-size:0.76rem">
+      <select id="kanban-filter-assignee" onchange="onKanbanFilterChanged()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.75rem;height:32px">
         <option value="">Semua Assignee</option>
       </select>
-      <select id="kanban-filter-priority" onchange="filterKanbanCards()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.75rem;height:32px">
+      <select id="kanban-filter-priority" onchange="onKanbanFilterChanged()" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.75rem;height:32px">
         <option value="">Semua Prioritas</option>
         <option value="urgent">Urgent (&ge; 2)</option>
         <option value="high">High (= 1)</option>
@@ -3912,6 +3912,23 @@ function applyBulkDelete() {{
   }});
 }}
 
+function kanbanFilterActive() {{
+  var q = document.getElementById('kanban-search-input');
+  var a = document.getElementById('kanban-filter-assignee');
+  var p = document.getElementById('kanban-filter-priority');
+  return !!((q && q.value.trim()) || (a && a.value.trim()) || (p && p.value));
+}}
+
+var kanbanFilterTimer = null;
+function onKanbanFilterChanged() {{
+  // Filter harus melihat SEMUA tugas, bukan hanya 12 kartu yang dirender.
+  // Muat ulang papan (renderer akan bypass batas saat filter aktif), lalu
+  // filterKanbanCards() dipanggil oleh renderKanbanCards().
+  filterKanbanCards();
+  if(kanbanFilterTimer) clearTimeout(kanbanFilterTimer);
+  kanbanFilterTimer = setTimeout(function(){{ refreshKanbanBoard(true); }}, 250);
+}}
+
 function filterKanbanCards() {{
   var q = (document.getElementById('kanban-search-input') ? document.getElementById('kanban-search-input').value : '').toLowerCase().trim();
   var assignee = (document.getElementById('kanban-filter-assignee') ? document.getElementById('kanban-filter-assignee').value : '').toLowerCase().trim();
@@ -3968,7 +3985,7 @@ function renderKanbanCards(tasks) {{
       colContainer.appendChild(empty);
     }} else {{
       // Batas yang sama dengan server: kolom besar tidak dirender semua.
-      var visibleItems = items.slice(0, KANBAN_COL_PAGE);
+      var visibleItems = kanbanFilterActive() ? items : items.slice(0, KANBAN_COL_PAGE);
       visibleItems.forEach(function(t) {{
         var card = document.createElement('div');
         card.className = 'kanban-card' + (selectedTaskIds.has(t.id) ? ' is-selected' : '');
