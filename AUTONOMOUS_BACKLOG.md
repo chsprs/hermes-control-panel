@@ -1015,3 +1015,20 @@ komentar task `t_e42bba09`.
 saya kirim via `gh issue create` ke repo NousResearch/hermes-agent), (2)
 `git push origin main` (153 commit), (3) hapus/pertahankan board yatim
 `test-board-val`.
+
+## Wave 107 — Audit blok Docker & Auth: escaping tombol Buka diperbaiki
+
+Menjawab permintaan melanjutkan looping setelah notifikasi-block usang
+(t_309252ae dkk. sudah done; antrean Telegram lama).
+
+**Blok Aplikasi Docker** — bug nyata: onclick tombol Buka memasukkan
+`path` metadata CasaOS ke literal JS berkutip tunggal; `&#x27;` di-decode
+parser HTML kembali jadi `'` → path berkutip mematikan tombol diam-diam
+(kelas bug sama dgn Wave 94/99). Varian JS-safe untuk onclick, href tetap
+semantik URL. **Blok Keamanan & Kata Sandi**: bersih tanpa temuan.
+
+Test +4; negative control 2/4 gagal tanpa patch; suite **485 OK**; live: blok
+Docker terverifikasi ter-render di halaman yang dilayani.
+
+### Commit
+- (lihat git log) fix(panel): escape string-JS tombol Buka blok Docker
