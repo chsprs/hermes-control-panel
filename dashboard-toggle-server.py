@@ -910,7 +910,7 @@ transition:background .15s ease,border-color .15s ease}}
 /* Model Selector Chips & Groups */
 .models-container{{display:flex;flex-direction:column;gap:1.1rem;width:100%}}
 .model-group-title{{display:flex;align-items:center;gap:.4rem;font-size:.72rem;font-family:var(--font-mono);
-font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.55rem}}
+font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.55rem}}
 .models-grid{{display:grid;grid-template-columns:repeat(auto-fill, minmax(210px, 1fr));gap:.55rem;width:100%}}
 
 .model-chip{{
@@ -937,7 +937,7 @@ a.model-chip:active{{transform:scale(.98)}}
 }}
 .model-chip-badge{{
   flex-shrink:0;font-size:.65rem;font-weight:600;padding:.15rem .4rem;border-radius:4px;
-  background:rgba(255,255,255,0.07);color:var(--text-dim);letter-spacing:.02em;
+  background:rgba(255,255,255,0.07);color:var(--text-muted);letter-spacing:.02em;
 }}
 .model-chip.active .model-chip-badge{{
   background:rgba(59,130,246,0.25);color:#bfdbfe;
@@ -1081,7 +1081,7 @@ background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:v
 cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .aux-model-opt:hover{{background:rgba(255,255,255,0.08);border-color:var(--border-hover);transform:translateY(-1px)}}
 .aux-model-opt-name{{font-family:var(--font-mono);font-size:.78rem;font-weight:600;color:var(--text)}}
-.aux-model-opt-sub{{font-size:.7rem;color:var(--text-dim)}}
+.aux-model-opt-sub{{font-size:.7rem;color:var(--text-muted)}}
 
 /* Process Table Elements */
 .task-table-wrap{{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.015);margin-bottom:.5rem}}
@@ -1278,9 +1278,9 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   <div class="confirm-box" style="max-width:540px;width:92%;max-height:85vh;display:flex;flex-direction:column;padding:1.25rem">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
       <h3 id="aux-picker-title" style="margin:0;font-size:1.05rem">Pilih Model</h3>
-      <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeAuxPicker()">✕</button>
+      <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" aria-label="Tutup pemilih model" onclick="closeAuxPicker()">✕</button>
     </div>
-    <input type="text" id="aux-model-search" class="search-input" placeholder="Cari model… (saring)" oninput="filterAuxPicker(this.value)" style="margin-bottom:0.8rem">
+    <input type="text" id="aux-model-search" class="search-input" aria-label="Cari model di pemilih" placeholder="Cari model… (saring)" oninput="filterAuxPicker(this.value)" style="margin-bottom:0.8rem">
     <div id="aux-picker-list" style="overflow-y:auto;flex:1;max-height:55vh;display:flex;flex-direction:column;gap:0.45rem;padding-right:2px">
     </div>
   </div>
@@ -2008,9 +2008,9 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <div class="card-title" style="margin-bottom:0">{icon_layers} Model 9router</div>
     </div>
     {reasoning_control}
-    <input type="text" id="model-search" class="search-input" placeholder="Cari model… (saring)" oninput="filterModels(this.value)">
+    <input type="text" id="model-search" class="search-input" aria-label="Cari model" placeholder="Cari model… (saring)" oninput="filterModels(this.value)">
     <div id="model-chips">{model_chips}</div>
-    <div id="model-search-empty" class="hint-pill" style="display:none;margin-top:.6rem">Tidak ada model yang cocok dengan pencarian.</div>
+    <div id="model-search-empty" class="hint-pill" role="status" aria-live="polite" style="display:none;margin-top:.6rem">Tidak ada model yang cocok dengan pencarian.</div>
   </div>
 
   <div id="rl-slot">{rate_limit_card}</div>
@@ -2333,14 +2333,14 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
       <div>
         <div class="card-title" style="margin-bottom:0">{icon_layers} Kuota Provider AI</div>
         <div class="qz-legend">
-          <span class="qz-legend-bar"></span>
+          <span class="qz-legend-bar" aria-hidden="true"></span>
           <span>0%</span><span>&middot;</span><span>50%</span><span>&middot;</span><span>100%</span>
         </div>
         <div class="qz-note">Sisa kuota per akun, dibaca dari 9router. Ujung kanan bar menandai nilai sekarang. Badge status akun: hijau = aman, kuning = menipis (&lt;20%), merah = habis, abu = tidak tersedia, ungu = token kedaluwarsa.</div>
       </div>
       <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
-        <input type="search" id="qz-search" class="search-input" placeholder="Cari akun / email…" oninput="quotaSetFilter(this.value)" style="max-width:190px;min-height:32px;font-size:.72rem">
-        <span id="qz-updated" class="qz-prov-meta"></span>
+        <input type="search" id="qz-search" class="search-input" aria-label="Cari akun atau email" placeholder="Cari akun / email…" oninput="quotaSetFilter(this.value)" style="max-width:190px;min-height:32px;font-size:.72rem">
+        <span id="qz-updated" class="qz-prov-meta" role="status" aria-live="polite"></span>
         <button type="button" class="btn-action-sm" id="qz-refresh" onclick="quotaRefresh()">Refresh</button>
       </div>
     </div>
@@ -2665,12 +2665,12 @@ function renderFallbackPickerItems(q){{
       var list = AVAILABLE_MODELS[groupName] || [];
       var matched = list.filter(function(m){{ return !q || m.toLowerCase().indexOf(q) !== -1; }});
       if(matched.length > 0){{
-        out += '<div style="font-size:0.7rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-dim);margin-top:0.4rem;padding:0 0.2rem">' + escGw(groupName) + '</div>';
+        out += '<div style="font-size:0.7rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-muted);margin-top:0.4rem;padding:0 0.2rem">' + escGw(groupName) + '</div>';
         for(var i = 0; i < matched.length; i++){{
           var mId = matched[i];
           var safeId = escGw(mId);
           var isFree = mId.toLowerCase().indexOf('free') !== -1;
-          var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
+          var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-muted)">9ROUTER</span>';
           out += '<a class="aux-model-opt" href="javascript:void(0)" data-provider="9router" data-model="' + safeId + '" onclick="selectFallbackModel(this.getAttribute(\\'data-provider\\'), this.getAttribute(\\'data-model\\'))">' +
                    '<div style="min-width:0;flex:1">' +
                      '<div class="aux-model-opt-name" style="overflow:hidden;text-overflow:ellipsis">' + safeId + '</div>' +
@@ -2749,12 +2749,12 @@ function renderAuxPickerItems(q){{
       var list = AVAILABLE_MODELS[groupName] || [];
       var matched = list.filter(function(m){{ return !q || m.toLowerCase().indexOf(q) !== -1; }});
       if(matched.length > 0){{
-        out += '<div style="font-size:0.7rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-dim);margin-top:0.4rem;padding:0 0.2rem">' + escGw(groupName) + '</div>';
+        out += '<div style="font-size:0.7rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--text-muted);margin-top:0.4rem;padding:0 0.2rem">' + escGw(groupName) + '</div>';
         for(var i = 0; i < matched.length; i++){{
           var mId = matched[i];
           var safeId = escGw(mId);
           var isFree = mId.toLowerCase().indexOf('free') !== -1;
-          var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim)">9ROUTER</span>';
+          var badge = isFree ? '<span class="model-chip-badge">GRATIS</span>' : '<span class="model-chip-badge" style="background:rgba(255,255,255,0.06);color:var(--text-muted)">9ROUTER</span>';
           out += '<a class="aux-model-opt" href="javascript:void(0)" data-provider="9router" data-model="' + safeId + '" onclick="selectAuxModel(this.getAttribute(\\'data-provider\\'), this.getAttribute(\\'data-model\\'))">' +
                    '<div style="min-width:0;flex:1">' +
                      '<div class="aux-model-opt-name" style="overflow:hidden;text-overflow:ellipsis">' + safeId + '</div>' +
@@ -2931,6 +2931,7 @@ function qzBar(pct, status){{
     + '%;--c1:' + qzRgb(qzSpectrum(head)) + ';--c2:' + qzRgb(qzSpectrum(q)) + '"></div>'
     + '</div>';
 }}
+function qzDetId(key){{ return 'qz-det-' + key; }}
 function qzRow(o){{
   var pct = o.pct;
   var valTxt;
@@ -2938,10 +2939,19 @@ function qzRow(o){{
   if(o.status === 'no_access'){{ valTxt = 'Tidak tersedia'; valCls += ' muted'; }}
   else if(pct === null || pct === undefined){{ valTxt = 'N/A'; valCls += ' muted'; }}
   else {{ valTxt = qzPctText(pct); }}
-  var dot = '<span class="qz-dot" style="background:' + qzStatusColor(o.status || 'ok') + '"></span>';
+  // Titik dan caret cuma penguat visual: status sudah ada sebagai teks di baris
+  // ini, jadi keduanya disembunyikan dari pembaca layar.
+  var dot = '<span class="qz-dot" aria-hidden="true" style="background:' + qzStatusColor(o.status || 'ok') + '"></span>';
   var caret = o.toggle
-    ? '<span class="qz-caret">&#9654;</span>'
-    : '<span class="qz-caret" style="visibility:hidden">&#9654;</span>';
+    ? '<span class="qz-caret" aria-hidden="true">&#9654;</span>'
+    : '<span class="qz-caret" aria-hidden="true" style="visibility:hidden">&#9654;</span>';
+  // Baris yang bisa dibuka-tutup diperlakukan sama seperti header provider:
+  // fokusabel, punya role tombol, dan mengumumkan keadaan buka/tutup.
+  var detId = (o.toggle && o.key) ? qzDetId(o.key) : '';
+  var toggleA11y = o.toggle
+    ? ' role="button" tabindex="0" aria-expanded="' + (o.open ? 'true' : 'false') + '"'
+      + (detId ? ' aria-controls="' + escHtml(detId) + '"' : '')
+    : '';
   var foot = [];
   if(o.used !== null && o.used !== undefined && o.total !== null && o.total !== undefined && o.total !== 0){{
     foot.push('<span>' + qzNum(o.used) + ' / ' + qzNum(o.total) + '</span>');
@@ -2951,7 +2961,7 @@ function qzRow(o){{
     foot.push('<span></span>');
   }}
   foot.push('<span>' + escHtml(o.resetText || '') + '</span>');
-  return '<div class="qz-row' + (o.toggle ? ' toggle' : '') + '"' + (o.attrs || '') + '>'
+  return '<div class="qz-row' + (o.toggle ? ' toggle' : '') + '"' + toggleA11y + (o.attrs || '') + '>'
     + '<div class="qz-row-top">' + dot
     + '<span class="qz-row-label">' + escHtml(o.label) + '</span>'
     + '<span class="' + valCls + '">' + valTxt + '</span>' + caret + '</div>'
@@ -2984,15 +2994,15 @@ function quotaAccountHtml(a){{
       var hasDet = !!(g.buckets && g.buckets.length);
       var reset = quotaFmtReset(g.resetAt);
       if(g.fallback) reset = (reset ? reset + ' · ' : '') + 'turunan model';
+      var open = hasDet && QUOTA.openDet[key] === true;
       h += qzRow({{
         label: g.label, pct: g.pct, status: g.status,
         used: g.used, total: g.total,
         resetText: reset, footLeft: g.status === 'no_access' ? 'butuh Pro/Ultra' : '',
-        toggle: hasDet, attrs: hasDet ? ' data-qk="' + escHtml(key) + '"' : ''
+        toggle: hasDet, key: key, open: open, attrs: hasDet ? ' data-qk="' + escHtml(key) + '"' : ''
       }});
       if(hasDet){{
-        var open = QUOTA.openDet[key] === true;
-        h += '<div class="qz-det' + (open ? ' open' : '') + '" data-qd="' + escHtml(key) + '">';
+        h += '<div class="qz-det' + (open ? ' open' : '') + '" id="' + escHtml(qzDetId(key)) + '" data-qd="' + escHtml(key) + '">';
         g.buckets.forEach(function(b){{
           h += qzRow({{
             label: b.label, pct: b.pct, status: null,
@@ -3035,16 +3045,17 @@ function quotaProviderHtml(p){{
   // Provider tanpa akun yang cocok disembunyikan saat mencari.
   if(QUOTA.filter && !(p.accounts || []).some(function(a){{ return quotaAccountMatches(a, QUOTA.filter.toLowerCase()); }})) return '';
   var open = QUOTA.openProv[p.provider] !== false;
+  var bodyId = 'qz-prov-body-' + p.provider;
   var h = '<div class="qz-prov' + (open ? ' open' : '') + '" data-qp="' + escHtml(p.provider) + '">';
-  h += '<div class="qz-prov-head" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '" data-qhead="1">';
+  h += '<div class="qz-prov-head" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '" aria-controls="' + escHtml(bodyId) + '" data-qhead="1">';
   h += qzLogo(p.provider, 34);
   h += '<span class="qz-prov-name">' + escHtml(p.label || p.provider) + '</span>';
   h += '<span class="qz-prov-meta">' + escHtml(p.accountCount) + ' akun</span>';
   if(p.criticalCount){{
     h += '<span class="qz-badge exhausted">' + escHtml(p.criticalCount) + ' kritis</span>';
   }}
-  h += '<svg class="qz-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
-  h += '</div><div class="qz-prov-body">';
+  h += '<svg class="qz-chev" aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+  h += '</div><div class="qz-prov-body" id="' + escHtml(bodyId) + '">';
   // 156 akun qoder tidak dirender semua: 6 pertama + tombol sisanya.
   var q = (QUOTA.filter || '').toLowerCase();
   var accounts = (p.accounts || []).filter(function(a){{ return quotaAccountMatches(a, q); }});
@@ -3075,7 +3086,57 @@ function quotaToggleDet(el){{
   if(!box) return;
   var on = box.classList.toggle('open');
   el.classList.toggle('open', on);
+  if(el.setAttribute) el.setAttribute('aria-expanded', on ? 'true' : 'false');
   QUOTA.openDet[k] = on;
+}}
+// Identitas stabil elemen Kuota yang sedang fokus. quotaRender() mengganti
+// seluruh isi #qz-root, jadi tanpa ini fokus keyboard ikut terbuang ke <body>.
+function qzFocusSignature(el){{
+  if(!el || el.nodeType !== 1 || !el.getAttribute) return null;
+  var k = el.getAttribute('data-qk');
+  if(k) return 'k:' + k;
+  if(el.getAttribute('data-qhead')){{
+    var box = el.parentNode;
+    return (box && box.getAttribute && box.getAttribute('data-qp')) ? 'p:' + box.getAttribute('data-qp') : null;
+  }}
+  if(el.getAttribute('data-qmore')){{
+    var host = el.closest ? el.closest('[data-qp]') : null;
+    return host ? 'm:' + host.getAttribute('data-qp') : null;
+  }}
+  return null;
+}}
+function qzRestoreFocus(root, sig){{
+  if(!sig || !root || !root.querySelector) return false;
+  var tail = sig.slice(2);
+  var el = null;
+  try {{
+    if(sig.charAt(0) === 'k') el = root.querySelector('[data-qk="' + tail + '"]');
+    else if(sig.charAt(0) === 'p') el = root.querySelector('[data-qp="' + tail + '"] [data-qhead]');
+    else el = root.querySelector('[data-qp="' + tail + '"] [data-qmore]');
+    // Tombol "+ N akun lainnya" hilang setelah dirender ulang: pindahkan fokus
+    // ke header provider-nya daripada membuang fokus ke <body>.
+    if(!el && sig.charAt(0) !== 'p') el = root.querySelector('[data-qp="' + tail + '"] [data-qhead]');
+  }} catch(e) {{ el = null; }}
+  if(el && el.focus) {{ el.focus(); return true; }}
+  return false;
+}}
+function qzSetUpdated(txt){{
+  var up = document.getElementById('qz-updated');
+  if(up) up.textContent = txt || '';
+}}
+// #qz-updated adalah satu-satunya elemen status Kuota yang tidak ikut diganti
+// quotaRender(), jadi ia yang dipakai sebagai live region (role="status").
+function qzRenderStatus(d, note){{
+  var parts = [];
+  if(note) parts.push(note);
+  if(d && d.fetchedAt){{
+    var t = new Date(d.fetchedAt);
+    if(!isNaN(t.getTime())){{
+      parts.push('diperbarui ' + t.toLocaleTimeString('id-ID', {{hour:'2-digit', minute:'2-digit'}}));
+    }}
+  }}
+  if(d && d.stale) parts.push('cache lama');
+  qzSetUpdated(parts.join(' · '));
 }}
 function quotaRender(){{
   var root = document.getElementById('qz-root');
@@ -3083,15 +3144,19 @@ function quotaRender(){{
   if(QUOTA.err){{
     root.innerHTML = '<div class="qz-empty">' + escHtml(QUOTA.err)
       + '<div style="margin-top:.9rem"><button type="button" class="btn-action-sm" onclick="quotaRefresh()">Coba lagi</button></div></div>';
+    qzRenderStatus(null, 'gagal memuat kuota');
     return;
   }}
   var d = QUOTA.data;
   if(!d || !d.providers || !d.providers.length){{
     root.innerHTML = '<div class="qz-empty">Belum ada akun provider terdaftar di 9router.</div>';
+    qzRenderStatus(d, 'belum ada akun provider terdaftar');
     return;
   }}
+  var focusSig = qzFocusSignature(document.activeElement);
   var h = '';
-  d.providers.forEach(function(p){{ h += quotaProviderHtml(p); }});
+  var shown = 0;
+  d.providers.forEach(function(p){{ var one = quotaProviderHtml(p); if(one){{ h += one; shown++; }} }});
   root.innerHTML = h;
   root.querySelectorAll('[data-qhead]').forEach(function(el){{
     el.addEventListener('click', function(){{ quotaToggleProv(el); }});
@@ -3104,6 +3169,12 @@ function quotaRender(){{
   }});
   root.querySelectorAll('[data-qk]').forEach(function(el){{
     el.addEventListener('click', function(){{ quotaToggleDet(el); }});
+    el.addEventListener('keydown', function(ev){{
+      if(ev.key === 'Enter' || ev.key === ' '){{
+        ev.preventDefault();
+        quotaToggleDet(el);
+      }}
+    }});
   }});
   root.querySelectorAll('[data-qmore]').forEach(function(el){{
     el.addEventListener('click', function(){{
@@ -3111,18 +3182,10 @@ function quotaRender(){{
       if(prov){{ QUOTA.showAllProv[prov.getAttribute('data-qp')] = true; quotaRender(); }}
     }});
   }});
-  var up = document.getElementById('qz-updated');
-  if(up){{
-    var txt = '';
-    if(d.fetchedAt){{
-      var t = new Date(d.fetchedAt);
-      if(!isNaN(t.getTime())){{
-        txt = 'diperbarui ' + t.toLocaleTimeString('id-ID', {{hour:'2-digit', minute:'2-digit'}});
-      }}
-    }}
-    if(d.stale) txt += (txt ? ' · ' : '') + 'cache lama';
-    up.innerHTML = txt;
-  }}
+  qzRestoreFocus(root, focusSig);
+  // Pencarian yang tidak menyisakan satu akun pun perlu diumumkan, bukan cuma
+  // ditulis di dalam panel yang baru saja diganti.
+  qzRenderStatus(d, (QUOTA.filter && !shown) ? 'tidak ada akun yang cocok dengan pencarian' : '');
 }}
 function quotaLoad(force, silent){{
   if(QUOTA.loading) return;
@@ -6612,7 +6675,14 @@ function filterModels(q){{
     g.style.display = any ? '' : 'none';
     if(any) anyVisible = true;
   }});
-  if(emptyNote){{ emptyNote.style.display = (q && !anyVisible) ? '' : 'none'; }}
+  if(emptyNote){{
+    // Tulis teksnya saat ditampilkan: live region yang hanya berubah dari
+    // display:none tidak konsisten diumumkan pembaca layar.
+    var showEmpty = !!(q && !anyVisible);
+    var emptyMsg = 'Tidak ada model yang cocok dengan pencarian.';
+    if(showEmpty && emptyNote.textContent !== emptyMsg){{ emptyNote.textContent = emptyMsg; }}
+    emptyNote.style.display = showEmpty ? '' : 'none';
+  }}
 }}
 function toggleLog(flag, wrapId){{
   safeStore('removeItem', flag);

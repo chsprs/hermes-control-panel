@@ -8848,5 +8848,483 @@ process.stdout.write(String(ret === undefined) + '|' + fetchCalls.length);
         self.assertEqual(out, "true|0")
 
 
+
+# ===========================================================================
+# Audit aksesibilitas tab Kuota & kartu Model (kontras, aria, fokus)
+#
+# Angka kontras dihitung ulang dari CSS yang benar-benar dikirim ke browser
+# (tools/a11y_contrast.py), bukan dari konstanta di test: menurunkan kembali
+# warna teks akan langsung menggagalkan test ini.
+# ===========================================================================
+
+TOOLS_DIR = os.path.join(REPO_ROOT, "tools")
+if TOOLS_DIR not in sys.path:
+    sys.path.insert(0, TOOLS_DIR)
+import a11y_contrast  # noqa: E402
+
+
+def _slice_between(page: str, start_marker: str, end_marker: str) -> str:
+    start = page.index(start_marker)
+    return page[start : page.index(end_marker, start)]
+
+
+def _js_function(src: str, name: str) -> str:
+    """Body satu fungsi JS top-level dari PAGE (brace-nya sudah di-unescape)."""
+    start = src.index("function " + name + "(")
+    nxt = src.find("\nfunction ", start + 1)
+    return src[start : nxt if nxt != -1 else len(src)]
+
+
+def _a11y_regions(page: str) -> dict:
+    """Potongan sumber yang diaudit: tab Kuota + kartu/pemilih Model."""
+    return {
+        "tab Kuota (HTML)": _slice_between(page, 'id="tab-quota"', "<!-- .content-wrapper -->"),
+        "tab Kuota (JS)": _quota_js(),
+        "kartu Model (HTML)": _slice_between(page, 'id="model-search"', 'id="rl-slot"'),
+        "pemilih Model (HTML)": _slice_between(page, 'id="aux-picker-modal"', 'id="gw-config-modal"'),
+        "pemilih Model (JS)": _js_function(page, "renderFallbackPickerItems")
+        + _js_function(page, "renderAuxPickerItems"),
+    }
+
+
+def _buttons(markup: str):
+    return re.findall(r"<button\b([^>]*)>(.*?)</button>", markup, flags=re.S)
+
+
+def _idref_targets(html_out: str):
+    return re.findall(r'aria-controls="([^"]+)"', html_out), re.findall(r'id="([^"]+)"', html_out)
+
+
+class TestA11yQuotaModelContrast(unittest.TestCase):
+    """Kontras teks kecil di tab Kuota & kartu Model terhadap latar gelap panel."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.page = panel.page_source()
+        cls.css = a11y_contrast.css_text(cls.page)
+        cls.var = a11y_contrast.root_vars(cls.css)
+
+    def _ratio(self, selector, prop, chain):
+        body = a11y_contrast.rule_body(self.css, selector)
+        fg = a11y_contrast.color_of(body, prop, self.var)
+        bg = a11y_contrast.effective_background(self.css, self.var, chain)
+        return a11y_contrast.contrast_ratio((fg[0], fg[1], fg[2]), (bg[0], bg[1], bg[2]))
+
+    def test_every_audited_element_meets_wcag_aa(self):
+        # SC 1.4.3: 4.5:1 untuk teks normal. Tidak ada elemen yang boleh
+        # dikecualikan — semua yang diaudit di sini berukuran <= 13px.
+        failures = []
+        for name, selector, prop, chain, need in a11y_contrast.AUDIT:
+            ratio = self._ratio(selector, prop, chain)
+            if ratio < need:
+                failures.append(
+                    "%s: %.2f:1 < %.1f:1 (%s pada latar %s)" % (name, ratio, need, selector, chain)
+                )
+        self.assertEqual(failures, [], "kontras teks kecil di bawah ambang WCAG 1.4.3")
+
+    def test_model_chip_badge_readable(self):
+        # Regresi asli: --text-dim (#64748b) di badge 10px -> 3.55:1.
+        ratio = self._ratio(".model-chip-badge", "color", "model-chip")
+        self.assertGreaterEqual(
+            round(ratio, 2), 4.5, "badge GRATIS di kartu Model hanya %.2f:1" % ratio
+        )
+
+    def test_model_group_title_readable(self):
+        # Regresi asli: 3.80:1.
+        ratio = self._ratio(".model-group-title", "color", "card")
+        self.assertGreaterEqual(
+            round(ratio, 2), 4.5, "judul grup model hanya %.2f:1" % ratio
+        )
+
+    def test_picker_option_subtitle_readable(self):
+        # Regresi asli: 3.39:1 (--text-dim di atas .confirm-box).
+        ratio = self._ratio(".aux-model-opt-sub", "color", "picker-opt")
+        self.assertGreaterEqual(
+            round(ratio, 2), 4.5, "subjudul opsi pemilih model hanya %.2f:1" % ratio
+        )
+
+    def test_text_dim_is_not_used_for_audited_small_text(self):
+        # Akar masalah: --text-dim (#64748b) tidak pernah lolos 4.5:1 di latar
+        # panel. Elemen kecil harus memakai token yang lebih terang.
+        offenders = []
+        for name, selector, prop, chain, need in a11y_contrast.AUDIT:
+            raw = a11y_contrast.decl(a11y_contrast.rule_body(self.css, selector), prop) or ""
+            if "--text-dim" in raw:
+                offenders.append("%s -> %s" % (name, raw))
+        self.assertEqual(offenders, [])
+
+    def test_js_built_labels_meet_wcag_aa(self):
+        for spec in a11y_contrast.INLINE_AUDIT:
+            matches = re.findall(spec["pattern"], self.page)
+            self.assertTrue(matches, "label inline %s tidak ditemukan" % spec["name"])
+            groups = matches[0] if isinstance(matches[0], tuple) else (matches[0],)
+            fg_css = groups[spec["fg_group"] - 1]
+            bg = a11y_contrast.effective_background(self.css, self.var, spec["chain"])
+            if spec["bg_group"]:
+                bg = a11y_contrast.over(
+                    a11y_contrast.parse_color(groups[spec["bg_group"] - 1]), bg
+                )
+            fg = a11y_contrast.parse_color(a11y_contrast.resolve(fg_css, self.var))
+            ratio = a11y_contrast.contrast_ratio((fg[0], fg[1], fg[2]), bg)
+            self.assertGreaterEqual(
+                round(ratio, 2),
+                spec["need"],
+                "%s: %.2f:1 (token %s)" % (spec["name"], ratio, fg_css),
+            )
+
+    def test_disabled_buttons_follow_wcag_exemption(self):
+        # SC 1.4.3 mengecualikan komponen nonaktif, jadi kontras tombol
+        # :disabled sengaja TIDAK diubah. Aturan opacity-nya hidup di
+        # NETWORK_CSS (stylesheet terpisah), dan test ini mengunci bahwa
+        # keputusan itu masih punya dasar yang bisa diperiksa.
+        self.assertIn(".btn-action-sm:disabled{opacity", panel.NETWORK_CSS)
+
+
+# Harness Node untuk perilaku JS Kuota (bukan bagian PAGE: brace tunggal).
+_A11Y_HARNESS = r"""
+function escHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+var STATUS_EL = { textContent: '' };
+var BOX = { open:false, classList:{ toggle:function(){ BOX.open = !BOX.open; return BOX.open; } } };
+var ROOT = null;
+var document = {
+  activeElement: null,
+  getElementById: function(id){
+    if(id === 'qz-root') return ROOT;
+    if(id === 'qz-updated') return STATUS_EL;
+    return null;
+  },
+  querySelector: function(sel){ return String(sel).indexOf('[data-qd=') === 0 ? BOX : null; },
+  querySelectorAll: function(){ return []; },
+  addEventListener: function(){}
+};
+function mkEl(attrs){
+  return {
+    nodeType: 1, parentNode: null, attrs: attrs || {}, handlers: {},
+    setAttribute: function(k,v){ this.attrs[k] = v; },
+    getAttribute: function(k){ return Object.prototype.hasOwnProperty.call(this.attrs,k) ? this.attrs[k] : null; },
+    addEventListener: function(ev, fn){ (this.handlers[ev] = this.handlers[ev] || []).push(fn); },
+    fire: function(ev, evt){ (this.handlers[ev] || []).forEach(function(fn){ fn(evt); }); },
+    focus: function(){ document.activeElement = this; },
+    classList: { toggle: function(){ return false; }, add: function(){}, remove: function(){} }
+  };
+}
+function mkRoot(map){
+  map = map || {};
+  return {
+    innerHTML: '',
+    querySelectorAll: function(sel){ return map[sel] || []; },
+    querySelector: function(sel){ var l = map[sel] || []; return l.length ? l[0] : null; }
+  };
+}
+function mkAccount(over){
+  var a = { id:'acc1', name:'Key 1', email:'u1@mail.com', provider:'qoder', status:'ok', isActive:true };
+  for(var k in (over || {})) a[k] = over[k];
+  return a;
+}
+function mkProvider(over){
+  var p = { provider:'qoder', label:'Qoder', accountCount:1, accounts:[mkAccount({})] };
+  for(var k in (over || {})) p[k] = over[k];
+  return p;
+}
+"""
+
+
+@unittest.skipUnless(
+    subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed"
+)
+class TestA11yQuotaModelSemantics(unittest.TestCase):
+    """Semantik kontrol kustom: disclosure, live region, nama aksesibel."""
+
+    def _run(self, body: str) -> str:
+        script = _A11Y_HARNESS + _quota_js() + body
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def _render_provider(self, provider_js="mkProvider({})"):
+        return self._run(
+            "ROOT = mkRoot({}); QUOTA.err = null;"
+            "QUOTA.data = { fetchedAt: 1700000000000, providers: [ " + provider_js + " ] };"
+            "quotaRender(); process.stdout.write(ROOT.innerHTML);"
+        )
+
+    def test_provider_accordion_exposes_expanded_state(self):
+        out = self._render_provider()
+        head = re.search(r'<div class="qz-prov-head"[^>]*>', out)
+        self.assertIsNotNone(head, "header provider tidak ditemukan")
+        attrs = head.group(0)
+        self.assertIn('role="button"', attrs)
+        self.assertIn('tabindex="0"', attrs)
+        self.assertIn('aria-expanded="true"', attrs, "provider terbuka harus aria-expanded=true")
+
+    def test_collapsed_provider_reports_collapsed(self):
+        out = self._render_provider()
+        self.assertIn('aria-expanded="true"', out)
+        out = self._run(
+            "QUOTA.openProv.qoder = false; ROOT = mkRoot({}); QUOTA.err = null;"
+            "QUOTA.data = { providers: [ mkProvider({}) ] };"
+            "quotaRender(); process.stdout.write(ROOT.innerHTML);"
+        )
+        self.assertIn('aria-expanded="false"', out, "provider tertutup harus aria-expanded=false")
+
+    def test_aria_controls_points_at_an_existing_id(self):
+        out = self._render_provider()
+        refs, ids = _idref_targets(out)
+        self.assertTrue(refs, "header provider tidak punya aria-controls")
+        for ref in refs:
+            self.assertIn(ref, ids, "aria-controls=%r tidak menunjuk id yang ada" % ref)
+
+    def test_bucket_detail_is_a_disclosure(self):
+        acc = (
+            "mkAccount({ groups: [ { key:'g1', label:'Bulanan', pct:40, used:4, total:10,"
+            " status:'ok', buckets:[ { label:'b1', pct:20, used:2, total:10 } ] } ] })"
+        )
+        out = self._render_provider("mkProvider({ accounts: [ " + acc + " ] })")
+        row = re.search(r'<div class="qz-row toggle"[^>]*>', out)
+        self.assertIsNotNone(row, "baris kuota yang bisa dibuka tidak ditemukan")
+        attrs = row.group(0)
+        self.assertIn('role="button"', attrs, "baris toggle harus punya role tombol")
+        self.assertIn('tabindex="0"', attrs, "baris toggle harus bisa dijangkau Tab")
+        self.assertIn('aria-expanded="false"', attrs)
+        refs, ids = _idref_targets(out)
+        detail_refs = [r for r in refs if r.startswith("qz-det-")]
+        self.assertTrue(detail_refs, "baris toggle tidak punya aria-controls ke detail")
+        for ref in detail_refs:
+            self.assertIn(ref, ids, "aria-controls detail %r tidak menunjuk id yang ada" % ref)
+
+    def test_detail_open_state_follows_quota_state(self):
+        acc = (
+            "mkAccount({ groups: [ { key:'g1', label:'Bulanan', pct:40, status:'ok',"
+            " buckets:[ { label:'b1', pct:20 } ] } ] })"
+        )
+        out = self._run(
+            "QUOTA.openDet['acc1::g1'] = true; ROOT = mkRoot({}); QUOTA.err = null;"
+            "QUOTA.data = { providers: [ mkProvider({ accounts: [ " + acc + " ] }) ] };"
+            "quotaRender(); process.stdout.write(ROOT.innerHTML);"
+        )
+        self.assertIn('aria-expanded="true"', out, "detail yang terbuka harus aria-expanded=true")
+
+    def test_bucket_row_opens_with_keyboard(self):
+        # Negatif kontrol: sebelum patch baris ini hanya punya listener click,
+        # jadi Enter/Spasi tidak melakukan apa pun.
+        acc = (
+            "mkAccount({ groups: [ { key:'g1', label:'Bulanan', pct:40, status:'ok',"
+            " buckets:[ { label:'b1', pct:20 } ] } ] })"
+        )
+        out = self._run(
+            "var row = mkEl({ 'data-qk': 'acc1::g1', 'aria-expanded': 'false' });"
+            "var head = mkEl({ 'data-qhead': '1' });"
+            "head.parentNode = mkEl({ 'data-qp': 'qoder' });"
+            "ROOT = mkRoot({ '[data-qk]': [row], '[data-qhead]': [head], '[data-qmore]': [] });"
+            "QUOTA.err = null;"
+            "QUOTA.data = { providers: [ mkProvider({ accounts: [ " + acc + " ] }) ] };"
+            "quotaRender();"
+            "var before = row.getAttribute('aria-expanded');"
+            "var prevented = false;"
+            "row.fire('keydown', { key: ' ', preventDefault: function(){ prevented = true; } });"
+            "var afterSpace = row.getAttribute('aria-expanded');"
+            "row.fire('keydown', { key: 'Enter', preventDefault: function(){} });"
+            "var afterEnter = row.getAttribute('aria-expanded');"
+            "process.stdout.write([before, afterSpace, afterEnter, prevented, BOX.open].join('|'));"
+        )
+        self.assertEqual(out, "false|true|false|true|false",
+                         "Spasi membuka, Enter menutup, dan scroll dicegah")
+
+    def test_bucket_row_still_opens_with_mouse(self):
+        acc = (
+            "mkAccount({ groups: [ { key:'g1', label:'Bulanan', pct:40, status:'ok',"
+            " buckets:[ { label:'b1', pct:20 } ] } ] })"
+        )
+        out = self._run(
+            "var row = mkEl({ 'data-qk': 'acc1::g1' });"
+            "ROOT = mkRoot({ '[data-qk]': [row], '[data-qhead]': [], '[data-qmore]': [] });"
+            "QUOTA.err = null;"
+            "QUOTA.data = { providers: [ mkProvider({ accounts: [ " + acc + " ] }) ] };"
+            "quotaRender();"
+            "row.fire('click', {});"
+            "process.stdout.write(row.getAttribute('aria-expanded'));"
+        )
+        self.assertEqual(out, "true")
+
+    def test_empty_search_result_is_announced(self):
+        out = self._run(
+            "ROOT = mkRoot({}); QUOTA.err = null; QUOTA.filter = 'zzz';"
+            "QUOTA.data = { fetchedAt: 1700000000000, providers: [ mkProvider({}) ] };"
+            "quotaRender(); process.stdout.write(STATUS_EL.textContent);"
+        )
+        self.assertIn("tidak ada akun", out.lower(),
+                      "pencarian tanpa hasil harus diumumkan lewat role=status")
+
+    def test_load_failure_is_announced(self):
+        out = self._run(
+            "ROOT = mkRoot({}); QUOTA.err = 'Tidak bisa memuat kuota: x';"
+            "quotaRender(); process.stdout.write(STATUS_EL.textContent);"
+        )
+        self.assertIn("gagal memuat", out.lower())
+
+    def test_normal_render_does_not_claim_empty_result(self):
+        out = self._run(
+            "ROOT = mkRoot({}); QUOTA.err = null; QUOTA.filter = '';"
+            "QUOTA.data = { fetchedAt: 1700000000000, providers: [ mkProvider({}) ] };"
+            "quotaRender(); process.stdout.write(STATUS_EL.textContent);"
+        )
+        self.assertNotIn("tidak ada akun", out.lower())
+        self.assertIn("diperbarui", out.lower())
+
+    def test_decorative_marks_are_hidden_from_screen_readers(self):
+        acc = (
+            "mkAccount({ groups: [ { key:'g1', label:'Bulanan', pct:40, status:'ok',"
+            " buckets:[ { label:'b1', pct:20 } ] } ] })"
+        )
+        out = self._render_provider("mkProvider({ accounts: [ " + acc + " ] })")
+        for cls in ("qz-dot", "qz-caret", "qz-chev"):
+            m = re.search(r'<[^>]*class="' + cls + r'"[^>]*>', out)
+            self.assertIsNotNone(m, "penanda %s tidak ditemukan" % cls)
+            self.assertIn('aria-hidden="true"', m.group(0),
+                          "%s hanya penanda visual dan harus disembunyikan" % cls)
+
+    def test_focus_signature_identifies_quota_controls(self):
+        out = self._run(
+            "var head = mkEl({ 'data-qhead': '1' });"
+            "head.parentNode = mkEl({ 'data-qp': 'qoder' });"
+            "var row = mkEl({ 'data-qk': 'acc1::g1' });"
+            "var more = mkEl({ 'data-qmore': '1' });"
+            "more.closest = function(){ return mkEl({ 'data-qp': 'qoder' }); };"
+            "process.stdout.write([qzFocusSignature(head), qzFocusSignature(row),"
+            " qzFocusSignature(more), String(qzFocusSignature(null))].join('|'));"
+        )
+        self.assertEqual(out, "p:qoder|k:acc1::g1|m:qoder|null")
+
+    def test_focus_returns_to_provider_when_more_button_vanishes(self):
+        # "+ N akun lainnya" hilang setelah dirender ulang; fokus harus pindah ke
+        # header provider, bukan terbuang ke <body>.
+        out = self._run(
+            "var head = mkEl({ 'data-qhead': '1' });"
+            "var root = mkRoot({ '[data-qp=\"qoder\"] [data-qhead]': [head] });"
+            "var ok = qzRestoreFocus(root, 'm:qoder');"
+            "process.stdout.write(String(ok) + '|' + String(document.activeElement === head));"
+        )
+        self.assertEqual(out, "true|true")
+
+    def test_focus_is_kept_on_the_same_bucket_row(self):
+        out = self._run(
+            "var row = mkEl({ 'data-qk': 'acc1::g1' });"
+            "var root = mkRoot({ '[data-qk=\"acc1::g1\"]': [row] });"
+            "var ok = qzRestoreFocus(root, 'k:acc1::g1');"
+            "process.stdout.write(String(ok) + '|' + String(document.activeElement === row));"
+        )
+        self.assertEqual(out, "true|true")
+
+
+class TestA11yQuotaModelMarkup(unittest.TestCase):
+    """Kontrak markup statis: nama aksesibel, live region, IDREF."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.page = panel.page_source()
+
+    def test_icon_only_buttons_have_accessible_name(self):
+        # Setiap <button> di lingkup audit harus punya teks, aria-label, atau title.
+        problems = []
+        for region, markup in _a11y_regions(self.page).items():
+            for attrs, inner in _buttons(markup):
+                if "aria-label=" in attrs or "title=" in attrs:
+                    continue
+                if re.search(r"[A-Za-z0-9]", inner):
+                    continue
+                problems.append("%s: <button%s>" % (region, attrs[:80]))
+        self.assertEqual(problems, [], "tombol ikon-saja tanpa nama aksesibel")
+
+    def test_picker_close_button_is_labelled(self):
+        picker = _slice_between(self.page, 'id="aux-picker-modal"', 'id="gw-config-modal"')
+        btn = re.search(r"<button[^>]*closeAuxPicker\(\)[^>]*>", picker)
+        self.assertIsNotNone(btn)
+        self.assertIn('aria-label="Tutup pemilih model"', btn.group(0))
+
+    def test_search_inputs_have_accessible_names(self):
+        for input_id, label in (
+            ("qz-search", "Cari akun atau email"),
+            ("model-search", "Cari model"),
+            ("aux-model-search", "Cari model di pemilih"),
+        ):
+            m = re.search(r'<input[^>]*id="' + input_id + r'"[^>]*>', self.page)
+            self.assertIsNotNone(m, "input %s tidak ditemukan" % input_id)
+            self.assertIn(
+                'aria-label="%s"' % label, m.group(0),
+                "%s hanya punya placeholder, bukan nama aksesibel" % input_id,
+            )
+
+    def test_quota_status_is_a_live_region(self):
+        m = re.search(r'<span id="qz-updated"[^>]*>', self.page)
+        self.assertIsNotNone(m)
+        attrs = m.group(0)
+        self.assertIn('role="status"', attrs)
+        self.assertIn('aria-live="polite"', attrs)
+
+    def test_model_search_empty_note_is_a_live_region(self):
+        m = re.search(r'<div id="model-search-empty"[^>]*>', self.page)
+        self.assertIsNotNone(m)
+        attrs = m.group(0)
+        self.assertIn('role="status"', attrs)
+        self.assertIn('aria-live="polite"', attrs)
+
+    def test_quota_render_refreshes_the_live_region(self):
+        js = _quota_js()
+        self.assertIn("function qzRenderStatus", js)
+        # Setiap jalur keluar quotaRender() harus mengisi status, kalau tidak
+        # pembaca layar tidak pernah tahu hasilnya kosong/gagal.
+        render = js[js.index("function quotaRender"):]
+        self.assertEqual(render.count("qzRenderStatus("), 3,
+                         "quotaRender harus mengumumkan hasil di semua jalur")
+
+    def test_filter_models_writes_the_live_text_on_reveal(self):
+        # Live region yang hanya berubah display:none -> block tidak konsisten
+        # diumumkan; teksnya harus ditulis saat ditampilkan.
+        body = _js_function(self.page, "filterModels")
+        self.assertIn("emptyNote.textContent", body)
+        self.assertIn("model-search-empty", body)
+
+
+@unittest.skipUnless(
+    subprocess.run(["which", "node"], capture_output=True).returncode == 0,
+    "node not installed",
+)
+class TestA11yModelSearchEmptyNote(unittest.TestCase):
+    """Perilaku filterModels(): catatan kosong ditulis, bukan cuma ditampilkan."""
+
+    HARNESS = r"""
+var NOTE = { textContent: 'Tidak ada model yang cocok dengan pencarian.', style: {} };
+var document = {
+  getElementById: function(id){ return id === 'model-search-empty' ? NOTE : null; },
+  querySelectorAll: function(){ return []; }
+};
+"""
+
+    def _run(self, call: str) -> str:
+        js = _js_function(panel.page_source(), "filterModels").replace("{{", "{").replace("}}", "}")
+        r = subprocess.run(
+            ["node", "-e", self.HARNESS + js + call], capture_output=True, text=True, timeout=30
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_no_match_shows_and_writes_the_note(self):
+        out = self._run(
+            "filterModels('zzz-nya');"
+            "process.stdout.write(NOTE.style.display + '|' + NOTE.textContent);"
+        )
+        self.assertTrue(out.startswith("|"), "catatan kosong harus tampil (display '')")
+        self.assertIn("Tidak ada model yang cocok", out)
+
+    def test_empty_query_hides_the_note(self):
+        out = self._run(
+            "filterModels('zzz-nya'); filterModels('');"
+            "process.stdout.write(NOTE.style.display);"
+        )
+        self.assertEqual(out, "none")
+
+
+
+
 if __name__ == "__main__":
     unittest.main()
