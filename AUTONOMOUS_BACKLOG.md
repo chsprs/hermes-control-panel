@@ -875,3 +875,34 @@ langsung pada giliran berikut.
 
 ### Commit
 - `77de38c` test(panel): interaksi gabungan filter kuota & model
+
+## Wave 99 — Audit & perbaikan backup model cadangan (t_309252ae)
+
+Dikerjakan langsung oleh sesi interaktif (dispatch worker Kanban masih rusak
+pasca-v0.22.6). Gelombang Kanban ketiga tuntas: 3/3 task diselesaikan root.
+
+**Bug inti** (diverifikasi terhadap hermes-lib v0.22.6): Hermes membaca
+`fallback_providers` DAN legacy `fallback_model` sekaligus
+(`hermes_cli/fallback_config.get_fallback_chain`); panel hanya membaca salah
+satu → tampilan tak lengkap & entri legacy tak bisa dihapus (remove tanpa
+`fallback_providers` → 500).
+
+**Perbaikan** (commit `3428079`):
+- `_merged_fallback_entries()`: gabungan fp+legacy, dedup identitas rute —
+  tampilan = rantai efektif Hermes.
+- set/remove bekerja pada rantai gabungan, lalu migrasi ke
+  `fallback_providers` (ala `hermes fallback` CLI), kredensial dipertahankan,
+  cache di-invalidate.
+- Escape newline pada nama model di onclick render.
+
+**Audit jalur lain** (tanpa patch): config kosong/korup → tampilan aman + tulis
+ditolak; race dua klik → `_config_write_lock` + `_debounce_hit`; tulis atomik
+0600. `/set-profile-model` & `/api/gateway-config-preview` sudah teruji
+gelombang sebelumnya.
+
+**Test**: +6 `TestBackupModelsChain`; negative control 4/6 gagal tanpa patch;
+suite penuh **464 OK**. Live: `/status` 200, rantai efektif tampil benar
+(9router · ag-gemini-3.8-flash-high).
+
+### Commit
+- `3428079` fix(panel): rantai model cadangan = rantai efektif Hermes
