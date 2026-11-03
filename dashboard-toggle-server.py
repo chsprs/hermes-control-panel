@@ -11557,6 +11557,43 @@ def render_aux_tasks_block() -> str:
 
 
 # --- Fallback / Backup Models Configuration ---
+def _merged_fallback_entries(cfg: dict) -> list[dict]:
+    """Rantai fallback efektif: ``fallback_providers`` lalu legacy ``fallback_model``.
+
+    Meniru ``hermes_cli.fallback_config.get_fallback_chain`` — Hermes memakai KEDUA
+    kunci itu sekaligus (legacy ditambahkan setelahnya, dedup identitas rute) —
+    jadi panel harus menampilkan gabungannya, bukan salah satu saja.
+    """
+    chain: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    fp = cfg.get("fallback_providers")
+    fm = cfg.get("fallback_model")
+    sources: list = []
+    if isinstance(fp, list):
+        sources.append(fp)
+    elif isinstance(fp, dict):
+        sources.append([fp])
+    if isinstance(fm, list):
+        sources.append(fm)
+    elif isinstance(fm, dict):
+        sources.append([fm])
+    for src in sources:
+        for entry in src:
+            if not isinstance(entry, dict):
+                continue
+            model = str(entry.get("model") or "").strip()
+            if not model:
+                continue
+            provider = str(entry.get("provider") or "").strip()
+            base_url = str(entry.get("base_url") or "").strip()
+            identity = (provider, model, base_url)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            chain.append(entry)
+    return chain
+
+
 def get_fallback_models_config() -> list[dict]:
     """Return list of configured fallback/backup models from config.yaml."""
     try:
@@ -11564,25 +11601,18 @@ def get_fallback_models_config() -> list[dict]:
     except Exception:
         cfg = {}
 
-    fps = cfg.get("fallback_providers")
-    if not isinstance(fps, list):
-        fm = cfg.get("fallback_model")
-        fps = [fm] if isinstance(fm, dict) else (fm if isinstance(fm, list) else [])
-
     result = []
-    for idx, entry in enumerate(fps):
-        if isinstance(entry, dict):
-            provider = str(entry.get("provider") or "").strip()
-            model = str(entry.get("model") or "").strip()
-            base_url = str(entry.get("base_url") or "").strip()
-            if model:
-                result.append({
-                    "index": idx,
-                    "provider": provider or "9router",
-                    "model": model,
-                    "base_url": base_url,
-                    "display": f"{provider} · {model}" if provider else model,
-                })
+    for idx, entry in enumerate(_merged_fallback_entries(cfg)):
+        provider = str(entry.get("provider") or "").strip()
+        model = str(entry.get("model") or "").strip()
+        base_url = str(entry.get("base_url") or "").strip()
+        result.append({
+            "index": idx,
+            "provider": provider or "9router",
+            "model": model,
+            "base_url": base_url,
+            "display": f"{provider} · {model}" if provider else model,
+        })
     return result
 
 
@@ -11593,9 +11623,9 @@ def set_fallback_model(index: int, provider: str, model: str) -> bool:
             with open(CONFIG_PATH, encoding="utf-8") as f:
                 cfg = yaml.safe_load(f) or {}
 
-            fps = cfg.setdefault("fallback_providers", [])
-            if not isinstance(fps, list):
-                fps = cfg["fallback_providers"] = []
+            # Rantai efektif (fallback_providers + legacy fallback_model, dedup rute):
+            # index dari UI mengacu pada gabungan ini, sama seperti yang dirender.
+            fps = _merged_fallback_entries(cfg)
 
             key = get_router_api_key()
             host = get_9router_host()
@@ -11611,8 +11641,9 @@ def set_fallback_model(index: int, provider: str, model: str) -> bool:
             }
 
             if 0 <= index < len(fps):
-                old_base = fps[index].get("base_url")
-                old_key = fps[index].get("api_key")
+                old = fps[index] if isinstance(fps[index], dict) else {}
+                old_base = old.get("base_url")
+                old_key = old.get("api_key")
                 if old_base:
                     entry["base_url"] = old_base
                 if old_key:
@@ -11621,7 +11652,16 @@ def set_fallback_model(index: int, provider: str, model: str) -> bool:
             else:
                 fps.append(entry)
 
+            # Migrasi ala `hermes fallback` (hermes_cli/fallback_cmd.py): rantai
+            # tunggal di fallback_providers; kunci legacy dibuang supaya Hermes
+            # dan panel tidak pernah berbeda pendapat lagi.
+            cfg["fallback_providers"] = fps
+            cfg.pop("fallback_model", None)
             _write_config_atomic(cfg)
+            try:
+                invalidate_config_cache()
+            except Exception:
+                pass
             return True
         except Exception as e:
             sys.stderr.write(f"[panel] set_fallback_model error: {e}\n")
@@ -11634,10 +11674,16 @@ def remove_fallback_model(index: int) -> bool:
         try:
             with open(CONFIG_PATH, encoding="utf-8") as f:
                 cfg = yaml.safe_load(f) or {}
-            fps = cfg.get("fallback_providers")
-            if isinstance(fps, list) and 0 <= index < len(fps):
+            fps = _merged_fallback_entries(cfg)
+            if 0 <= index < len(fps):
                 fps.pop(index)
+                cfg["fallback_providers"] = fps
+                cfg.pop("fallback_model", None)
                 _write_config_atomic(cfg)
+                try:
+                    invalidate_config_cache()
+                except Exception:
+                    pass
                 return True
             return False
         except Exception as e:
@@ -11660,7 +11706,10 @@ def render_backup_models_block() -> str:
         priority = idx + 1
         model_name = html.escape(m["model"])
         provider = html.escape(m["provider"])
-        safe_model = html.escape(m["model"].replace("\\", "\\\\").replace("'", "\\'"), quote=True)
+        safe_model = html.escape(
+            m["model"].replace(chr(92), chr(92) * 2).replace(chr(39), chr(92) + chr(39))
+                      .replace(chr(10), chr(92) + "n").replace(chr(13), chr(92) + "r"), quote=True)
+
         rows.append(
             f'<div class="aux-task-row" style="margin-bottom:0.45rem">'
             f'  <div class="aux-task-info">'

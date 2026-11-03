@@ -8071,5 +8071,108 @@ process.stdout.write(String(c.innerHTML === before) + '|' + String(c.style.displ
         self.assertEqual(out, "true|")
 
 
+
+class TestBackupModelsChain(unittest.TestCase):
+    """Rantai model cadangan: tampilan harus = rantai efektif Hermes (fp + legacy).
+
+    Akar bug: Hermes (hermes_cli/fallback_config.get_fallback_chain) memakai
+    ``fallback_providers`` DAN legacy ``fallback_model`` sekaligus, sedangkan panel
+    hanya membaca salah satunya — entri legacy tak terlihat dan tak bisa dihapus.
+    Negatif kontrol: pada kode tanpa patch, test 1-2 gagal (entri legacy hilang dari
+    tampilan; remove legacy → False).
+    """
+
+    def _cfg(self, tmpdir, data):
+        import yaml
+        path = os.path.join(tmpdir, "config.yaml")
+        with open(path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f)
+        return path
+
+    def _load(self, path):
+        import yaml
+        with open(path, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+
+    def test_display_merges_legacy_entries_after_providers(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self._cfg(d, {
+                "fallback_providers": [{"provider": "p1", "model": "m1", "base_url": "http://a"}],
+                "fallback_model": [
+                    {"provider": "p2", "model": "m2"},
+                    {"provider": "p1", "model": "m1", "base_url": "http://a"},  # duplikat rute
+                ],
+            })
+            with mock.patch.object(panel, "CONFIG_PATH", cfg):
+                panel.invalidate_config_cache()
+                got = panel.get_fallback_models_config()
+        self.assertEqual([g["model"] for g in got], ["m1", "m2"])  # dedup rute, urutan Hermes
+
+    def test_remove_legacy_entry_migrates_chain(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self._cfg(d, {
+                "fallback_model": {"provider": "p2", "model": "m2"},  # dict tunggal legacy
+            })
+            with mock.patch.object(panel, "CONFIG_PATH", cfg):
+                panel.invalidate_config_cache()
+                self.assertTrue(panel.remove_fallback_model(0))
+            after = self._load(cfg)
+        self.assertEqual(after.get("fallback_providers"), [])
+        self.assertNotIn("fallback_model", after)  # migrasi ala `hermes fallback`
+
+    def test_set_replaces_entry_in_merged_chain_and_keeps_credentials(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self._cfg(d, {
+                "fallback_providers": [{"provider": "p1", "model": "m1", "base_url": "http://old", "api_key": "sk-old"}],
+                "fallback_model": {"provider": "p2", "model": "m2"},
+            })
+            with mock.patch.object(panel, "CONFIG_PATH", cfg), \
+                 mock.patch.object(panel, "get_router_api_key", return_value=""), \
+                 mock.patch.object(panel, "get_9router_host", return_value="127.0.0.1"):
+                panel.invalidate_config_cache()
+                # index 0 → entri pertama gabungan (m1); kredensial lama dipertahankan
+                self.assertTrue(panel.set_fallback_model(0, "p9", "m9"))
+            after = self._load(cfg)
+        chain = after.get("fallback_providers") or []
+        self.assertEqual([e["model"] for e in chain], ["m9", "m2"])
+        self.assertEqual(chain[0]["base_url"], "http://old")
+        self.assertEqual(chain[0]["api_key"], "sk-old")
+        self.assertNotIn("fallback_model", after)
+
+    def test_set_append_and_remove_out_of_range(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self._cfg(d, {})
+            with mock.patch.object(panel, "CONFIG_PATH", cfg), \
+                 mock.patch.object(panel, "get_router_api_key", return_value="k"), \
+                 mock.patch.object(panel, "get_9router_host", return_value="h"):
+                panel.invalidate_config_cache()
+                self.assertTrue(panel.set_fallback_model(-1, "p", "m0"))   # tambah baru
+                self.assertFalse(panel.remove_fallback_model(5))           # di luar jangkauan
+            after = self._load(cfg)
+        self.assertEqual(len(after.get("fallback_providers") or []), 1)
+
+    def test_corrupt_yaml_fails_softly(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = os.path.join(d, "config.yaml")
+            with open(cfg, "w", encoding="utf-8") as f:
+                f.write("fallback_providers: [unclosed\n  bad: yaml:\n   - ]")
+            with mock.patch.object(panel, "CONFIG_PATH", cfg):
+                panel.invalidate_config_cache()
+                self.assertEqual(panel.get_fallback_models_config(), [])   # tampilan aman
+                self.assertFalse(panel.set_fallback_model(0, "p", "m"))   # tulis ditolak
+                self.assertFalse(panel.remove_fallback_model(0))
+
+    def test_render_escapes_newline_in_model_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = self._cfg(d, {"fallback_providers": [{"provider": "p", "model": "m\nx"}]})
+            with mock.patch.object(panel, "CONFIG_PATH", cfg):
+                panel.invalidate_config_cache()
+                html_out = panel.render_backup_models_block()
+        # Newline literal dalam atribut onclick memutus literal string JS;
+        # harus ter-escape menjadi \n (dua karakter) di dalam onclick.
+        self.assertNotIn("'m\nx'", html_out)
+        self.assertIn("m\\nx", html_out)
+
+
 if __name__ == "__main__":
     unittest.main()
