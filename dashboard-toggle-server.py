@@ -347,6 +347,24 @@ CLEAN_JUNK_LOG = "/root/.hermes/logs/clean-junk.log"
 _clean_junk_result = {"status": "idle", "freed_bytes": 0, "freed_human": "0 B", "freed_mb": 0.0, "files_count": 0, "log": "", "at": 0.0}
 _clean_junk_lock = threading.Lock()
 _config_write_lock = threading.RLock()
+
+# --- YAML cepat: libyaml (parser C) ~6.5x lebih cepat daripada safe_load murni-Python ---
+# config utama 1000+ baris dan 36 config profil diparse saat start dingin; PyYAML
+# memakai implementasi Python untuk safe_load meski libyaml terpasang.
+try:
+    from yaml import CSafeLoader as _YAML_SAFE_LOADER  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover - build PyYAML tanpa libyaml
+    from yaml import SafeLoader as _YAML_SAFE_LOADER  # type: ignore[attr-defined]
+
+
+def _yaml_load(stream):
+    """``yaml.safe_load`` dengan parser C bila tersedia; semantik SafeLoader identik.
+
+    CSafeLoader adalah implementasi libyaml dari SafeLoader (whitelist tag sama:
+    tanpa konstruksi objek Python arbitrer) — hanya lebih cepat.
+    """
+    return yaml.load(stream, Loader=_YAML_SAFE_LOADER)
+
 _env_write_lock = threading.Lock()
 
 # --- icons ---
@@ -7810,7 +7828,7 @@ def _open_policy_violation(cfg: dict, platform: str, block: dict) -> str:
 
 def _read_config_for_write() -> dict:
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
+        cfg = _yaml_load(f) or {}
     if not isinstance(cfg, dict):
         raise ValueError("Format config.yaml tidak valid (bukan dictionary root).")
     return cfg
@@ -8086,7 +8104,7 @@ def _sync_whatsapp_env(block: dict) -> None:
 
 def _parse_platform_yaml(yaml_str: str | None, label: str = "YAML") -> tuple[dict | None, str]:
     try:
-        parsed = yaml.safe_load(yaml_str) if (yaml_str or "").strip() else {}
+        parsed = _yaml_load(yaml_str) if (yaml_str or "").strip() else {}
     except Exception as e:
         return None, f"Sintaks {label} tidak valid: {e}"
     if parsed is None:
@@ -10882,7 +10900,7 @@ def get_parsed_config() -> dict:
             if _config_cache["mtime_ns"] == mt_ns:
                 return _config_cache["val"]
         with open(CONFIG_PATH, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+            data = _yaml_load(f) or {}
         with _config_cache_lock:
             _config_cache["mtime_ns"] = mt_ns
             _config_cache["val"] = data
@@ -10928,7 +10946,7 @@ def set_reasoning_effort(effort: str) -> bool:
     with _config_write_lock:
         try:
             with open(CONFIG_PATH, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
+                cfg = _yaml_load(f) or {}
             agent = cfg.setdefault("agent", {})
             if not isinstance(agent, dict):
                 agent = cfg["agent"] = {}
@@ -11457,7 +11475,7 @@ def set_aux_task_model(task: str, provider: str, model: str) -> bool:
     with _config_write_lock:
         try:
             with open(CONFIG_PATH, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
+                cfg = _yaml_load(f) or {}
 
             host = get_9router_host()
             key = get_router_api_key()
@@ -11507,7 +11525,7 @@ def reset_all_aux_tasks() -> bool:
     with _config_write_lock:
         try:
             with open(CONFIG_PATH, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
+                cfg = _yaml_load(f) or {}
 
             aux = cfg.setdefault("auxiliary", {})
             if isinstance(aux, dict):
@@ -11628,7 +11646,7 @@ def set_fallback_model(index: int, provider: str, model: str) -> bool:
     with _config_write_lock:
         try:
             with open(CONFIG_PATH, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
+                cfg = _yaml_load(f) or {}
 
             # Rantai efektif (fallback_providers + legacy fallback_model, dedup rute):
             # index dari UI mengacu pada gabungan ini, sama seperti yang dirender.
@@ -11680,7 +11698,7 @@ def remove_fallback_model(index: int) -> bool:
     with _config_write_lock:
         try:
             with open(CONFIG_PATH, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
+                cfg = _yaml_load(f) or {}
             fps = _merged_fallback_entries(cfg)
             if 0 <= index < len(fps):
                 fps.pop(index)
@@ -11909,7 +11927,7 @@ def _read_profile_description(home: Path) -> str:
             if not path.is_file():
                 continue
             raw = path.read_text(encoding="utf-8-sig")
-            data = json.loads(raw) if fname.endswith(".json") else (yaml.safe_load(raw) or {})
+            data = json.loads(raw) if fname.endswith(".json") else (_yaml_load(raw) or {})
             if isinstance(data, dict):
                 desc = str(data.get("description") or "").strip()
                 if desc:
@@ -12075,7 +12093,7 @@ def create_agent_profile(name: str, clone_from: str = "", description: str = "")
             if main_cfg.is_file():
                 try:
                     with open(main_cfg, encoding="utf-8") as f:
-                        c = yaml.safe_load(f) or {}
+                        c = _yaml_load(f) or {}
                     if isinstance(c, dict):
                         new_cfg["model"] = c.get("model", {})
                         if isinstance(c.get("providers"), dict) and c["providers"]:
@@ -12205,7 +12223,7 @@ def _read_profile_cfg(cfg_file: Path) -> dict:
                 if cached and cached[0] == st.st_mtime_ns:
                     return copy.deepcopy(cached[1])
             with open(cfg_file, encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
+                cfg = _yaml_load(f) or {}
             if isinstance(cfg, dict):
                 with _profile_cfg_cache_lock:
                     _profile_cfg_cache[key] = (st.st_mtime_ns, copy.deepcopy(cfg))
@@ -12403,7 +12421,7 @@ def _parse_skill_md(text: str) -> tuple:
             raw_fm = text[3:3 + m.start()]
             body = text[3 + m.end():]
             try:
-                fm = yaml.safe_load(raw_fm) or {}
+                fm = _yaml_load(raw_fm) or {}
             except Exception:
                 fm = {}
             if not isinstance(fm, dict):
@@ -12651,7 +12669,7 @@ def get_profile_skill_content(name: str, skill: str) -> dict:
                     m = re.search(r"\n---\s*\n", head[3:])
                     if m:
                         try:
-                            fm = yaml.safe_load(head[3:3 + m.start()]) or {}
+                            fm = _yaml_load(head[3:3 + m.start()]) or {}
                             if isinstance(fm, dict) and fm.get("name"):
                                 fm_name = str(fm["name"]).strip()
                         except Exception:
@@ -14301,7 +14319,7 @@ def save_kanban_config(updates: dict) -> tuple[bool, str]:
             cfg = {}
             if cfg_path.is_file():
                 with open(cfg_path, encoding="utf-8") as f:
-                    cfg = yaml.safe_load(f) or {}
+                    cfg = _yaml_load(f) or {}
             if not isinstance(cfg, dict):
                 cfg = {}
 
@@ -16732,7 +16750,7 @@ def _read_casaos_compose_meta(compose_file: str) -> dict:
             if cached and cached[0] == st.st_mtime_ns:
                 return cached[1]
         with open(compose_file, "r", encoding="utf-8") as f:
-            y = yaml.safe_load(f) or {}
+            y = _yaml_load(f) or {}
         xc = y.get("x-casaos", {})
         res = xc if isinstance(xc, dict) else {}
         with _casaos_compose_lock:

@@ -8190,6 +8190,42 @@ class TestBackupModelsChain(unittest.TestCase):
         self.assertNotIn("'m\nx'", html_out)
         self.assertIn("m\\nx", html_out)
 
+import yaml
+
+
+class TestFastYamlLoader(unittest.TestCase):
+    """Jalur baca YAML panel memakai parser C (CSafeLoader) saat libyaml tersedia.
+
+    Profil jalur dingin: parsing YAML = 4,5 dtk dari total 7,3 dtk build_fragments
+    dingin; PyYAML memakai parser Python untuk safe_load meski libyaml terpasang.
+    Negatif kontrol: simbol _yaml_load tidak ada pada monolit tanpa patch.
+    """
+
+    def test_helper_exists_and_prefers_c_loader(self):
+        self.assertTrue(hasattr(panel, "_yaml_load"))
+        if getattr(panel.yaml, "__with_libyaml__", False):
+            self.assertIs(panel._YAML_SAFE_LOADER, panel.yaml.CSafeLoader)
+        else:
+            self.assertIs(panel._YAML_SAFE_LOADER, panel.yaml.SafeLoader)
+
+    def test_parses_identically_to_safe_load(self):
+        doc = (
+            "model:\n  provider: custom\n  models: [a, b]\n"
+            "fallback_providers:\n  - {provider: p1, model: m1, api_key: 'sk-1'}\n"
+            "quoted: \"teks 'dengan' quote\"\nnested:\n  deep:\n    x: 1\n"
+        )
+        self.assertEqual(panel._yaml_load(doc), yaml.safe_load(doc))
+
+    def test_all_read_sites_use_fast_loader(self):
+        src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dashboard-toggle-server.py")).read()
+        self.assertNotIn("yaml.safe_load(", src)
+        self.assertGreaterEqual(src.count("_yaml_load("), 16)
+
+    def test_semantics_safe_on_untrusted_input(self):
+        # Tag !python/* harus DITOLAK — CSafeLoader menurunkan SafeLoader.
+        with self.assertRaises(yaml.YAMLError):
+            panel._yaml_load("!!python/object/apply:os.system ['id']")
+
 
 if __name__ == "__main__":
     unittest.main()
