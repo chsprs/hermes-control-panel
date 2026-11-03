@@ -665,3 +665,29 @@ refresh, assert bypass hanya saat memfilter). Suite **414 OK**.
 
 ### Commit
 - `0692484` fix(panel): pencarian/filter Kanban menjangkau tugas di luar 12 kartu pertama
+
+## Wave 90 — Patch worker Kanban: toggle skill/toolset (bug selector)
+
+**Kolaborasi Kanban pertama yang selesai**
+- `t_0ef6419f` (coder, scratch, base `09ef06b`) mengirim patch 17 KB. Direview,
+  `git apply --check` bersih, lalu diterapkan dan di-deploy oleh sesi interaktif
+  (commit `5d1a6ae`). Worker tidak menyentuh repo live/service sesuai koordinasi.
+
+**Bug yang diperbaiki**
+- Selector `button[data-skill-name=...]` juga mengenai tombol **Baca**, dan
+  `button[data-ts-name=...]` mengenai tombol **"N tool"** — jadi tombol yang salah
+  yang di-disable dan berubah jadi "..." saat toggle skill/toolset. Kini tombol
+  toggle memakai atribut khusus `data-skill-toggle` / `data-ts-toggle`.
+- Render ulang (filter/refresh daftar) mempertahankan state in-flight: `disabled`
+  + label "..." selama `profileSkillSubmitting` / `profileToolSubmitting` aktif.
+
+**Test**: +6 `TestProfileModalBehaviourJs` (render 156 skill, filter saat in-flight,
+sukses/gagal/rejection skill & toolset). Suite **420 OK** — termasuk
+`test_73_race_concurrency_and_hardening` yang hanya gagal di lingkungan scratch
+worker, hijau di repo live.
+
+### Verifikasi live
+Atribut baru muncul di halaman, `/status` 200 (0,04 s), service aktif, md5 = repo.
+
+### Commit
+- `5d1a6ae` fix(panel): toggle skill/toolset mengenai tombol yang benar & state submitting awet
