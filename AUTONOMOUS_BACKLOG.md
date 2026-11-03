@@ -967,3 +967,22 @@ berikutnya di dalam TTL). Sisa dingin: docker ×3 (0,4 dtk) + ~14 systemctl
 
 ### Commit
 - `08a6b6c` perf(panel): cache `gh auth token` 10 menit
+
+## Wave 104 — Audit callback UI: 88 handler sehat, dikunci permanen
+
+Item backlog tertunda sejak dulu ditutup. Hasil: **88/88 handler inline
+(onclick/oninput/onchange/onsubmit) menunjuk definisi yang ada** — tidak ada
+handler yatim, tidak ada perubahan produksi.
+
++1 `TestInlineUiCallbacksResolve`: (a) setiap nama handler wajib punya definisi
+di sumber (typo refactor tertangkap di CI), (b) wajib muncul di permukaan yang
+dilayani — page_source() + SSE_SCRIPT + konstanta script aset (NETWORK_SCRIPT),
+karena handler modal profil dibangun dinamis di klien dan handler jaringan
+dilayani sebagai aset terpisah. Suite **478 OK**.
+
+**Menunggu keputusan pengguna**: board yatim `kanban/boards/test-board-val`
+(156 KB, sisa validasi Okt 28, CLI juga mengabaikannya) — backlog lama
+mensyaratkan otorisasi eksplisit sebelum dihapus.
+
+### Commit
+- (lihat git log) test(panel): audit callback UI lengkap — 88 handler dikunci
