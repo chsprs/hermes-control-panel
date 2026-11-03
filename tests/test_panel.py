@@ -8227,5 +8227,41 @@ class TestFastYamlLoader(unittest.TestCase):
             panel._yaml_load("!!python/object/apply:os.system ['id']")
 
 
+
+class TestNetworkValidationContracts(unittest.TestCase):
+    """Kontrak validasi endpoint Jaringan (diverifikasi live saat audit Wave 102).
+
+    Empat penolakan input tidak valid ini yang diandalkan UI tab Jaringan;
+    sebelumnya hanya jalur sukses yang teruji. Validasi host harus terjadi
+    SEBELUM subprocess dipanggil (tanpa biaya).
+    """
+
+    def test_resolve_rejects_invalid_host_before_subprocess(self):
+        with mock.patch.object(panel.subprocess, "run") as run:
+            res = panel.resolve_gateway_host("!!invalid host!!")
+        self.assertFalse(res["ok"])
+        self.assertEqual(res["error"], "Nama host tidak valid")
+        run.assert_not_called()  # ditolak di regex, tanpa membangunkan relay
+
+    def test_resolve_rejects_empty_host(self):
+        res = panel.resolve_gateway_host("   ")
+        self.assertFalse(res["ok"])
+
+    def test_route_test_rejects_unknown_platform(self):
+        res = panel.test_gateway_route("tidakada", route="", url="")
+        self.assertFalse(res["ok"])
+        self.assertIn("tidak dikenal", res["error"])
+
+    def test_route_test_rejects_custom_url_with_bad_scheme(self):
+        res = panel.test_gateway_route("telegram", route="custom", url="bukan-url")
+        self.assertFalse(res["ok"])
+        self.assertIn("Skema proxy", res["error"])
+
+    def test_route_test_rejects_unknown_route(self):
+        res = panel.test_gateway_route("telegram", route="nonsense", url="")
+        self.assertFalse(res["ok"])
+        self.assertIn("Rute tidak dikenal", res["error"])
+
+
 if __name__ == "__main__":
     unittest.main()
