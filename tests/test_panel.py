@@ -5527,6 +5527,7 @@ class TestHermesUpdateFlow(unittest.TestCase):
     def test_github_token_env_injects_gh_token_without_overriding(self):
         base = {"PATH": "/usr/bin"}
         fake = subprocess.CompletedProcess([], 0, stdout="tok_from_gh\n", stderr="")
+        panel._gh_token_cache.update(tok="", ok=False, at=0.0)  # cache 10 menit direset per skenario
         with mock.patch.object(panel.subprocess, "run", return_value=fake):
             env = panel._github_token_env(dict(base))
         self.assertEqual(env["GITHUB_TOKEN"], "tok_from_gh")
@@ -5534,6 +5535,7 @@ class TestHermesUpdateFlow(unittest.TestCase):
             env = panel._github_token_env({"GITHUB_TOKEN": "keep"})
         self.assertEqual(env["GITHUB_TOKEN"], "keep")
         run.assert_not_called()
+        panel._gh_token_cache.update(tok="", ok=False, at=0.0)
         with mock.patch.object(panel.subprocess, "run", side_effect=OSError):
             env = panel._github_token_env(dict(base))
         self.assertNotIn("GITHUB_TOKEN", env)
@@ -8261,6 +8263,39 @@ class TestNetworkValidationContracts(unittest.TestCase):
         res = panel.test_gateway_route("telegram", route="nonsense", url="")
         self.assertFalse(res["ok"])
         self.assertIn("Rute tidak dikenal", res["error"])
+
+
+
+class TestGithubTokenCache(unittest.TestCase):
+    """`gh auth token` di-cache 10 menit — subprocess termahal kedua jalur dingin.
+
+    Negatif kontrol: tanpa patch, dua panggilan = dua subprocess (terukur 2x0.22s
+    pada render /status dingin + cek pembaruan).
+    """
+
+    def test_second_call_hits_cache(self):
+        fake = mock.Mock(returncode=0, stdout="ghp-test123\n", stderr="")
+        panel._gh_token_cache.update(tok="", ok=False, at=0.0)
+        with mock.patch.object(panel.subprocess, "run", return_value=fake) as run:
+            e1 = panel._github_token_env({})
+            e2 = panel._github_token_env({})
+        self.assertEqual(e1.get("GITHUB_TOKEN"), "ghp-test123")
+        self.assertEqual(e2.get("GITHUB_TOKEN"), "ghp-test123")
+        self.assertEqual(run.call_count, 1)  # cache hit pada panggilan kedua
+
+    def test_existing_env_token_skips_subprocess(self):
+        with mock.patch.object(panel.subprocess, "run") as run:
+            e = panel._github_token_env({"GITHUB_TOKEN": "preset"})
+        self.assertEqual(e["GITHUB_TOKEN"], "preset")
+        run.assert_not_called()
+
+    def test_failed_call_is_cached_not_retried_immediately(self):
+        fail = mock.Mock(returncode=1, stdout="", stderr="no auth")
+        panel._gh_token_cache.update(tok="", ok=False, at=0.0)
+        with mock.patch.object(panel.subprocess, "run", return_value=fail) as run:
+            panel._github_token_env({})
+            panel._github_token_env({})
+        self.assertEqual(run.call_count, 1)
 
 
 if __name__ == "__main__":

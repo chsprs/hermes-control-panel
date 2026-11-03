@@ -261,17 +261,28 @@ UPDATE_TIMEOUT = 300  # hard cap for one remote pull/recreate operation
 HERMES_BIN = "/usr/local/bin/hermes"
 
 
+_gh_token_cache = {"tok": "", "ok": False, "at": 0.0}
+_GH_TOKEN_TTL = 600.0  # token gh jarang berubah; subprocess 0.2s tidak per render
+
+
 def _github_token_env(env: dict) -> dict:
-    """Add GITHUB_TOKEN from `gh auth token` so GitHub API calls avoid the 60/h anonymous limit."""
+    """Add GITHUB_TOKEN from `gh auth token` so GitHub API calls avoid the 60/h anonymous limit.
+
+    Token di-cache 10 menit (hasil negatif juga): panggilan `gh auth token`
+    adalah subprocess termahal kedua di render /status dingin (terukur 0.22s).
+    """
     if env.get("GITHUB_TOKEN") or env.get("GH_TOKEN"):
         return env
-    try:
-        r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=5)
-        tok = (r.stdout or "").strip()
-        if r.returncode == 0 and tok:
-            env["GITHUB_TOKEN"] = tok
-    except (OSError, subprocess.SubprocessError):
-        pass
+    now = time.monotonic()
+    if now - _gh_token_cache["at"] >= _GH_TOKEN_TTL:
+        try:
+            r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=5)
+            tok = (r.stdout or "").strip()
+            _gh_token_cache.update(tok=tok, ok=bool(r.returncode == 0 and tok), at=now)
+        except (OSError, subprocess.SubprocessError):
+            _gh_token_cache.update(ok=False, at=now)
+    if _gh_token_cache["ok"]:
+        env["GITHUB_TOKEN"] = _gh_token_cache["tok"]
     return env
 HERMES_UPDATE_LOG_PATH = "/root/.hermes/logs/update.log"
 # `hermes update` waits for the gateway to drain (restart_after_turn_timeout + restart_drain_timeout,
