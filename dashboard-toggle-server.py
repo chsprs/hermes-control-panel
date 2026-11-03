@@ -13371,10 +13371,12 @@ def list_kanban_boards() -> list[dict]:
     # 1. Default board
     def_path = root / "kanban.db"
     def_count = 0
+    def_archived = 0
     if def_path.is_file():
         try:
             with closing(ensure_kanban_db(def_path)) as con:
                 def_count = con.execute("SELECT COUNT(*) FROM tasks WHERE status != 'archived'").fetchone()[0]
+                def_archived = con.execute("SELECT COUNT(*) FROM tasks WHERE status = 'archived'").fetchone()[0]
         except Exception:
             def_count = None
 
@@ -13383,7 +13385,10 @@ def list_kanban_boards() -> list[dict]:
         "name": "Default Board",
         "path": str(def_path),
         "is_current": current_slug == "default",
-        "task_count": def_count
+        "task_count": def_count,
+        # Jumlah arsip ditampilkan di dropdown: "(0)" saja membuat 12 tugas
+        # yang diarsipkan terlihat seperti hilang.
+        "archived_count": def_archived
     })
 
     # 2. Named boards under <root>/kanban/boards/
@@ -13396,10 +13401,12 @@ def list_kanban_boards() -> list[dict]:
                         continue
                     b_path = entry / "kanban.db"
                     b_count = 0
+                    b_archived = 0
                     if b_path.is_file():
                         try:
                             with closing(ensure_kanban_db(b_path)) as con:
                                 b_count = con.execute("SELECT COUNT(*) FROM tasks WHERE status != 'archived'").fetchone()[0]
+                                b_archived = con.execute("SELECT COUNT(*) FROM tasks WHERE status = 'archived'").fetchone()[0]
                         except Exception:
                             b_count = None
                     boards.append({
@@ -13407,7 +13414,8 @@ def list_kanban_boards() -> list[dict]:
                         "name": entry.name.replace("-", " ").replace("_", " ").title(),
                         "path": str(b_path),
                         "is_current": current_slug == entry.name,
-                        "task_count": b_count
+                        "task_count": b_count,
+                        "archived_count": b_archived
                     })
         except Exception:
             pass
@@ -14077,7 +14085,9 @@ def render_kanban_board_options(active_slug: str = "") -> str:
         sel = " selected" if b["slug"] == cur else ""
         cnt = b.get("task_count", 0)
         cnt_label = "?" if cnt is None else str(cnt)
-        opts.append(f'<option value="{html.escape(b["slug"])}"{sel}>{html.escape(b["name"])} ({cnt_label})</option>')
+        archived = b.get("archived_count") or 0
+        suffix = f"{cnt_label} aktif · {archived} arsip" if archived else cnt_label
+        opts.append(f'<option value="{html.escape(b["slug"])}"{sel}>{html.escape(b["name"])} ({suffix})</option>')
     return "".join(opts)
 
 

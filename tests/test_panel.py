@@ -7280,5 +7280,49 @@ class TestKanbanColumnPagination(unittest.TestCase):
         self.assertEqual(html_out.count('class="kanban-card"'), 2)
 
 
+class TestKanbanBoardArchiveCounts(unittest.TestCase):
+    """Dropdown board menampilkan jumlah arsip, bukan hanya tugas aktif."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="hermes-kbarch-")
+        self.root = panel.Path(self.tmpdir)
+        self._orig_root = panel.get_hermes_root
+        self._orig_cur = panel.get_current_kanban_board
+        panel.get_hermes_root = lambda: self.root
+        panel.get_current_kanban_board = lambda: "default"
+        db = self.root / "kanban.db"
+        panel.create_kanban_task("aktif", board="")
+        panel.create_kanban_task("lama1", status="archived", board="")
+        panel.create_kanban_task("lama2", status="archived", board="")
+
+    def tearDown(self):
+        import shutil
+        panel.get_hermes_root = self._orig_root
+        panel.get_current_kanban_board = self._orig_cur
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_board_reports_archived_count(self):
+        boards = {b["slug"]: b for b in panel.list_kanban_boards()}
+        self.assertEqual(boards["default"]["task_count"], 1)
+        self.assertEqual(boards["default"]["archived_count"], 2)
+
+    def test_dropdown_label_shows_active_and_archive(self):
+        opts = panel.render_kanban_board_options("default")
+        self.assertIn("1 aktif · 2 arsip", opts)
+
+    def test_dropdown_without_archive_keeps_short_label(self):
+        other = panel.Path(tempfile.mkdtemp(prefix="hermes-kbarch2-"))
+        try:
+            panel.get_hermes_root = lambda: other
+            ok, _msg, _tid = panel.create_kanban_task("hanya satu", board="")
+            self.assertTrue(ok)
+            opts = panel.render_kanban_board_options("default")
+            self.assertNotIn("arsip", opts)
+            self.assertIn("(1)", opts)
+        finally:
+            import shutil
+            shutil.rmtree(str(other), ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()
