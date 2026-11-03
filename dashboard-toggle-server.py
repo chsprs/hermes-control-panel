@@ -15827,6 +15827,65 @@ def _read_proc_rss_mb(pid: str | int) -> float:
     return 0.0
 
 
+def _unit_installed(unit: str, user: bool = False) -> bool:
+    """True bila unit file benar-benar ada di disk.
+
+    "Berhenti" hanya jujur untuk unit yang terpasang tapi tidak jalan. CasaOS dan
+    openclaw-gateway di box ini tidak punya unit sama sekali, jadi label lama
+    menampilkan layanan hantu yang seolah bisa dinyalakan.
+    """
+    if not unit:
+        return False
+    if unit.startswith(("/", "./")):
+        return os.path.exists(unit)
+    if not unit.endswith((".service", ".socket", ".timer")):
+        unit = unit + ".service"
+    if user:
+        dirs = [os.path.expanduser("~/.config/systemd/user"), "/etc/systemd/user",
+                "/usr/lib/systemd/user", "/usr/local/lib/systemd/user"]
+    else:
+        dirs = ["/etc/systemd/system", "/run/systemd/system", "/usr/lib/systemd/system",
+                "/lib/systemd/system", "/usr/local/lib/systemd/system"]
+    return any(os.path.exists(os.path.join(d, unit)) for d in dirs)
+
+
+def _cgroup_procs(control_group: str) -> list:
+    """PID di dalam cgroup unit (untuk menjumlahkan RSS seluruh proses layanan)."""
+    if not control_group:
+        return []
+    try:
+        with open(f"/sys/fs/cgroup{control_group}/cgroup.procs") as f:
+            return f.read().split()
+    except OSError as e:
+        _log_swallow(f"cgroup procs {control_group}", e)
+        return []
+
+
+def _service_mem_mb(unit: str, pid, user: bool = False, fresh: bool = False) -> float:
+    """RAM layanan = jumlah RSS semua proses di cgroup unit.
+
+    Dua cara yang salah dan pernah dipakai panel:
+    - RSS MainPID saja: 9router.service MainPID 741 adalah wrapper (6 MB) sementara
+      anak next-server-nya 240 MB, jadi layanan tampil "6 MB".
+    - `MemoryCurrent` systemd ikut menghitung page cache: gateway dengan 977 MB RSS
+      dilaporkan 1.816 MB.
+    """
+    cg = ""
+    try:
+        props = get_systemd_show(unit, user=user, props="ControlGroup", fresh=fresh)
+        cg = str(props.get("ControlGroup", "")).strip()
+    except Exception as e:
+        _log_swallow(f"unit cgroup {unit}", e)
+    if cg:
+        pids = _cgroup_procs(cg)
+        total = 0.0
+        for p in pids:
+            total += _read_proc_rss_mb(p)
+        if total > 0:
+            return round(total, 1)
+    return _read_proc_rss_mb(pid)
+
+
 def _read_docker_mem(cid: str, dpid: str) -> float:
     """Read Docker container memory in MB from cgroup or /proc without subprocess."""
     if cid:
@@ -15863,6 +15922,15 @@ def get_docker_metric(cname: str, fresh: bool = False, ttl: float = DOCKER_METRI
             ["docker", "inspect", cname, "--format", "{{.State.Status}}\t{{.State.Pid}}\t{{.Id}}"],
             capture_output=True, text=True, timeout=INFO_TIMEOUT
         )
+        if r.returncode != 0:
+            # Container tidak ada (bukan sekadar berhenti): beri tahu pemanggil, dan
+            # cache agar tabel proses tidak memanggil docker untuk baris hantu.
+            err = (r.stderr or "").lower()
+            if "no such object" in err or "no such container" in err:
+                with _docker_metric_cache_lock:
+                    _docker_metric_cache[cname] = {"at": now, "val": ("missing", "0", 0.0),
+                                                   "raw": ("missing", "0", "")}
+                return ("missing", "0", 0.0)
         if r.returncode == 0 and r.stdout.strip():
             parts = r.stdout.strip().split("\t")
             if len(parts) >= 3:
@@ -15953,7 +16021,7 @@ def get_process_list(fresh: bool = False) -> list[dict]:
         props = get_systemd_show("hermes-gateway", user=True, props="ActiveState,MainPID", fresh=fresh)
         st = props.get("ActiveState", "inactive")
         pid = props.get("MainPID", "0")
-        mem = _read_proc_rss_mb(pid)
+        mem = _service_mem_mb("hermes-gateway", pid, user=True, fresh=fresh)
         procs.append({
             "id": "hermes-gateway",
             "name": "Hermes Gateway (Messaging)",
@@ -15977,7 +16045,7 @@ def get_process_list(fresh: bool = False) -> list[dict]:
             st = props.get("ActiveState", "inactive")
             pid = props.get("MainPID", "0")
             is_run = (st == "active")
-            dmem = _read_proc_rss_mb(pid) if is_run else 0.0
+            dmem = _service_mem_mb("9router.service", pid, fresh=fresh) if is_run else 0.0
             dpid = pid if (is_run and pid != "0") else "-"
             kind_label = "Layanan Systemd"
         else:
@@ -16004,7 +16072,7 @@ def get_process_list(fresh: bool = False) -> list[dict]:
     # 3. Hermes Control Panel
     try:
         cur_pid = os.getpid()
-        panel_mem = _read_proc_rss_mb(cur_pid)
+        panel_mem = _service_mem_mb("hermes-panel.service", cur_pid, fresh=fresh)
         procs.append({
             "id": "hermes-panel",
             "name": f"Panel Kontrol Hermes (:{PORT})",
@@ -16036,7 +16104,7 @@ def get_process_list(fresh: bool = False) -> list[dict]:
                 p = _find_pid_by_port(9119) or "0"
             if p and p != "0":
                 dash_pid = str(p)
-                dash_mem = _read_proc_rss_mb(p)
+                dash_mem = _service_mem_mb(SERVICE, p, user=True, fresh=fresh)
         is_systemd = service_active(SERVICE, user=True) or service_active(SERVICE, user=False) or is_dashboard_user_unit()
         procs.append({
             "id": "hermes-dashboard",
@@ -16095,17 +16163,19 @@ def get_process_list(fresh: bool = False) -> list[dict]:
                 dst, dpid, dmem = dst_alt, dpid_alt, dmem_alt
                 c_id = "pihole-pihole-1"
         is_run = (dst.lower() == "running")
+        exists = dst.lower() != "missing"
         procs.append({
             "id": c_id,
             "name": "Pi-hole (DNS Anti-Iklan)",
             "kind": "Kontainer Docker",
-            "status": "Berjalan" if is_run else "Berhenti",
+            "status": ("Berjalan" if is_run else "Berhenti") if exists else "Tidak terpasang",
             "is_active": is_run,
+            "installed": exists,
             "pid": dpid if is_run else "-",
             "mem_mb": dmem,
-            "stop_url": f"/process-action?service={c_id}&action=stop",
-            "start_url": f"/process-action?service={c_id}&action=start",
-            "restart_url": f"/process-action?service={c_id}&action=restart",
+            "stop_url": f"/process-action?service={c_id}&action=stop" if exists else "",
+            "start_url": f"/process-action?service={c_id}&action=start" if exists else "",
+            "restart_url": f"/process-action?service={c_id}&action=restart" if exists else "",
         })
     except Exception as _exc:
         _log_swallow("get_process_list docker row", _exc)
@@ -16124,17 +16194,22 @@ def get_process_list(fresh: bool = False) -> list[dict]:
                     casa_pid = p
                     casa_mem = _read_proc_rss_mb(p)
                     break
+        # Unit yang sedang aktif pasti terpasang; flag ini hanya untuk membedakan
+        # "berhenti" dari "tidak ada sama sekali".
+        casa_installed = (casa_active or _unit_installed("casaos.service")
+                          or _unit_installed("casaos-gateway.service"))
         procs.append({
             "id": "casaos",
             "name": "CasaOS (Dasbor & Manajemen Host)",
-            "kind": "Layanan Systemd",
-            "status": "Berjalan" if casa_active else "Berhenti",
+            "kind": "Layanan Systemd" if casa_installed else "Tidak terpasang",
+            "status": ("Berjalan" if casa_active else "Berhenti") if casa_installed else "Tidak terpasang",
             "is_active": casa_active,
+            "installed": casa_installed,
             "pid": casa_pid,
             "mem_mb": casa_mem,
-            "stop_url": "/process-action?service=casaos&action=stop",
-            "start_url": "/process-action?service=casaos&action=start",
-            "restart_url": "/process-action?service=casaos&action=restart",
+            "stop_url": "/process-action?service=casaos&action=stop" if casa_installed else "",
+            "start_url": "/process-action?service=casaos&action=start" if casa_installed else "",
+            "restart_url": "/process-action?service=casaos&action=restart" if casa_installed else "",
         })
     except Exception as _exc:
         _log_swallow("get_process_list casaos row", _exc)
@@ -16151,19 +16226,21 @@ def get_process_list(fresh: bool = False) -> list[dict]:
             p = props.get("MainPID", "").strip()
             if p and p != "0":
                 oc_pid = p
-                oc_mem = _read_proc_rss_mb(p)
-        ui_tag = "UI Aktif" if oc_ui_on else "UI Mati"
+                oc_mem = _service_mem_mb("openclaw-gateway.service", p, user=True, fresh=fresh)
+        oc_installed = oc_active or _unit_installed("openclaw-gateway.service", user=True)
+        ui_tag = ("UI Aktif" if oc_ui_on else "UI Mati") if oc_installed else "Tidak terpasang"
         procs.append({
             "id": "openclaw-gateway",
             "name": f"OpenClaw Gateway ({ui_tag})",
             "kind": "Layanan Systemd User",
-            "status": "Berjalan" if oc_active else "Berhenti",
+            "status": ("Berjalan" if oc_active else "Berhenti") if oc_installed else "Tidak terpasang",
             "is_active": oc_active,
+            "installed": oc_installed,
             "pid": oc_pid,
             "mem_mb": oc_mem,
-            "stop_url": "/process-action?service=openclaw-gateway&action=stop",
-            "start_url": "/process-action?service=openclaw-gateway&action=start",
-            "restart_url": "/process-action?service=openclaw-gateway&action=restart",
+            "stop_url": "/process-action?service=openclaw-gateway&action=stop" if oc_installed else "",
+            "start_url": "/process-action?service=openclaw-gateway&action=start" if oc_installed else "",
+            "restart_url": "/process-action?service=openclaw-gateway&action=restart" if oc_installed else "",
         })
     except Exception as _exc:
         _log_swallow("get_process_list openclaw-gateway row", _exc)
@@ -16177,7 +16254,8 @@ def _render_processes_table_uncached() -> str:
     procs = get_process_list()
     rows = []
     for p in procs:
-        badge_cls = "badge-up" if p["is_active"] else "badge-down"
+        installed = p.get("installed", True)
+        badge_cls = "badge-muted" if not installed else ("badge-up" if p["is_active"] else "badge-down")
         status_text = html.escape(p["status"])
         name = html.escape(p["name"])
         kind = html.escape(p.get("kind", ""))

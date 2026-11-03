@@ -2669,14 +2669,25 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
                     self.assertEqual(casa["start_url"], "/process-action?service=casaos&action=start")
                     self.assertEqual(casa["restart_url"], "/process-action?service=casaos&action=restart")
 
-        # 2. When CasaOS is inactive
+        # 2. When CasaOS is inactive — unit terpasang tapi tidak jalan
         with mock.patch.object(panel, "service_active", return_value=False):
-            procs = panel.get_process_list()
-            casa = next((p for p in procs if p["id"] == "casaos"), None)
-            self.assertIsNotNone(casa)
-            self.assertEqual(casa["status"], "Berhenti")
-            self.assertFalse(casa["is_active"])
-            self.assertEqual(casa["pid"], "-")
+            with mock.patch.object(panel, "_unit_installed", return_value=True):
+                procs = panel.get_process_list()
+                casa = next((p for p in procs if p["id"] == "casaos"), None)
+                self.assertIsNotNone(casa)
+                self.assertEqual(casa["status"], "Berhenti")
+                self.assertFalse(casa["is_active"])
+                self.assertEqual(casa["pid"], "-")
+
+        # 3. Tanpa unit sama sekali: jangan tampilkan "Berhenti" (layanan hantu)
+        with mock.patch.object(panel, "service_active", return_value=False):
+            with mock.patch.object(panel, "_unit_installed", return_value=False):
+                procs = panel.get_process_list()
+                casa = next((p for p in procs if p["id"] == "casaos"), None)
+                self.assertIsNotNone(casa)
+                self.assertEqual(casa["status"], "Tidak terpasang")
+                self.assertEqual(casa["start_url"], "")
+                self.assertEqual(casa["restart_url"], "")
             self.assertEqual(casa["mem_mb"], 0.0)
 
     def test_casaos_process_actions_endpoint(self):
@@ -7045,6 +7056,80 @@ class TestProfileCardStaysCheap(unittest.TestCase):
         html = panel._render_profiles_block_uncached()
         self.assertIn("Skills: 1/2 aktif", html)
         self.assertNotIn("perkiraan", html)
+
+
+class TestServiceTableTruth(unittest.TestCase):
+    """Tabel layanan harus jujur: memori seluruh cgroup, dan unit/container hantu ditandai."""
+
+    def setUp(self):
+        panel._status_probe_cache.clear()
+        panel.invalidate_service_cache()
+        panel.invalidate_docker_metric_cache()
+        panel.invalidate_systemctl_show_cache()
+
+    def tearDown(self):
+        panel._status_probe_cache.clear()
+        panel.invalidate_service_cache()
+        panel.invalidate_docker_metric_cache()
+        panel.invalidate_systemctl_show_cache()
+
+    def test_service_memory_sums_cgroup_not_mainpid(self):
+        with mock.patch.object(panel, "get_systemd_show", return_value={"ControlGroup": "/x.service"}):
+            with mock.patch.object(panel, "_cgroup_procs", return_value=["11", "12", "13"]):
+                with mock.patch.object(panel, "_read_proc_rss_mb", side_effect=lambda p: 10.0):
+                    self.assertEqual(panel._service_mem_mb("x.service", 11), 30.0)
+
+    def test_service_memory_falls_back_to_mainpid(self):
+        with mock.patch.object(panel, "get_systemd_show", return_value={"ControlGroup": ""}):
+            with mock.patch.object(panel, "_cgroup_procs", return_value=[]):
+                with mock.patch.object(panel, "_read_proc_rss_mb", side_effect=lambda p: 42.5):
+                    self.assertEqual(panel._service_mem_mb("x.service", 99), 42.5)
+
+    def test_missing_docker_container_reports_missing(self):
+        fake = subprocess.CompletedProcess(args=[], returncode=1, stdout="",
+                                           stderr="Error: No such object: pihole")
+        with mock.patch.object(panel.subprocess, "run", return_value=fake):
+            status, pid, mem = panel.get_docker_metric("pihole")
+        self.assertEqual((status, pid, mem), ("missing", "0", 0.0))
+
+    def test_missing_container_row_has_no_action_buttons(self):
+        def fake_metric(cname, fresh=False, ttl=0):
+            return ("missing", "0", 0.0) if cname.startswith("pihole") else ("running", "123", 5.0)
+
+        with mock.patch.object(panel, "get_docker_metric", side_effect=fake_metric):
+            with mock.patch.object(panel, "service_active", return_value=False):
+                with mock.patch.object(panel, "_unit_installed", return_value=False):
+                    rows = {p["id"]: p for p in panel.get_process_list()}
+        pihole = rows["pihole"]
+        self.assertEqual(pihole["status"], "Tidak terpasang")
+        self.assertFalse(pihole["installed"])
+        self.assertEqual(pihole["start_url"], "")
+        self.assertEqual(pihole["stop_url"], "")
+
+    def test_unit_installed_reflects_disk(self):
+        self.assertTrue(panel._unit_installed("hermes-panel.service"))
+        self.assertFalse(panel._unit_installed("casaos-tidak-ada.service"))
+        self.assertFalse(panel._unit_installed("openclaw-absent.service", user=True))
+
+    def test_phantom_units_are_not_shown_as_stopped(self):
+        with mock.patch.object(panel, "service_active", return_value=False):
+            with mock.patch.object(panel, "_unit_installed", return_value=False):
+                with mock.patch.object(panel, "get_docker_metric", return_value=("missing", "0", 0.0)):
+                    with mock.patch.object(panel, "is_openclaw_control_ui_enabled", return_value=False):
+                        rows = {p["id"]: p for p in panel.get_process_list()}
+        for pid_key in ("casaos", "openclaw-gateway"):
+            self.assertEqual(rows[pid_key]["status"], "Tidak terpasang", pid_key)
+            self.assertNotIn("start_url", [k for k, v in rows[pid_key].items() if v])
+            self.assertEqual(rows[pid_key]["restart_url"], "")
+
+    def test_render_uses_muted_badge_for_absent_services(self):
+        procs = [{"id": "casaos", "name": "CasaOS", "kind": "Tidak terpasang",
+                  "status": "Tidak terpasang", "is_active": False, "installed": False,
+                  "pid": "-", "mem_mb": 0.0, "stop_url": "", "start_url": "", "restart_url": ""}]
+        with mock.patch.object(panel, "get_process_list", return_value=procs):
+            html_out = panel._render_processes_table_uncached()
+        self.assertIn("badge-muted", html_out)
+        self.assertIn("Tidak terpasang", html_out)
 
 
 if __name__ == "__main__":
