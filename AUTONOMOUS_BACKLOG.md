@@ -851,3 +851,27 @@ CPU/RAM PALSU ±30 dtk pertama setelah reload + riwayat hilang tiap reload.
 **Test**: +10 `TestPerfSparklineHistory`; negative control 10/10 error tanpa
 patch; suite penuh **452 OK**. Verifikasi live: seri nyata bertambah (2→3 titik
 dalam ±15 dtk), dummy hilang dari halaman.
+
+## Wave 98 — Test interaksi gabungan filter kuota & model (t_6f2efe25)
+
+Dikerjakan langsung oleh sesi interaktif (dispatch worker masih rusak pasca
+v0.22.6). +6 `TestQuotaModelFilterInteractionJs` (Node harness fake-DOM):
+- pencarian kuota aktif mem-bypass kap 6; query dihapus → kap 6 + tombol sisanya;
+- akun kritis di posisi mentah >6 naik ke halaman pertama lintas provider;
+- state `showAllProv` bertahan melewati pencarian yang dihapus (9|9|6);
+- `filterModels` memperlakukan karakter regex LITERAL (indexOf, bukan regex);
+- query tanpa kecocokan menyembunyikan chip+grup tanpa crash;
+- `filterModels` tidak pernah menyentuh `innerHTML` → delta SSE tak mereset filter.
+
+Ambang kompresi `/status` 90 KB → **95 KB** (fitur riwayat performa +2,5 KB gzip,
+terukur 92,5 KB; guard bloat 2× tetap berlaku).
+
+**Temuan gap (terdokumentasi tanpa patch paksa)**: `filterModels` tanpa empty
+state — query tanpa kecocokan menyembunyikan semua chip diam-diam. Kandidat
+perbaikan UI terpisah bila diinginkan.
+
+Sisa papan: `t_309252ae` (audit ekspor/impor konfigurasi) — akan dikerjakan
+langsung pada giliran berikut.
+
+### Commit
+- `77de38c` test(panel): interaksi gabungan filter kuota & model
