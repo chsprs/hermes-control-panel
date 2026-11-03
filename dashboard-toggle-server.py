@@ -2184,6 +2184,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
           <select id="kanban-board-select" onchange="switchKanbanBoard(this.value)" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.75rem;font-family:var(--font-mono)">
             {kanban_board_options}
           </select>
+          <button type="button" id="kb-archive-btn" class="btn" style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem;margin:0" onclick="toggleKanbanArchive()">Arsip</button>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
@@ -2251,6 +2252,10 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     <div id="kanban-board-slot">
       {kanban_board_block}
     </div>
+    <div id="kb-archive-wrap" style="display:none;margin-top:0.75rem">
+      <div style="font-size:0.75rem;color:var(--text-dim);margin-bottom:0.4rem">Tugas terarsip — tidak tampil di kolom papan</div>
+      <div id="col-cards-archived" class="kanban-col-cards"></div>
+    </div>
   </div>
 </div>
 <div id="kanban-toast" style="position:fixed;bottom:24px;right:24px;background:rgba(16,185,129,0.92);color:#fff;padding:0.6rem 1rem;border-radius:6px;font-size:0.8rem;z-index:9999;box-shadow:0 6px 20px rgba(0,0,0,0.5);display:none;transition:opacity 0.3s;pointer-events:none"></div>
@@ -2277,6 +2282,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         <div class="qz-note">Sisa kuota per akun, dibaca dari 9router. Ujung kanan bar menandai nilai sekarang. Badge status akun: hijau = aman, kuning = menipis (&lt;20%), merah = habis, abu = tidak tersedia, ungu = token kedaluwarsa.</div>
       </div>
       <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+        <input type="search" id="qz-search" class="search-input" placeholder="Cari akun / email…" oninput="quotaSetFilter(this.value)" style="max-width:190px;min-height:32px;font-size:.72rem">
         <span id="qz-updated" class="qz-prov-meta"></span>
         <button type="button" class="btn-action-sm" id="qz-refresh" onclick="quotaRefresh()">Refresh</button>
       </div>
@@ -2776,7 +2782,8 @@ function selectAuxModel(provider, model){{
 }}
 
 /* ---- Kuota AI: per-account provider quota (9router) ---- */
-var QUOTA = {{loaded:false, loading:false, data:null, err:null, timer:null, lastAt:0, openProv:{{}}, openDet:{{}}}};
+var QUOTA = {{loaded:false, loading:false, data:null, err:null, timer:null, lastAt:0, openProv:{{}}, openDet:{{}}, showAllProv:{{}}, filter:''}};
+var QUOTA_ACCOUNT_PAGE = 6;
 
 /* Provider marks: inline SVG only, the panel must render with no network. */
 var QZ_LOGOS = {{
@@ -2952,7 +2959,18 @@ function quotaAccountHtml(a){{
   h += '</div>';
   return h;
 }}
+function quotaAccountMatches(a, q){{
+  if(!q) return true;
+  var hay = ((a.name || '') + ' ' + (a.email || '') + ' ' + (a.provider || '')).toLowerCase();
+  return hay.indexOf(q) !== -1;
+}}
+function quotaSetFilter(v){{
+  QUOTA.filter = (v || '').trim();
+  quotaRender();
+}}
 function quotaProviderHtml(p){{
+  // Provider tanpa akun yang cocok disembunyikan saat mencari.
+  if(QUOTA.filter && !(p.accounts || []).some(function(a){{ return quotaAccountMatches(a, QUOTA.filter.toLowerCase()); }})) return '';
   var open = QUOTA.openProv[p.provider] !== false;
   var h = '<div class="qz-prov' + (open ? ' open' : '') + '" data-qp="' + escHtml(p.provider) + '">';
   h += '<div class="qz-prov-head" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') + '" data-qhead="1">';
@@ -2964,7 +2982,19 @@ function quotaProviderHtml(p){{
   }}
   h += '<svg class="qz-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
   h += '</div><div class="qz-prov-body">';
-  (p.accounts || []).forEach(function(a){{ h += quotaAccountHtml(a); }});
+  // 156 akun qoder tidak dirender semua: 6 pertama + tombol sisanya.
+  var q = (QUOTA.filter || '').toLowerCase();
+  var accounts = (p.accounts || []).filter(function(a){{ return quotaAccountMatches(a, q); }});
+  var showAll = QUOTA.showAllProv[p.provider] === true || !!q;
+  var visible = showAll ? accounts : accounts.slice(0, QUOTA_ACCOUNT_PAGE);
+  visible.forEach(function(a){{ h += quotaAccountHtml(a); }});
+  if(!showAll && accounts.length > visible.length){{
+    h += '<button type="button" class="btn-action-sm" data-qmore="1" style="width:100%;margin-top:.4rem">+ '
+      + (accounts.length - visible.length) + ' akun lainnya</button>';
+  }}
+  if(q && !accounts.length){{
+    h += '<div class="qz-note">Tidak ada akun yang cocok dengan pencarian.</div>';
+  }}
   h += '</div></div>';
   return h;
 }}
@@ -3009,6 +3039,12 @@ function quotaRender(){{
   }});
   root.querySelectorAll('[data-qk]').forEach(function(el){{
     el.addEventListener('click', function(){{ quotaToggleDet(el); }});
+  }});
+  root.querySelectorAll('[data-qmore]').forEach(function(el){{
+    el.addEventListener('click', function(){{
+      var prov = el.closest('[data-qp]');
+      if(prov){{ QUOTA.showAllProv[prov.getAttribute('data-qp')] = true; quotaRender(); }}
+    }});
   }});
   var up = document.getElementById('qz-updated');
   if(up){{
@@ -3421,6 +3457,38 @@ function setProfileModel(profileName, provider, model){{
 var currentViewingTaskId = '';
 var taskDetailLoadGen = 0;
 var taskMutationGen = 0;
+async function toggleKanbanArchive() {{
+  var wrap = document.getElementById('kb-archive-wrap');
+  if(!wrap) return;
+  if(wrap.style.display !== 'none'){{ wrap.style.display = 'none'; return; }}
+  wrap.style.display = '';
+  var col = document.getElementById('col-cards-archived');
+  if(!col || col.dataset.loaded) return;
+  col.innerHTML = '<div class="kanban-empty-notice">Memuat arsip…</div>';
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : 'default';
+  try{{
+    var r = await fetch('/api/kanban/column?board=' + encodeURIComponent(board) + '&status=archived&offset=0&limit=12', {{cache:'no-store'}});
+    var d = await r.json();
+    if(!d.ok) throw new Error(d.error || 'gagal');
+    col.innerHTML = d.cards || '<div class="kanban-empty-notice">Tidak ada tugas terarsip.</div>';
+    col.dataset.loaded = '1';
+    if(d.remaining > 0){{
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn kb-load-more';
+      btn.dataset.status = 'archived';
+      btn.dataset.offset = String(d.loaded);
+      btn.textContent = '+ ' + d.remaining + ' lainnya';
+      btn.style.cssText = 'width:100%;margin-top:0.35rem;font-size:0.7rem;min-height:32px';
+      btn.setAttribute('onclick', 'loadKanbanColumnMore(this)');
+      col.appendChild(btn);
+    }}
+  }}catch(e){{
+    col.innerHTML = '<div class="kanban-empty-notice">Gagal memuat arsip.</div>';
+  }}
+}}
+
 async function loadKanbanColumnMore(btn) {{
   // Lazy-load sisa kartu kolom (kolom besar tidak dirender semua oleh server).
   var status = btn.dataset.status;
@@ -4188,6 +4256,8 @@ function submitCreateBoard(){{
 }}
 
 function switchKanbanBoard(slug){{
+  var archReset = document.getElementById('col-cards-archived');
+  if(archReset){{ archReset.dataset.loaded = ''; archReset.innerHTML = ''; }}
   if(kanbanSwitchBusy){{
     kanbanSwitchQueued = slug;
     return;
@@ -14189,8 +14259,12 @@ def render_kanban_column_cards(board: str = "", status: str = "done", offset=0, 
         limit = max(1, min(int(limit), 50))
     except (TypeError, ValueError):
         limit = KANBAN_COL_PAGE
-    tasks = list_kanban_tasks(board=slug)
-    items = [t for t in tasks if _kanban_col_of(t.get("status")) == col]
+    if col == "archived":
+        # Arsip tidak tampil di kolom papan, tapi bisa dibuka lewat tombol Arsip.
+        items = list_kanban_tasks(board=slug, status="archived")
+    else:
+        items = [t for t in list_kanban_tasks(board=slug)
+                 if _kanban_col_of(t.get("status")) == col]
     visible = items[offset:offset + limit]
     cards = "".join(_render_kanban_task_card(t, col) for t in visible)
     remaining = max(0, len(items) - (offset + len(visible)))
@@ -14240,7 +14314,7 @@ def render_kanban_board_block(board_slug: str = "") -> str:
                 f'<button type="button" class="btn kb-load-more" data-status="{col_id}" '
                 f'data-offset="{len(visible)}" data-total="{len(items)}" '
                 f'onclick="loadKanbanColumnMore(this)" '
-                f'style="width:100%;margin-top:0.35rem;font-size:0.7rem;min-height:30px">'
+                f'style="width:100%;margin-top:0.35rem;font-size:0.7rem;min-height:32px">'
                 f'+ {hidden} lainnya</button>'
             )
 

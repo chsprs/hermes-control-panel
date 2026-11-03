@@ -7324,5 +7324,60 @@ class TestKanbanBoardArchiveCounts(unittest.TestCase):
             shutil.rmtree(str(other), ignore_errors=True)
 
 
+class TestKanbanArchiveViewer(unittest.TestCase):
+    """Arsip bisa dibuka lewat /api/kanban/column?status=archived (lazy-load)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="hermes-kbview-")
+        self.db = panel.Path(self.tmpdir) / "kanban.db"
+        self._orig = panel.get_kanban_db_path
+        panel.get_kanban_db_path = lambda board="": self.db
+        panel.create_kanban_task("aktif1")
+        panel.create_kanban_task("aktif2")
+        for i in range(15):
+            panel.create_kanban_task(f"arsip {i}", status="archived")
+
+    def tearDown(self):
+        import shutil
+        panel.get_kanban_db_path = self._orig
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_archive_column_only_lists_archived(self):
+        d = panel.render_kanban_column_cards("default", "archived", 0, 12)
+        self.assertEqual(d["total"], 15)
+        self.assertEqual(d["loaded"], 12)
+        self.assertEqual(d["remaining"], 3)
+        self.assertIn("arsip 0", d["cards"])
+        self.assertNotIn("aktif1", d["cards"])
+        rest = panel.render_kanban_column_cards("default", "archived", 12, 12)
+        self.assertEqual((rest["loaded"], rest["remaining"]), (3, 0))
+
+    def test_archive_does_not_leak_into_board_columns(self):
+        html_out = panel.render_kanban_board_block("default")
+        self.assertNotIn("arsip 0", html_out)
+        self.assertIn("aktif1", html_out)
+
+    def test_archive_ui_present_in_page(self):
+        self.assertIn('id="kb-archive-wrap"', panel.PAGE)
+        self.assertIn('id="col-cards-archived"', panel.PAGE)
+        self.assertIn("toggleKanbanArchive()", panel.PAGE)
+        self.assertIn("async function toggleKanbanArchive", panel.PAGE)
+
+
+class TestQuotaTabControls(unittest.TestCase):
+    """Kontrol UI tab Kuota: pencarian akun + batas render per provider."""
+
+    def test_search_and_cap_present(self):
+        self.assertIn('id="qz-search"', panel.PAGE)
+        self.assertIn("quotaSetFilter(this.value)", panel.PAGE)
+        self.assertIn("var QUOTA_ACCOUNT_PAGE = 6;", panel.PAGE)
+        self.assertIn("showAllProv", panel.PAGE)
+        self.assertIn("data-qmore", panel.PAGE)
+
+    def test_quota_state_has_filter_and_showall(self):
+        self.assertIn("filter:''", panel.PAGE)
+        self.assertIn("function quotaAccountMatches", panel.PAGE)
+
+
 if __name__ == "__main__":
     unittest.main()
