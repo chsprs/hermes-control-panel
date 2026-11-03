@@ -7361,7 +7361,8 @@ class TestKanbanArchiveViewer(unittest.TestCase):
         self.assertIn('id="kb-archive-wrap"', panel.PAGE)
         self.assertIn('id="col-cards-archived"', panel.PAGE)
         self.assertIn("toggleKanbanArchive()", panel.PAGE)
-        self.assertIn("async function toggleKanbanArchive", panel.PAGE)
+        self.assertIn("function toggleKanbanArchive", panel.PAGE)
+        self.assertIn("async function loadKanbanArchive", panel.PAGE)
 
 
 class TestQuotaTabControls(unittest.TestCase):
@@ -7449,6 +7450,146 @@ var c = {status: 'ok', isActive: false};
 process.stdout.write([quotaAccountRank(a), quotaAccountRank(b), quotaAccountRank(c)].join(','));
 """)
         self.assertEqual(out, "2,0,1")
+
+
+def _kanban_lazy_js() -> str:
+    """JS lazy-load/arsip Kanban persis seperti dirender."""
+    start = panel.PAGE.index("async function loadKanbanArchive()")
+    end = panel.PAGE.index("function showKanbanToast")
+    return panel.PAGE[start:end].replace("{{", "{").replace("}}", "}")
+
+
+_KANBAN_DOM = r"""
+function makeEl(id){
+  return {
+    id: id, innerHTML: '', textContent: '', value: 'default', disabled: false,
+    style: {}, dataset: {}, children: [], className: '', type: '',
+    setAttribute: function(k, v){
+      if(k === 'data-status') this.dataset.status = v;
+      if(k === 'data-offset') this.dataset.offset = v;
+    },
+    appendChild: function(c){ this.children.push(c); return c; },
+    insertAdjacentHTML: function(pos, html){ this.innerHTML += html; },
+    remove: function(){ this.removed = true; }
+  };
+}
+var els = {};
+var document = {
+  getElementById: function(id){ return els[id] || null; },
+  createElement: function(tag){ return makeEl(tag); }
+};
+var fetchCalls = [];
+var fetchResponses = [];
+function fetch(url, opts){
+  fetchCalls.push(url);
+  var d = fetchResponses.shift();
+  return Promise.resolve({json: function(){ return Promise.resolve(d); }});
+}
+function seedArchive(open){
+  els['kb-archive-wrap'] = makeEl('kb-archive-wrap');
+  els['kb-archive-wrap'].style.display = open ? '' : 'none';
+  els['col-cards-archived'] = makeEl('col-cards-archived');
+  els['kanban-board-select'] = makeEl('kanban-board-select');
+  els['kanban-board-select'].value = 'default';
+}
+"""
+
+
+@unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
+class TestKanbanLazyLoadJs(unittest.TestCase):
+    """Perilaku lazy-load kolom & panel arsip Kanban di node."""
+
+    def _run(self, body: str) -> str:
+        script = _KANBAN_DOM + _kanban_lazy_js() + body
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_archive_opens_loads_and_offers_more(self):
+        out = self._run("""
+seedArchive(false);
+fetchResponses.push({ok:true, cards:'<div class="kanban-card">A</div>', loaded:12, remaining:3});
+toggleKanbanArchive();
+setTimeout(function(){
+  var col = els['col-cards-archived'];
+  process.stdout.write(JSON.stringify({
+    open: els['kb-archive-wrap'].style.display,
+    loaded: col.dataset.loaded,
+    hasCard: col.innerHTML.indexOf('kanban-card') !== -1,
+    moreButtons: col.children.length,
+    moreText: col.children[0].textContent,
+    url: fetchCalls[0]
+  }));
+}, 20);
+""")
+        import json as _json
+        d = _json.loads(out)
+        self.assertEqual(d["open"], "")
+        self.assertEqual(d["loaded"], "1")
+        self.assertTrue(d["hasCard"])
+        self.assertEqual(d["moreButtons"], 1)
+        self.assertEqual(d["moreText"], "+ 3 lainnya")
+        self.assertIn("status=archived", d["url"])
+
+    def test_archive_refresh_only_when_open(self):
+        out = self._run("""
+seedArchive(true);
+els['col-cards-archived'].dataset.loaded = '1';
+fetchResponses.push({ok:true, cards:'BARU', loaded:1, remaining:0});
+refreshKanbanArchive();
+setTimeout(function(){
+  var afterOpen = fetchCalls.length + '|' + els['col-cards-archived'].innerHTML;
+  els['kb-archive-wrap'].style.display = 'none';
+  refreshKanbanArchive();
+  setTimeout(function(){
+    process.stdout.write(afterOpen + '|' + fetchCalls.length);
+  }, 20);
+}, 20);
+""")
+        self.assertEqual(out, "1|BARU|1")
+
+    def test_column_more_appends_then_removes_button(self):
+        out = self._run("""
+seedArchive(false);
+els['col-cards-done'] = makeEl('col-cards-done');
+var btn = makeEl('button');
+btn.dataset.status = 'done';
+btn.dataset.offset = '12';
+fetchResponses.push({ok:true, cards:'<div class="kanban-card">B</div>', loaded:12, remaining:0});
+loadKanbanColumnMore(btn);
+setTimeout(function(){
+  process.stdout.write(JSON.stringify({
+    html: els['col-cards-done'].innerHTML,
+    removed: btn.removed === true,
+    url: fetchCalls[0]
+  }));
+}, 20);
+""")
+        import json as _json
+        d = _json.loads(out)
+        self.assertIn("kanban-card", d["html"])
+        self.assertTrue(d["removed"])
+        self.assertIn("offset=12", d["url"])
+
+    def test_column_more_failure_reenables_button(self):
+        out = self._run("""
+seedArchive(false);
+els['col-cards-done'] = makeEl('col-cards-done');
+var btn = makeEl('button');
+btn.dataset.status = 'done';
+btn.dataset.offset = '0';
+fetchResponses.push({ok:false, error:'db rusak'});
+loadKanbanColumnMore(btn);
+setTimeout(function(){
+  process.stdout.write(btn.textContent + '|' + btn.disabled + '|' + (btn.removed === true));
+}, 20);
+""")
+        self.assertEqual(out, "Gagal memuat — coba lagi|false|false")
+
+    def test_client_renderer_uses_same_column_cap(self):
+        self.assertIn("var KANBAN_COL_PAGE = 12;", panel.PAGE)
+        self.assertIn("items.slice(0, KANBAN_COL_PAGE)", panel.PAGE)
+        self.assertIn("refreshKanbanArchive();", panel.PAGE)
 
 
 if __name__ == "__main__":

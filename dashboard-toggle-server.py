@@ -3465,13 +3465,9 @@ function setProfileModel(profileName, provider, model){{
 var currentViewingTaskId = '';
 var taskDetailLoadGen = 0;
 var taskMutationGen = 0;
-async function toggleKanbanArchive() {{
-  var wrap = document.getElementById('kb-archive-wrap');
-  if(!wrap) return;
-  if(wrap.style.display !== 'none'){{ wrap.style.display = 'none'; return; }}
-  wrap.style.display = '';
+async function loadKanbanArchive() {{
   var col = document.getElementById('col-cards-archived');
-  if(!col || col.dataset.loaded) return;
+  if(!col) return;
   col.innerHTML = '<div class="kanban-empty-notice">Memuat arsip…</div>';
   var bSel = document.getElementById('kanban-board-select');
   var board = bSel ? bSel.value : 'default';
@@ -3495,6 +3491,25 @@ async function toggleKanbanArchive() {{
   }}catch(e){{
     col.innerHTML = '<div class="kanban-empty-notice">Gagal memuat arsip.</div>';
   }}
+}}
+
+function toggleKanbanArchive() {{
+  var wrap = document.getElementById('kb-archive-wrap');
+  if(!wrap) return;
+  if(wrap.style.display !== 'none'){{ wrap.style.display = 'none'; return; }}
+  wrap.style.display = '';
+  var col = document.getElementById('col-cards-archived');
+  if(col && !col.dataset.loaded) loadKanbanArchive();
+}}
+
+function refreshKanbanArchive() {{
+  // Daftar arsip yang sedang dibuka ikut disegarkan setelah papan berubah
+  // (mutasi/sinkron), supaya tidak menampilkan tugas yang sudah dipindah.
+  var wrap = document.getElementById('kb-archive-wrap');
+  if(!wrap || wrap.style.display === 'none') return;
+  var col = document.getElementById('col-cards-archived');
+  if(col) col.dataset.loaded = '';
+  loadKanbanArchive();
 }}
 
 async function loadKanbanColumnMore(btn) {{
@@ -3538,6 +3553,7 @@ var draggedBoard = null;
 var kanbanSwitchBusy = false;
 var kanbanSwitchQueued = null;
 
+var KANBAN_COL_PAGE = 12;
 var KANBAN_COLS = [
   {{ id: 'triage', title: 'Triage', bg: 'rgba(168,85,247,0.15)', color: '#c084fc' }},
   {{ id: 'todo', title: 'To Do', bg: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }},
@@ -3951,7 +3967,9 @@ function renderKanbanCards(tasks) {{
       empty.textContent = 'Kosong';
       colContainer.appendChild(empty);
     }} else {{
-      items.forEach(function(t) {{
+      // Batas yang sama dengan server: kolom besar tidak dirender semua.
+      var visibleItems = items.slice(0, KANBAN_COL_PAGE);
+      visibleItems.forEach(function(t) {{
         var card = document.createElement('div');
         card.className = 'kanban-card' + (selectedTaskIds.has(t.id) ? ' is-selected' : '');
         card.id = 'card-' + t.id;
@@ -4065,6 +4083,17 @@ function renderKanbanCards(tasks) {{
 
         colContainer.appendChild(card);
       }});
+      if(items.length > visibleItems.length){{
+        var moreBtn = document.createElement('button');
+        moreBtn.type = 'button';
+        moreBtn.className = 'btn kb-load-more';
+        moreBtn.setAttribute('data-status', col.id);
+        moreBtn.setAttribute('data-offset', String(visibleItems.length));
+        moreBtn.textContent = '+ ' + (items.length - visibleItems.length) + ' lainnya';
+        moreBtn.style.cssText = 'width:100%;margin-top:0.35rem;font-size:0.7rem;min-height:32px';
+        moreBtn.onclick = function(){{ loadKanbanColumnMore(moreBtn); }};
+        colContainer.appendChild(moreBtn);
+      }}
     }}
 
     var bCount = document.getElementById('badge-count-' + col.id);
@@ -4072,6 +4101,7 @@ function renderKanbanCards(tasks) {{
   }});
 
   filterKanbanCards();
+  refreshKanbanArchive();
 }}
 
 function refreshKanbanBoard(silent) {{
