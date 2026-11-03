@@ -7960,7 +7960,9 @@ def _model_filter_js() -> str:
 _MODEL_HARNESS = r"""
 var __chips = [];
 var __groups = [];
+var __empty = {style: {}, textContent: ''};
 var document = {
+  getElementById: function(id){ return id === 'model-search-empty' ? __empty : null; },
   querySelectorAll: function(sel){
     if(sel === '#model-chips .model-chip') return __chips;
     if(sel === '#model-chips .model-group') return __groups;
@@ -8055,6 +8057,21 @@ process.stdout.write(String(__chips[0].style.display) + '|' + String(__chips[1].
   + String(g1.style.display) + '|' + String(g2.style.display));
 """)
         self.assertEqual(out, "none|none|none|none")
+
+    def test_model_filter_shows_empty_state_when_no_match(self):
+        out = self._run_model("""
+var g = mkGroup();
+mkChip('gpt-4o', g);
+filterModels('zzz-tidak-ada');
+var shown = __empty.style.display;
+filterModels('gpt');
+var hiddenWhileMatch = __empty.style.display;
+filterModels('   ');
+var hiddenWhenCleared = __empty.style.display;
+process.stdout.write(String(shown) + '|' + String(hiddenWhileMatch) + '|' + String(hiddenWhenCleared));
+""")
+        # '' = tampil (default), 'none' = disembunyikan
+        self.assertEqual(out, "|none|none")
 
     def test_model_filter_never_touches_inner_html(self):
         # SSE delta untuk fragmen lain tidak boleh menghapus hasil filter:

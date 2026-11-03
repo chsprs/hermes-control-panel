@@ -1974,6 +1974,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
     {reasoning_control}
     <input type="text" id="model-search" class="search-input" placeholder="Cari model… (saring)" oninput="filterModels(this.value)">
     <div id="model-chips">{model_chips}</div>
+    <div id="model-search-empty" class="hint-pill" style="display:none;margin-top:.6rem">Tidak ada model yang cocok dengan pencarian.</div>
   </div>
 
   <div id="rl-slot">{rate_limit_card}</div>
@@ -6540,11 +6541,15 @@ function restorePatchPages(){{
 }}
 function filterModels(q){{
   q = (q || '').trim().toLowerCase();
+  var emptyNote = document.getElementById('model-search-empty');
+  if(emptyNote){{ emptyNote.style.display = q ? '' : 'none'; }}
+  if(emptyNote && !q){{ emptyNote.style.display = 'none'; }}
   var chips = document.querySelectorAll('#model-chips .model-chip');
   chips.forEach(function(c){{
     c.style.display = c.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
   }});
   var groups = document.querySelectorAll('#model-chips .model-group');
+  var anyVisible = false;
   groups.forEach(function(g){{
     var any = false;
     var gChips = g.querySelectorAll('.model-chip');
@@ -6555,7 +6560,9 @@ function filterModels(q){{
       }}
     }}
     g.style.display = any ? '' : 'none';
+    if(any) anyVisible = true;
   }});
+  if(emptyNote){{ emptyNote.style.display = (q && !anyVisible) ? '' : 'none'; }}
 }}
 function toggleLog(flag, wrapId){{
   safeStore('removeItem', flag);
