@@ -1081,3 +1081,25 @@ Commit `d9c7595`.
 ### Status gelombang
 - `t_34d8cb0a` ekspor snapshot → **done, live**
 - `t_ec77935d` audit aksesibilitas Kuota/Model → running
+
+## Wave 111 — Aksesibilitas Kuota & Model (fitur dari worker t_ec77935d)
+
+Patch worker diterapkan (1.031 baris). Konflik `tests/test_panel.py` (basis patch
+lebih lama dari HEAD) diselesaikan dengan menambahkan blok 475 baris test a11y
+utuh; monolit + 2 file tools menerapkan bersih.
+
+Akar kontras tunggal: `--text-dim` (#64748b) tak pernah 4.5:1 → 5 elemen pindah ke
+`--text-muted`. Plus: baris bucket Kuota jadi disclosure keyboard, `aria-controls`
+accordion, live region status Kuota + catatan model kosong, `aria-label` 3 input &
+tombol tutup, `aria-hidden` penanda visual, pemulihan fokus pasca re-render.
+
+**Verifikasi independen**: 538 test OK (+30); `tools/audit_contrast.py` exit 0;
+hitung kontras sendiri → `--text-dim` 2,90:1 vs `--text-muted` 5,38:1; 7 atribut
+semantik ada di halaman live; tombol nonaktif sengaja tidak diubah (SC 1.4.3).
+Commit `4c9c333`.
+
+### Status gelombang Kanban pasca-perbaikan akar
+- `t_a5c11213` verifikasi dispatch → done
+- `t_34d8cb0a` ekspor snapshot → done, live
+- `t_ec77935d` aksesibilitas Kuota/Model → done, live
+Komitmen berikutnya: worker wajib rebase ke HEAD terbaru sebelum kirim patch.
