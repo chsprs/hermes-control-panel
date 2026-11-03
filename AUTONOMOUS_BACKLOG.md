@@ -758,3 +758,27 @@ tanpa perubahan kode produksi → tidak perlu restart service (md5 repo = runtim
 
 ### Commit
 - `1b4be63` test(panel): 8 test regresi paritas render server-klien
+
+## Wave 94 — Penutup rantai Kanban: paritas judul kosong kartu Kanban
+
+**Diterapkan dari task induk `t_cb20e435`** (commit `753597e`).
+- `_render_kanban_task_card()`: judul `""` sebelumnya tampil sebagai teks kosong
+  sedangkan klien memakai `(Tanpa Judul)`; judul `None` bisa mencapai
+  `html.escape` → `AttributeError`. Kini `title = t.get("title") or ""`,
+  `data-title` tetap `""`, label `(Tanpa Judul)` hanya untuk teks kartu.
+- Negative control: subtest `""` FAIL dan `None` ERROR pada basis sebelum patch.
+
+**Verifikasi live**: `unittest discover -s tests` → **434 OK**, `/status` 200,
+service aktif setelah restart.
+
+### Rantai selesai — 5 task, 5 patch live
+`5d1a6ae` toggle profil · `e62dd23` rekonsiliasi SSE · `23bf44d` kontrak log ·
+`1b4be63` test paritas · `753597e` judul kosong Kanban.
+
+**Pelajaran pola kerja**: worker di scratch + patch + negative control + larangan
+menyentuh repo live/service berjalan baik; sesi interaktif tetap yang review,
+menjalankan suite penuh, deploy, dan commit. Failure `test_73…` & font route hanya
+muncul di lingkungan scratch worker (mock path/aset), selalu hijau di live.
+
+### Commit
+- `753597e` fix(panel): paritas judul kosong kartu Kanban (patch penutup t_cb20e435)
