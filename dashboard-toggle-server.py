@@ -16238,6 +16238,10 @@ def get_cpu_percent() -> float:
 _docker_metric_cache: dict[str, dict] = {}
 _docker_metric_cache_lock = threading.Lock()
 DOCKER_METRIC_TTL = 3.0  # seconds (2-5s window)
+# Container yang TIDAK ADA tidak diprobe ulang tiap 3 dtk (dua inspeksi hantu
+# Pi-hole = 0.32 dtk per siklus); aksi proses tetap memaksa refresh lewat
+# invalidate_process_list_cache, dan container baru terdeteksi dalam <=5 menit.
+DOCKER_METRIC_MISSING_TTL = 300.0
 
 _systemctl_show_cache: dict[tuple[str, bool, str], dict] = {}
 _systemctl_show_lock = threading.Lock()
@@ -16337,7 +16341,9 @@ def get_docker_metric(cname: str, fresh: bool = False, ttl: float = DOCKER_METRI
     if not fresh:
         with _docker_metric_cache_lock:
             entry = _docker_metric_cache.get(cname)
-            if entry and (now - entry["at"] < ttl):
+            eff_ttl = DOCKER_METRIC_MISSING_TTL if (
+                entry and str(entry["val"][0]).lower() == "missing") else ttl
+            if entry and (now - entry["at"] < eff_ttl):
                 dst, dpid, cid = entry["raw"]
                 if dst.lower() == "running" and dpid and dpid != "0":
                     if not os.path.exists(f"/proc/{dpid}"):

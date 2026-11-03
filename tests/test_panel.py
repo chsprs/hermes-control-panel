@@ -8335,5 +8335,57 @@ class TestInlineUiCallbacksResolve(unittest.TestCase):
                                 f"{name} tidak ada di halaman/aset manapun")
 
 
+
+class TestDockerMissingTtl(unittest.TestCase):
+    """Container tidak ada tidak diprobe ulang tiap 3 dtk (0.32s sia-sia per siklus).
+
+    Negatif kontrol: tanpa patch, t=200s (>ttl 3s) memanggil subprocess lagi.
+    """
+
+    def _missing_run(self, returncode=1, stdout="", stderr="No such object: pihole"):
+        return mock.Mock(returncode=returncode, stdout=stdout, stderr=stderr)
+
+    def test_missing_status_survives_beyond_short_ttl(self):
+        clock = [1000.0]
+        with mock.patch.object(panel.time, "monotonic", side_effect=lambda: clock[0]), \
+             mock.patch.object(panel.subprocess, "run",
+                               return_value=self._missing_run()) as run:
+            panel._docker_metric_cache.clear()
+            v1 = panel.get_docker_metric("hantu")
+            clock[0] += 200  # jauh melewati DOCKER_METRIC_TTL (3s)
+            v2 = panel.get_docker_metric("hantu")
+        self.assertEqual(v1, ("missing", "0", 0.0))
+        self.assertEqual(v2, ("missing", "0", 0.0))
+        self.assertEqual(run.call_count, 1)  # tidak diprobe ulang
+
+    def test_missing_expires_after_long_ttl(self):
+        clock = [1000.0]
+        with mock.patch.object(panel.time, "monotonic", side_effect=lambda: clock[0]), \
+             mock.patch.object(panel.subprocess, "run",
+                               return_value=self._missing_run()) as run:
+            panel._docker_metric_cache.clear()
+            panel.get_docker_metric("hantu")
+            clock[0] += panel.DOCKER_METRIC_MISSING_TTL + 1
+            panel.get_docker_metric("hantu")
+        self.assertEqual(run.call_count, 2)  # container baru bisa terdeteksi
+
+    def test_running_status_still_uses_short_ttl(self):
+        ok = mock.Mock(returncode=0, stdout="running\t123\tabc123", stderr="")
+        clock = [1000.0]
+        with mock.patch.object(panel.time, "monotonic", side_effect=lambda: clock[0]), \
+             mock.patch.object(panel.subprocess, "run", return_value=ok) as run, \
+             mock.patch.object(panel, "_read_docker_mem", return_value=1.0):
+            panel._docker_metric_cache.clear()
+            v1 = panel.get_docker_metric("hidup")
+            clock[0] += panel.DOCKER_METRIC_TTL + 1
+            v2 = panel.get_docker_metric("hidup")
+        self.assertEqual(v1[0], "running")
+        self.assertEqual(v2[0], "running")
+        self.assertEqual(run.call_count, 2)  # status hidup tetap diverifikasi cepat
+
+    def tearDown(self):
+        panel._docker_metric_cache.clear()
+
+
 if __name__ == "__main__":
     unittest.main()
