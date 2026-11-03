@@ -906,3 +906,16 @@ suite penuh **464 OK**. Live: `/status` 200, rantai efektif tampil benar
 
 ### Commit
 - `3428079` fix(panel): rantai model cadangan = rantai efektif Hermes
+
+## Wave 100 — Empty state pencarian model
+
+Menutup temuan Wave 98: query pencarian model tanpa kecocokan kini menampilkan
+"Tidak ada model yang cocok dengan pencarian." (slot #model-search-empty,
+hint-pill) alih-alih menyembunyikan semua chip diam-diam. Kontrak
+filterModels-tidak-menyentuh-innerHTML tetap terjaga.
+
+Test +1 (Node harness, getElementById ditambahkan); negative control gagal tanpa
+patch; suite penuh **465 OK**; live terverifikasi.
+
+### Commit
+- (lihat git log) feat(panel): empty state pencarian model
