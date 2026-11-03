@@ -517,3 +517,45 @@ script, dan payload deflate (87,4 KB, guard dinaikkan 85→90 KB karena tab Conf
 
 ### Commit
 - `e04db3d` fix(panel): kanban simpan status kanonik `done` (alias `completed`)
+
+## Wave 85 — Fitur UI/UX Kanban + audit SSE
+
+**Fitur baru**
+- **Lazy-load kolom Kanban besar.** Board discord-music-bot (101 tugas Done)
+  dirender utuh: fragmen 164,6 KB + 101 node DOM, diserialisasi & di-diff tiap tick
+  SSE. Sekarang tiap kolom dibatasi `KANBAN_COL_PAGE = 12` kartu; sisanya lewat
+  tombol "+ N lainnya" → `GET /api/kanban/column?board&status&offset&limit`
+  (limit maks 50). Markup kartu diekstrak ke `_render_kanban_task_card()` (satu
+  sumber untuk papan & endpoint), mapping status→kolom disatukan di
+  `_kanban_col_of()`. Ukur: **164,6 KB → 25,0 KB**; board default 5.760 B
+  (byte-identik sebelum/sesudah).
+- **Dropdown board menampilkan arsip.** "(0)" untuk board yang punya 12 tugas
+  terarsip terlihat seperti data hilang. Sekarang `list_kanban_boards()` menghitung
+  `archived_count`, label jadi "(0 aktif · 12 arsip)" / "(101 aktif · 28 arsip)";
+  board tanpa arsip tetap "(N)".
+
+**Perbaikan di proses**
+- Liveness (`_enrich_kanban_liveness`) hanya di-refresh untuk kartu kolom running
+  (badge JALAN/IDLE/MACET), kolom lain memakai nilai dari `list_kanban_tasks`.
+- JS baru harus didobel braces-nya karena template PAGE memakai `.format()`;
+  kelupaan ini membuat 10 test halaman/JS gagal dan langsung diperbaiki (16 test
+  `TestGatewayFormJs` hijau lagi).
+
+**Audit SSE (tidak ada perubahan, hasil sudah benar)**
+- Klien baru menerima **full payload** saat subscribe (`_sse_payload(frag)` tanpa
+  delta), jadi tidak ada sel basi saat reload walau `_sse_last_keys` global.
+- Delta per-key membandingkan serialisasi tiap fragmen; invalidasi mutasi sudah
+  menunjuk ke fragmen yang benar (profiles_block, kanban_board_block,
+  kanban_board_options, processes_table, update_block).
+
+### Verifikasi
+- `tests.test_install tests.test_panel` → **396 test OK** (+5
+  `TestKanbanColumnPagination`, +3 `TestKanbanBoardArchiveCounts`).
+- Live: `/api/kanban/column?board=discord-music-bot&status=done&offset=12&limit=12`
+  → `{total:101, loaded:12, remaining:77}`; dropdown "Default Board
+  (0 aktif · 12 arsip)"; halaman memuat `loadKanbanColumnMore` dengan brace tunggal
+  (format aman).
+
+### Commit
+- `d948090` feat(panel): lazy-load kolom Kanban besar (164 KB → 25 KB)
+- `de69d90` feat(panel): dropdown board Kanban menampilkan jumlah arsip
