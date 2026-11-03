@@ -1061,3 +1061,23 @@ Dispatch worker Kanban **normal kembali**.
 
 ### Commit
 - `8220e02` test(panel): kunci kontrak _yaml_load dokumen kosong (patch worker)
+
+## Wave 110 — Ekspor snapshot diagnostik (fitur dari worker t_34d8cb0a)
+
+Worker Kanban pertama pasca-perbaikan akar masalah selesai & diterapkan.
+**GET /api/export/snapshot** → JSON (versi panel, uptime proses, sel metrik,
+status layanan, versi Hermes/9router, provider) + kartu "Snapshot Diagnostik"
+dengan tombol unduh di tab Kontrol. Nilai diambil dari `build_fragments()` yang
+sudah ada — tanpa subprocess baru; fragmen rusak → tetap 200 `partial: true`.
+
+**Review saya**: 1 hunk fixture `test_73` DIBUANG (test itu lulus di repo live;
+klaim worker hanya berlaku di scratch) — tidak ada test hijau yang diubah.
+**Uji kebocoran independen ke panel live: 17 rahasia nyata dari config/.env →
+0 bocor**, tak ada nama kunci sensitif di payload.
+
+508 test OK (+16); apply bersih; tombol & kartu ter-render; health-check SEHAT.
+Commit `d9c7595`.
+
+### Status gelombang
+- `t_34d8cb0a` ekspor snapshot → **done, live**
+- `t_ec77935d` audit aksesibilitas Kuota/Model → running
