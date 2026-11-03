@@ -617,3 +617,28 @@ script, dan payload deflate (87,4 KB, guard dinaikkan 85→90 KB karena tab Conf
 
 ### Commit
 - `e24f244` feat(panel): akun Kuota bermasalah didahulukan + test perilaku JS (node)
+
+## Wave 88 — Bug: batas kolom hilang setelah refresh + arsip ikut segar
+
+**Bug nyata yang ditemukan saat menulis test perilaku JS**
+- Server sudah membatasi 12 kartu/kolom, tetapi **`renderKanbanCards()` merender
+  semua tugas lagi** setiap `refreshKanbanBoard()` (sinkron manual, drag-drop,
+  semua mutasi tugas). Artinya fitur lazy-load hanya bertahan sampai aksi pertama;
+  kolom Done kembali 101 kartu. Diperbaiki: renderer klien memakai batas yang sama
+  (`KANBAN_COL_PAGE = 12`, `items.slice`) + tombol "+ N lainnya".
+- **Panel arsip basi**: setelah dibuka, daftar arsip tidak pernah disegarkan saat
+  tugas dipindah/dihapus. Blok arsip dipecah menjadi `loadKanbanArchive()` +
+  `toggleKanbanArchive()` + `refreshKanbanArchive()`; `renderKanbanCards()` kini
+  menyegarkan arsip hanya bila panelnya sedang terbuka (tidak ada fetch saat
+  tertutup).
+
+**Test perilaku JS (node + DOM/fetch palsu)** — 5 test, termasuk bukti bahwa
+refresh arsip tidak memicu fetch saat panel tertutup, dan tombol load-more
+aktif kembali dengan pesan gagal saat fetch error.
+
+### Verifikasi
+- `tests.test_install tests.test_panel` → **411 test OK** (+5).
+- Live: `/status` 200, service aktif, md5 runtime = repo.
+
+### Commit
+- `3234417` fix(panel): batas kolom Kanban juga berlaku setelah refresh + arsip ikut segar
