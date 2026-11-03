@@ -589,3 +589,31 @@ script, dan payload deflate (87,4 KB, guard dinaikkan 85→90 KB karena tab Conf
 
 ### Commit
 - `3a0bfc3` feat(panel): pencarian + batas render akun Kuota, dan penampil arsip Kanban
+
+## Wave 87 — Kuota kritis-dulu + test perilaku JS, sweep endpoint
+
+**Perubahan**
+- **Kuota: akun bermasalah didahulukan.** Batas 6 akun/provider bisa menyembunyikan
+  akun yang habis/kedaluwarsa. `quotaAccountRank()` = exhausted/expired/invalid/
+  error (0) → non-aktif (1) → ok (2), sort stabil.
+- **Test perilaku JS (node)** untuk tab Kuota: `_quota_js()` mengekstrak JS seperti
+  dirender (brace `.format()` dikembalikan) + DOM palsu, mengikuti pola
+  `TestGatewayFormJs`. 5 test: batas 6 + tombol sisanya, akun exhausted tidak
+  tersembunyi, showAll, pencarian email + provider disembunyikan, urutan rank.
+
+**Audit tanpa perubahan**
+- **Sweep 20 endpoint baca**: semua 200 + JSON valid (status, profiles, skills,
+  toolsets, config, soul, skill, quota, gateway/whatsapp log, pair-status,
+  gateway-config, kanban config/boards/tasks/column done+archived, network).
+  405 di `/api/network/routes` & `/api/network/dns` memang POST-only;
+  `/api/hermes-update` bukan endpoint (info update ada di fragmen status).
+- **Dugaan N+1 keliru**: `_attach_active_run` hanya query untuk tugas dengan
+  `current_run_id`, bukan untuk 101 tugas Done — tidak ada yang perlu dioptimasi.
+- Katalog skill sudah punya `filterProfileSkills()`; pencarian model sudah ada.
+
+### Verifikasi
+- `tests.test_install tests.test_panel` → **406 test OK** (+5 perilaku JS).
+- Live: `/status` 200, service aktif, md5 runtime = repo.
+
+### Commit
+- `e24f244` feat(panel): akun Kuota bermasalah didahulukan + test perilaku JS (node)
