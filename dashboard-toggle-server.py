@@ -3421,6 +3421,34 @@ function setProfileModel(profileName, provider, model){{
 var currentViewingTaskId = '';
 var taskDetailLoadGen = 0;
 var taskMutationGen = 0;
+async function loadKanbanColumnMore(btn) {{
+  // Lazy-load sisa kartu kolom (kolom besar tidak dirender semua oleh server).
+  var status = btn.dataset.status;
+  var offset = parseInt(btn.dataset.offset || '0', 10);
+  var bSel = document.getElementById('kanban-board-select');
+  var board = bSel ? bSel.value : 'default';
+  btn.disabled = true;
+  btn.textContent = 'Memuat…';
+  try {{
+    var r = await fetch('/api/kanban/column?board=' + encodeURIComponent(board)
+      + '&status=' + encodeURIComponent(status) + '&offset=' + offset + '&limit=12', {{cache: 'no-store'}});
+    var d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'gagal memuat');
+    var col = document.getElementById('col-cards-' + status);
+    if (col) col.insertAdjacentHTML('beforeend', d.cards);
+    if (d.remaining > 0) {{
+      btn.dataset.offset = String(offset + d.loaded);
+      btn.textContent = '+ ' + d.remaining + ' lainnya';
+      btn.disabled = false;
+    }} else {{
+      btn.remove();
+    }}
+  }} catch (e) {{
+    btn.disabled = false;
+    btn.textContent = 'Gagal memuat — coba lagi';
+  }}
+}}
+
 var kanbanBoardLoadGen = 0;
 var kanbanMutationGen = 0;
 var kanbanBoardSwitchGen = 0;
@@ -14066,6 +14094,100 @@ def render_kanban_dispatcher_badge() -> str:
     return '<span class="badge" style="background:rgba(234,179,8,0.15);color:#facc15;font-size:0.7rem">Dispatcher: Menunggu Gateway Aktif</span>'
 
 
+def _render_kanban_task_card(t: dict, col_id: str) -> str:
+    """HTML satu kartu tugas; dipakai papan dan endpoint load-more.
+
+    Liveness hanya dihitung untuk kolom running (badge JALAN/IDLE/MACET),
+    jadi kolom Done dengan 101 tugas tidak ikut membayar probe per tugas.
+    """
+    tid = t.get("id", "")
+    title = t.get("title", "")
+    assignee = t.get("assignee") or ""
+    pri = t.get("priority", 0)
+    pri_badge = ""
+    if pri >= 2:
+        pri_badge = '<span class="badge" style="background:rgba(239,68,68,0.18);color:var(--danger);font-size:0.62rem">Urgent</span>'
+    elif pri == 1:
+        pri_badge = '<span class="badge" style="background:rgba(245,158,11,0.15);color:#fbbf24;font-size:0.62rem">High</span>'
+
+    ass_badge = f'<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text);font-size:0.62rem;font-family:var(--font-mono)">@{html.escape(assignee)}</span>' if assignee else ''
+    if col_id == "running":
+        # Badge JALAN/IDLE/MACET hanya dipakai kolom running; kolom lain tidak
+        # perlu refresh liveness (list_kanban_tasks sudah mengisinya sekali).
+        _enrich_kanban_liveness(t)
+    live_state = t.get("live_state", "")
+    live_detail = html.escape(t.get("live_detail", ""))
+    if col_id == "running":
+        if live_state == "live":
+            running_badge = f'<span class="live-badge badge-up kb-badge-live" style="font-size:0.6rem;padding:0.1rem 0.35rem" title="{live_detail}"><span class="kb-dot"></span>JALAN</span>'
+        elif live_state == "idle":
+            running_badge = f'<span class="kb-badge-idle" title="{live_detail}"><span class="kb-dot"></span>IDLE</span>'
+        else:
+            running_badge = f'<span class="kb-badge-stale" title="{live_detail}"><span class="kb-dot"></span>MACET</span>'
+    else:
+        running_badge = ''
+
+    card_html = (
+        f'<div class="kanban-card" id="card-{html.escape(tid)}" data-task-id="{html.escape(tid)}" data-status="{col_id}" '
+        f'data-assignee="{html.escape(assignee)}" data-priority="{pri}" data-title="{html.escape(title)}" '
+        f'draggable="true" ondragstart="handleKanbanDragStart(event, \'{html.escape(tid)}\')" ondragend="handleKanbanDragEnd(event)" '
+        f'onclick="selectKanbanTask(\'{html.escape(tid)}\', event)">'
+        f'  <div style="display:flex;justify-content:space-between;align-items:center">'
+        f'    <div style="display:flex;align-items:center;gap:0.35rem">'
+        f'      <input type="checkbox" class="kanban-task-check" data-task-id="{html.escape(tid)}" onclick="event.stopPropagation(); updateKanbanSelectionUI()" style="cursor:pointer;accent-color:var(--accent);margin:0">'
+        f'      <span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--accent);font-weight:600">{html.escape(tid)}</span>'
+        f'    </div>'
+        f'    <div style="display:flex;gap:0.3rem;align-items:center">{pri_badge}{running_badge}</div>'
+        f'  </div>'
+        f'  <div style="font-size:0.82rem;font-weight:500;color:var(--text);line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'
+        f'    {html.escape(title)}'
+        f'  </div>'
+        f'  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.2rem">'
+        f'    {ass_badge}'
+        f'    <span style="font-size:0.65rem;color:var(--text-dim)">detail &rarr;</span>'
+        f'  </div>'
+        + (f'<div class="kb-live-line" style="font-size:0.62rem;color:var(--text-dim);font-family:var(--font-mono)" title="{live_detail}">{live_detail}</div>' if col_id == "running" and live_detail else '') +
+        f'</div>'
+    )
+    return card_html
+
+
+KANBAN_COL_PAGE = 12
+
+
+def _kanban_col_of(status: str) -> str:
+    """Kolom papan untuk status tugas (alias `completed` → done, `scheduled` → todo)."""
+    st = (status or "todo").strip().lower()
+    if st == "completed":
+        return "done"
+    if st == "scheduled":
+        return "todo"
+    if st in {"triage", "todo", "ready", "running", "blocked", "review", "done"}:
+        return st
+    return "todo"
+
+
+def render_kanban_column_cards(board: str = "", status: str = "done", offset=0, limit=KANBAN_COL_PAGE) -> dict:
+    """Kartu lanjutan untuk tombol '+ N lainnya' di kolom papan (lazy-load)."""
+    slug = (board or "").strip() or get_current_kanban_board()
+    col = (status or "done").strip().lower()
+    try:
+        offset = max(0, int(offset))
+    except (TypeError, ValueError):
+        offset = 0
+    try:
+        limit = max(1, min(int(limit), 50))
+    except (TypeError, ValueError):
+        limit = KANBAN_COL_PAGE
+    tasks = list_kanban_tasks(board=slug)
+    items = [t for t in tasks if _kanban_col_of(t.get("status")) == col]
+    visible = items[offset:offset + limit]
+    cards = "".join(_render_kanban_task_card(t, col) for t in visible)
+    remaining = max(0, len(items) - (offset + len(visible)))
+    return {"ok": True, "board": slug, "status": col, "offset": offset,
+            "loaded": len(visible), "total": len(items), "remaining": remaining, "cards": cards}
+
+
 def render_kanban_board_block(board_slug: str = "") -> str:
     """Render the Kanban columns and task cards."""
     slug = board_slug or get_current_kanban_board()
@@ -14087,70 +14209,30 @@ def render_kanban_board_block(board_slug: str = "") -> str:
 
     col_tasks: dict[str, list] = {c[0]: [] for c in cols_def}
     for t in tasks:
-        st = t.get("status", "todo")
-        if st in col_tasks:
-            col_tasks[st].append(t)
-        elif st == "completed":
-            col_tasks["done"].append(t)
-        elif st == "scheduled":
-            col_tasks["todo"].append(t)
-        else:
-            col_tasks["todo"].append(t)
+        col_tasks[_kanban_col_of(t.get("status"))].append(t)
 
     col_htmls = []
     for col_id, col_title, bg_color, text_color in cols_def:
         items = col_tasks.get(col_id, [])
+        visible = items[:KANBAN_COL_PAGE]
+        hidden = len(items) - len(visible)
         card_items = []
-        for t in items:
-            tid = t.get("id", "")
-            title = t.get("title", "")
-            assignee = t.get("assignee") or ""
-            pri = t.get("priority", 0)
-            pri_badge = ""
-            if pri >= 2:
-                pri_badge = '<span class="badge" style="background:rgba(239,68,68,0.18);color:var(--danger);font-size:0.62rem">Urgent</span>'
-            elif pri == 1:
-                pri_badge = '<span class="badge" style="background:rgba(245,158,11,0.15);color:#fbbf24;font-size:0.62rem">High</span>'
-
-            ass_badge = f'<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text);font-size:0.62rem;font-family:var(--font-mono)">@{html.escape(assignee)}</span>' if assignee else ''
-            _enrich_kanban_liveness(t)
-            live_state = t.get("live_state", "")
-            live_detail = html.escape(t.get("live_detail", ""))
-            if col_id == "running":
-                if live_state == "live":
-                    running_badge = f'<span class="live-badge badge-up kb-badge-live" style="font-size:0.6rem;padding:0.1rem 0.35rem" title="{live_detail}"><span class="kb-dot"></span>JALAN</span>'
-                elif live_state == "idle":
-                    running_badge = f'<span class="kb-badge-idle" title="{live_detail}"><span class="kb-dot"></span>IDLE</span>'
-                else:
-                    running_badge = f'<span class="kb-badge-stale" title="{live_detail}"><span class="kb-dot"></span>MACET</span>'
-            else:
-                running_badge = ''
-
-            card_html = (
-                f'<div class="kanban-card" id="card-{html.escape(tid)}" data-task-id="{html.escape(tid)}" data-status="{col_id}" '
-                f'data-assignee="{html.escape(assignee)}" data-priority="{pri}" data-title="{html.escape(title)}" '
-                f'draggable="true" ondragstart="handleKanbanDragStart(event, \'{html.escape(tid)}\')" ondragend="handleKanbanDragEnd(event)" '
-                f'onclick="selectKanbanTask(\'{html.escape(tid)}\', event)">'
-                f'  <div style="display:flex;justify-content:space-between;align-items:center">'
-                f'    <div style="display:flex;align-items:center;gap:0.35rem">'
-                f'      <input type="checkbox" class="kanban-task-check" data-task-id="{html.escape(tid)}" onclick="event.stopPropagation(); updateKanbanSelectionUI()" style="cursor:pointer;accent-color:var(--accent);margin:0">'
-                f'      <span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--accent);font-weight:600">{html.escape(tid)}</span>'
-                f'    </div>'
-                f'    <div style="display:flex;gap:0.3rem;align-items:center">{pri_badge}{running_badge}</div>'
-                f'  </div>'
-                f'  <div style="font-size:0.82rem;font-weight:500;color:var(--text);line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'
-                f'    {html.escape(title)}'
-                f'  </div>'
-                f'  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.2rem">'
-                f'    {ass_badge}'
-                f'    <span style="font-size:0.65rem;color:var(--text-dim)">detail &rarr;</span>'
-                f'  </div>'
-                + (f'<div class="kb-live-line" style="font-size:0.62rem;color:var(--text-dim);font-family:var(--font-mono)" title="{live_detail}">{live_detail}</div>' if col_id == "running" and live_detail else '') +
-                f'</div>'
-            )
-            card_items.append(card_html)
+        for t in visible:
+            card_items.append(_render_kanban_task_card(t, col_id))
 
         cards_body = "".join(card_items) if card_items else '<div class="kanban-empty-notice" style="font-size:0.72rem;color:var(--text-dim);font-style:italic;padding:0.5rem;text-align:center">Kosong</div>'
+
+        if hidden > 0:
+            # Kolom besar (board discord-music-bot punya 101 tugas Done) tidak
+            # dirender semua: fragmen 164 KB per tick SSE + 101 node DOM. Sisanya
+            # dimuat on-demand lewat /api/kanban/column.
+            cards_body += (
+                f'<button type="button" class="btn kb-load-more" data-status="{col_id}" '
+                f'data-offset="{len(visible)}" data-total="{len(items)}" '
+                f'onclick="loadKanbanColumnMore(this)" '
+                f'style="width:100%;margin-top:0.35rem;font-size:0.7rem;min-height:30px">'
+                f'+ {hidden} lainnya</button>'
+            )
 
         col_markup = (
             f'<div class="kanban-column" data-status="{col_id}">'
@@ -19120,6 +19202,17 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/kanban/boards":
             self._send_json({"ok": True, "active": get_current_kanban_board(), "boards": list_kanban_boards()})
+            return
+
+        if parsed.path == "/api/kanban/column":
+            board = (qs.get("board") or [""])[0]
+            status = (qs.get("status") or ["done"])[0]
+            offset = (qs.get("offset") or ["0"])[0]
+            limit = (qs.get("limit") or [str(KANBAN_COL_PAGE)])[0]
+            try:
+                self._send_json(render_kanban_column_cards(board, status, offset, limit))
+            except KanbanReadError as e:
+                self._send_json({"ok": False, "error": str(e)}, code=500)
             return
 
         if parsed.path == "/api/kanban/tasks":

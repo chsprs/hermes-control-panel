@@ -7226,5 +7226,59 @@ class TestKanbanStatusCanonical(unittest.TestCase):
         self.assertIn("ngawur", msg)
 
 
+class TestKanbanColumnPagination(unittest.TestCase):
+    """Kolom besar tidak dirender semua; sisanya lewat /api/kanban/column."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="hermes-kbpage-")
+        self.db = panel.Path(self.tmpdir) / "kanban.db"
+        self._orig_path = panel.get_kanban_db_path
+        panel.get_kanban_db_path = lambda board="": self.db
+        for i in range(15):
+            panel.create_kanban_task(f"tugas {i}", status="done")
+
+    def tearDown(self):
+        import shutil
+        panel.get_kanban_db_path = self._orig_path
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_column_alias_mapping(self):
+        self.assertEqual(panel._kanban_col_of("completed"), "done")
+        self.assertEqual(panel._kanban_col_of("scheduled"), "todo")
+        self.assertEqual(panel._kanban_col_of("ngawur"), "todo")
+
+    def test_large_column_is_capped_with_load_more(self):
+        html_out = panel.render_kanban_board_block("default")
+        self.assertEqual(html_out.count('class="kanban-card"'), panel.KANBAN_COL_PAGE)
+        self.assertIn("+ 3 lainnya", html_out)
+        self.assertIn('data-offset="12"', html_out)
+
+    def test_column_endpoint_pages_remaining_cards(self):
+        first = panel.render_kanban_column_cards("default", "done", 0, 12)
+        self.assertEqual((first["total"], first["loaded"], first["remaining"]), (15, 12, 3))
+        rest = panel.render_kanban_column_cards("default", "done", 12, 12)
+        self.assertEqual((rest["loaded"], rest["remaining"]), (3, 0))
+        self.assertEqual(rest["cards"].count('class="kanban-card"'), 3)
+        self.assertEqual(panel.render_kanban_column_cards("default", "done", 12, 999)["loaded"], 3)
+
+    def test_card_renderer_only_probes_liveness_for_running(self):
+        task = {"id": "t_x", "title": "x", "status": "done", "assignee": "", "priority": 0}
+        with mock.patch.object(panel, "_enrich_kanban_liveness",
+                               side_effect=AssertionError("liveness hanya untuk kolom running")):
+            panel._render_kanban_task_card(dict(task), "done")
+        with mock.patch.object(panel, "_enrich_kanban_liveness") as probe:
+            panel._render_kanban_task_card(dict(task), "running")
+        probe.assert_called_once()
+
+    def test_small_column_has_no_load_more_button(self):
+        # DB terpisah dengan hanya 2 tugas: tidak boleh ada tombol muat-lainnya.
+        self.db = panel.Path(self.tmpdir) / "small.db"
+        panel.create_kanban_task("satu", status="done")
+        panel.create_kanban_task("dua", status="done")
+        html_out = panel.render_kanban_board_block("default")
+        self.assertNotIn("kb-load-more", html_out)
+        self.assertEqual(html_out.count('class="kanban-card"'), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
