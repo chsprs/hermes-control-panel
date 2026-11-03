@@ -395,13 +395,13 @@ class TestHermesControlPanel(unittest.TestCase):
 
     def test_sse_applies_gateway_log_card_cache_before_dom_dismissal(self):
         src = panel.SSE_SCRIPT
-        start = src.index("if(d.gateway_log_card)")
+        start = src.index("if(d.gateway_log_card !== undefined)")
         end = src.index("syncLogUI()", start)
         segment = src[start:end]
-        self.assertIn("window._lastGatewayLogCard = d.gateway_log_card;", segment)
+        self.assertIn("window._lastGatewayLogCard = gatewayLogHtml;", segment)
         self.assertIn("if(!safeStore('getItem','gatewayLogDismissed'))", segment)
         self.assertLess(
-            segment.index("window._lastGatewayLogCard = d.gateway_log_card;"),
+            segment.index("window._lastGatewayLogCard = gatewayLogHtml;"),
             segment.index("if(!safeStore('getItem','gatewayLogDismissed'))")
         )
 

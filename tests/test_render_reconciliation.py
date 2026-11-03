@@ -160,18 +160,29 @@ function mkEl(id){
 }
 var els = {
   'process-table-slot':mkEl('process-table-slot'),
+  'log-slot':mkEl('log-slot'),
   'hermes-log-slot':mkEl('hermes-log-slot'),
+  'clean-log-slot':mkEl('clean-log-slot'),
+  'gateway-log-slot':mkEl('gateway-log-slot'),
   'update-content-slot':mkEl('update-content-slot')
 };
 els['process-table-slot'].innerHTML='OLD_PROCESS';
+els['log-slot'].innerHTML='OLD_ROUTER';
 els['hermes-log-slot'].innerHTML='OLD_HERMES';
+els['clean-log-slot'].innerHTML='OLD_CLEAN';
+els['gateway-log-slot'].innerHTML='OLD_GATEWAY';
 els['update-content-slot'].innerHTML='OLD_UPDATE';
 var document = {
   activeElement:{},
   getElementById:function(id){return els[id]||null;},
   createElement:function(){return mkEl('temp');}
 };
-var window = {_lastHermesLogCard:'OLD_HERMES', _hasHermesLog:true};
+var window = {
+  _lastRouterLogCard:'OLD_ROUTER', _hasRouterLog:true,
+  _lastHermesLogCard:'OLD_HERMES', _hasHermesLog:true,
+  _lastCleanJunkCard:'OLD_CLEAN', _hasCleanLog:true,
+  _lastGatewayLogCard:'OLD_GATEWAY', _hasGatewayLog:true
+};
 function safeStore(){ return null; }
 function updateSparkline(){}
 function syncLogUI(){}
@@ -184,17 +195,46 @@ var afterBlocked=els['process-table-slot'].innerHTML;
 interacting=false;
 apply({});
 var afterDeltaOmission=els['process-table-slot'].innerHTML;
-apply({hermes_log_card:''});
+var routerAfterOmission={
+  html:els['log-slot'].innerHTML,
+  last:window._lastRouterLogCard,
+  has:window._hasRouterLog
+};
+apply({
+  log_card:'',
+  hermes_log_card:'',
+  clean_junk_card:null,
+  gateway_log_card:''
+});
+var routerAfterEmpty={
+  html:els['log-slot'].innerHTML,
+  last:window._lastRouterLogCard,
+  has:window._hasRouterLog
+};
 var hermesAfterEmpty={
   html:els['hermes-log-slot'].innerHTML,
   last:window._lastHermesLogCard,
   has:window._hasHermesLog
 };
+var cleanAfterEmpty={
+  html:els['clean-log-slot'].innerHTML,
+  last:window._lastCleanJunkCard,
+  has:window._hasCleanLog
+};
+var gatewayAfterEmpty={
+  html:els['gateway-log-slot'].innerHTML,
+  last:window._lastGatewayLogCard,
+  has:window._hasGatewayLog
+};
 apply({update_block:'NEW_UPDATE'});
 process.stdout.write(JSON.stringify({
   afterBlocked:afterBlocked,
   afterDeltaOmission:afterDeltaOmission,
+  routerAfterOmission:routerAfterOmission,
+  routerAfterEmpty:routerAfterEmpty,
   hermesAfterEmpty:hermesAfterEmpty,
+  cleanAfterEmpty:cleanAfterEmpty,
+  gatewayAfterEmpty:gatewayAfterEmpty,
   updateAfter:els['update-content-slot'].innerHTML
 }));
 """
@@ -206,7 +246,13 @@ process.stdout.write(JSON.stringify({
         result = json.loads(run.stdout)
         self.assertEqual(result["afterBlocked"], "OLD_PROCESS")
         self.assertEqual(result["afterDeltaOmission"], "NEW_PROCESS")
-        self.assertEqual(result["hermesAfterEmpty"], {"html": "", "last": "", "has": False})
+        self.assertEqual(
+            result["routerAfterOmission"],
+            {"html": "OLD_ROUTER", "last": "OLD_ROUTER", "has": True},
+        )
+        for key in ("routerAfterEmpty", "hermesAfterEmpty", "cleanAfterEmpty", "gatewayAfterEmpty"):
+            with self.subTest(fragment=key):
+                self.assertEqual(result[key], {"html": "", "last": "", "has": False})
         self.assertEqual(result["updateAfter"], "NEW_UPDATE")
 
 

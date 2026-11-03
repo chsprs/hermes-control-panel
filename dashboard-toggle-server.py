@@ -9070,12 +9070,17 @@ SSE_SCRIPT = """<script>
     if(d.cells && d.cells.ts) set('cell-ts-perf', d.cells.ts);
     if(d.cells && d.cells.uptime) set('cell-uptime-perf', d.cells.uptime);
     if(d.cells && d.cells.internet) set('cell-internet-perf', d.cells.internet);
-    if(d.log_card){{
-      window._lastRouterLogCard = d.log_card;
-      window._hasRouterLog = true;
-    }}
-    if(!safeStore('getItem','logDismissed')) stickySet('log-slot',d.log_card);
-    else {{ var rc=document.getElementById('router-log-card'); if(rc) {{ window._lastRouterLogCard = rc.outerHTML; window._hasRouterLog = true; rc.remove(); }} }}
+    if(d.log_card !== undefined){
+      var routerLogHtml = d.log_card || '';
+      window._lastRouterLogCard = routerLogHtml;
+      window._hasRouterLog = !!routerLogHtml;
+      if(!safeStore('getItem','logDismissed')){
+        stickySet('log-slot', routerLogHtml);
+      } else {
+        var rc = document.getElementById('router-log-card');
+        if(rc) rc.remove();
+      }
+    }
     if(d.hermes_log_card !== undefined){
       var hermesLogHtml = d.hermes_log_card || '';
       window._lastHermesLogCard = hermesLogHtml;
@@ -9087,26 +9092,27 @@ SSE_SCRIPT = """<script>
         if(hc) hc.remove();
       }
     }
-    if(d.clean_junk_card) {{
-      window._lastCleanJunkCard = d.clean_junk_card;
-      window._hasCleanLog = true;
-    }}
-    if(!safeStore('getItem','cleanLogDismissed')) {{
-      var cls = document.getElementById('clean-log-slot');
-      if(cls && d.clean_junk_card) stickySet('clean-log-slot', d.clean_junk_card);
-    }} else {{
-      var cc = document.getElementById('clean-log-card');
-      if(cc) {{ window._lastCleanJunkCard = cc.outerHTML; window._hasCleanLog = true; cc.remove(); }}
-    }}
-    if(d.gateway_log_card) {
-      window._lastGatewayLogCard = d.gateway_log_card;
-      window._hasGatewayLog = true;
+    if(d.clean_junk_card !== undefined){
+      var cleanLogHtml = d.clean_junk_card || '';
+      window._lastCleanJunkCard = cleanLogHtml;
+      window._hasCleanLog = !!cleanLogHtml;
+      if(!safeStore('getItem','cleanLogDismissed')){
+        stickySet('clean-log-slot', cleanLogHtml);
+      } else {
+        var cc = document.getElementById('clean-log-card');
+        if(cc) cc.remove();
+      }
     }
-    if(!safeStore('getItem','gatewayLogDismissed')) {
-      if(d.gateway_log_card) stickySet('gateway-log-slot', d.gateway_log_card);
-    } else {
-      var gc = document.getElementById('gateway-log-card');
-      if(gc) { window._lastGatewayLogCard = gc.outerHTML; window._hasGatewayLog = true; gc.remove(); }
+    if(d.gateway_log_card !== undefined){
+      var gatewayLogHtml = d.gateway_log_card || '';
+      window._lastGatewayLogCard = gatewayLogHtml;
+      window._hasGatewayLog = !!gatewayLogHtml;
+      if(!safeStore('getItem','gatewayLogDismissed')){
+        stickySet('gateway-log-slot', gatewayLogHtml);
+      } else {
+        var gc = document.getElementById('gateway-log-card');
+        if(gc) gc.remove();
+      }
     }
     syncLogUI();
     restorePatchPages();
