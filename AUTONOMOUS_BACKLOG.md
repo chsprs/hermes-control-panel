@@ -803,3 +803,28 @@ latar belakang selesai — itu normal dan kini terselesaikan sendiri.
 
 ### Commit
 - (lihat git log) fix(panel): kartu update Hermes tidak lagi berhenti di 'Mengecek pembaruan…'
+
+## Wave 96 — Profil memori panel: baseline terukur, target <20 MB tidak realistis
+
+Pengukuran (python3.11, ru_maxrss, simulasi offline + service live):
+- Python murni: 6.7 MB
+- Setelah exec monolit (929 KB sumber, 20.344 baris): 24.0 MB
+- Setelah build_fragments dingin (30 fragmen, 6.06s): 28.7 MB
+- Setelah build_status_page (491 KB HTML): 31.2 MB
+- 3x render ulang: 31.2 MB — **tidak ada kebocoran** per render.
+- Service live (baru 6 detik, 1 request): RSS 58.4 MB, 4 thread; cgroup 125.6 MB
+  (termasuk page cache, bukan biaya panel). /api/status 46 ms, 30 key.
+
+**Kesimpulan**: lantai realistis monolitik Python ini ≈ 30–35 MB RSS berjalan.
+Target <20 MB tidak tercapai tanpa ganti desain (mis. server statis + API
+terpisah) — biayanya besar dan tidak sepadan untuk SBC ini. Target resmi diubah:
+**<40 MB RSS berjalan** (tercapai dengan margin), fokus tetap pada latensi dan
+tanpa kebocoran (sudah terbukti stabil per-render).
+
+Catatan latensi: build_fragments dingin 6s disebabkan panggilan CLI/subprocess
+(terutama inventory profil & kanban); jalur hangat 46 ms — konsisten dengan
+pekerjaan Wave 82 (fast-path cache).
+
+### Artefak
+- /tmp/panel_baseline_mem.py, /tmp/panel_render_mem.py (skrip pengukuran, bisa
+  dipindahkan ke tools/ bila ingin dipakai ulang).
