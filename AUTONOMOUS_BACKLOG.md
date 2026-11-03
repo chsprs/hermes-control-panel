@@ -919,3 +919,20 @@ patch; suite penuh **465 OK**; live terverifikasi.
 
 ### Commit
 - (lihat git log) feat(panel): empty state pencarian model
+
+## Wave 101 — Jalur dingin panel 7,3s → 3,1s via parser YAML C
+
+Profil cProfile: 4,5 dtk dari 7,3 dtk build_fragments dingin = parsing YAML
+(config 1060 baris + 36 profil; PyYAML safe_load pakai parser Python meski
+libyaml terpasang). Helper `_yaml_load` (CSafeLoader, fallback SafeLoader)
+mengganti seluruh 15 titik baca. Bench 6,5x/parser; dingin offline 3,12s.
+
+Test +4 `TestFastYamlLoader` (identik safe_load, tag !python/* ditolak,
+migrasi situs lengkap); negative control 4/4 gagal tanpa patch; suite **469 OK**.
+
+**Live**: permintaan pertama setelah socket-wake **2,48s** (dulunya ±6–7s);
+hangat tetap 38 ms. Sisa biaya dingin = 21 subprocess inventori (perlu, tak
+dipangkas gelombang ini).
+
+### Commit
+- (lihat git log) perf(panel): parsing YAML via libyaml (CSafeLoader)
