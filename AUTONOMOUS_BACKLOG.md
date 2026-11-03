@@ -950,3 +950,20 @@ Audit kode + uji live seluruh endpoint `/api/network/*`:
 
 ### Commit
 - (lihat git log) test(panel): kunci kontrak validasi endpoint Jaringan
+
+## Wave 103 — Cache `gh auth token` 10 menit
+
+Profil lanjutan jalur dingin: 24 subprocess (1,24 dtk); `gh auth token` adalah
+yang termahal kedua (0,22–0,29 dtk) dan **dipanggil dari dua jalur** (render
+patch-notes + cek pembaruan) — dua kali per bangun dari deep-sleep.
+
+`_gh_token_cache` (TTL 10 mnt, hasil negatif ikut): satu panggilan per bangun.
+Test +3 `TestGithubTokenCache`; negative control 2/3 error tanpa patch; test
+lama disesuaikan (reset cache antar skenario). Suite **477 OK**.
+
+Dingin live 2,5 dtk (pembulatan; penghematan ~0,2 dtk terlihat pada bangun
+berikutnya di dalam TTL). Sisa dingin: docker ×3 (0,4 dtk) + ~14 systemctl
+(0,5 dtk) — kandidat paralelisasi gelombang berikutnya bila masih diinginkan.
+
+### Commit
+- `08a6b6c` perf(panel): cache `gh auth token` 10 menit
