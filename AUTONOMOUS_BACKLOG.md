@@ -559,3 +559,33 @@ script, dan payload deflate (87,4 KB, guard dinaikkan 85→90 KB karena tab Conf
 ### Commit
 - `d948090` feat(panel): lazy-load kolom Kanban besar (164 KB → 25 KB)
 - `de69d90` feat(panel): dropdown board Kanban menampilkan jumlah arsip
+
+## Wave 86 — Fitur Kuota (cari + batas akun) & penampil arsip Kanban
+
+**Fitur baru**
+- **Kuota AI**: 156 akun qoder tidak lagi dirender semua — 6 akun pertama per
+  provider (`QUOTA_ACCOUNT_PAGE`) + tombol "+ N akun lainnya". Input
+  "Cari akun / email…" memfilter nama/email/provider, menyembunyikan provider
+  tanpa hasil, dan menampilkan semua akun yang cocok.
+- **Kanban → Arsip**: tombol baru di samping dropdown papan membuka daftar tugas
+  terarsip (`/api/kanban/column?status=archived`), memakai ulang lazy-load kolom
+  (`col-cards-archived` + `loadKanbanColumnMore`). Reset saat ganti papan.
+  Live: board default → `{total:12, loaded:12, remaining:0}`.
+
+**Temuan yang tidak perlu diubah**
+- Tab Model sudah punya `#model-search` + `filterModels()` yang juga menyembunyikan
+  grup kosong, dan `model_chips` memang tidak dikirim lewat SSE (komentar di kode:
+  38 KB, tidak pernah diganti via SSE) sehingga filter tidak terhapus tiap tick.
+- Kuota JSON 107 KB; masalahnya DOM, bukan ukuran payload.
+
+**Perbaikan proses**
+- Kontrol baru sempat `min-height:30px` → `TestMobileAccessibility` gagal (floor
+  32px). Diganti ke 32px di 3 tempat; sekarang 5 test a11y hijau.
+
+### Verifikasi
+- `tests.test_install tests.test_panel` → **401 test OK** (+5 baru).
+- Live: `/api/kanban/column?status=archived` OK; halaman memuat `kb-archive-wrap`
+  dan `qz-search`; `/status` 200; service aktif.
+
+### Commit
+- `3a0bfc3` feat(panel): pencarian + batas render akun Kuota, dan penampil arsip Kanban
