@@ -1032,3 +1032,32 @@ Docker terverifikasi ter-render di halaman yang dilayani.
 
 ### Commit
 - (lihat git log) fix(panel): escape string-JS tombol Buka blok Docker
+
+## Wave 108 — AKAR SEBENARNYA ditemukan: pin skill tak terpasang (bukan regresi v0.22.6)
+
+Hipotesis sebelumnya (race protokol worker v0.22.6 / Python 3.14) **SALAH**.
+Hipotesis pengguna (bukan soal model) mengarahkan investigasi ke log yang tepat:
+`profiles/coder/logs/managed-worker.log` menunjukkan
+
+    ValueError: kanban_skills_unavailable   (gateway/session_kanban.py:388)
+
+Penyebab: task dibuat dengan `skills: ["hermes-control-panel-maintenance"]`
+(ada di profil default), padahal profil **coder** punya nama lain
+(`homelab/hermes-control-panel`). Worker di-admit lalu langsung gagal; error
+sesungguhnya tersamarkan menjadi "Kanban execution unknown; retained by owner"
+di board.
+
+**Bukti perbaikan**: task verifikasi `t_a5c11213` (tanpa pin skill) →
+`completed` normal dalam ±4 mnt, menghasilkan patch + laporan terverifikasi
+(`_yaml_load("")` → None). Patch diterapkan, suite **486 OK** (commit `8220e02`).
+Dispatch worker Kanban **normal kembali**.
+
+**Tindak lanjut**:
+- Draf laporan upstream lama (salah diagnosis) dihapus; diganti
+  `/root/hermes-upstream-kanban-skills-error-masking.md` — bug UX nyata: pin
+  skill yang tak terpasang gagal dengan pesan admission yang menyesatkan.
+- Skill `hermes-control-panel-maintenance` diperbarui dengan aturan: jangan
+  pin skill yang tidak ada di profil assignee (daftar nama per profil dicatat).
+
+### Commit
+- `8220e02` test(panel): kunci kontrak _yaml_load dokumen kosong (patch worker)
