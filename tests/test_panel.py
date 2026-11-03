@@ -8387,5 +8387,55 @@ class TestDockerMissingTtl(unittest.TestCase):
         panel._docker_metric_cache.clear()
 
 
+
+class TestDockerAppsOpenButtonJsEscaping(unittest.TestCase):
+    """Tombol Buka: path dari metadata CasaOS masuk literal JS berkutip tunggal.
+
+    html.escape(quote=True) tidak cukup untuk konteks onclick: &#x27; di-decode
+    parser HTML kembali menjadi ' sebelum JS mengeksekusi, jadi path berisi
+    kutip/newline memutus literal (tombol mati diam-diam) — kelas bug yang sama
+    dengan judul Kanban (Wave 94) dan nama model cadangan (Wave 99).
+    Negatif kontrol: tanpa patch, kutip tidak ter-escape setelah decode HTML.
+    """
+
+    def _render_with_path(self, path):
+        container = {
+            "name": "app1", "title": "App", "image": "img:1", "state": "running",
+            "is_running": True, "status": "Up 2h", "icon": "", "port": "8080",
+            "path": path, "scheme": "http",
+        }
+        with mock.patch.object(panel, "get_docker_containers_info", return_value=[container]), \
+             mock.patch.object(panel, "get_docker_metric", return_value=("running", "1", 1.0)):
+            return panel._render_docker_apps_block_uncached()
+
+    def _onclick_decoded(self, html_out):
+        js = html_out[html_out.index("window.open("):html_out.index("return false")]
+        return panel.html.unescape(js)  # seperti yang parser HTML serahkan ke JS
+
+    def test_quote_in_path_is_escaped_for_js_string(self):
+        out = self._render_with_path("/x'y")
+        js = self._onclick_decoded(out)
+        self.assertIn(chr(92) + "'", js)   # kutip ter-escape
+        self.assertIn("/x" + chr(92) + "'y", js)  # path utuh, escape tepat di posisi kutip
+
+    def test_newline_in_path_is_escaped(self):
+        out = self._render_with_path("/a\nb")
+        js = self._onclick_decoded(out)
+        self.assertIn(chr(92) + "n", js)    # \n dua karakter, bukan newline mentah
+        self.assertNotIn(chr(10), js)
+
+    def test_plain_path_unchanged(self):
+        out = self._render_with_path("/")
+        js = self._onclick_decoded(out)
+        self.assertIn("'http://'+window.location.hostname+':8080/'", js)
+
+    def test_href_keeps_url_semantics(self):
+        out = self._render_with_path("/x'y")
+        href = re.search(r'href="([^"]*)"', out).group(1)
+        # href (konteks URL) tidak boleh membawa backslash-escape
+        self.assertNotIn(chr(92), href)
+        self.assertIn("/x", href)
+
+
 if __name__ == "__main__":
     unittest.main()

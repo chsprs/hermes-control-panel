@@ -16930,6 +16930,19 @@ def _render_docker_apps_block_uncached() -> str:
         port = html.escape(c["port"])
         path = html.escape(c["path"], quote=True)
         scheme = html.escape(c["scheme"], quote=True) or "http"
+        # Konteks onclick memakai literal JS berkutip tunggal: &#x27;/&#x27;x27;
+        # didecode HTML parser kembali menjadi ' sebelum JS mengeksekusi, jadi
+        # nilai mentah harus di-escape sebagai string JS DULU (konvensi chr()
+        # sama dengan render_aux_tasks_block / render_backup_models_block).
+        def _js_q(v: str) -> str:
+            return html.escape(
+                str(v).replace(chr(92), chr(92) * 2).replace(chr(39), chr(92) + chr(39))
+                      .replace(chr(10), chr(92) + "n").replace(chr(13), chr(92) + "r"),
+                quote=True,
+            )
+        js_scheme = _js_q(c["scheme"] or "http")
+        js_port = _js_q(c["port"])
+        js_path = _js_q(c["path"])
 
         if is_run:
             status_badge = '<span class="live-badge badge-up" style="font-size:0.65rem;padding:0.12rem 0.45rem"><span class="kb-dot"></span>Aktif</span>'
@@ -16939,7 +16952,7 @@ def _render_docker_apps_block_uncached() -> str:
         if is_run and port:
             open_btn = (
                 f'<a class="btn-action-sm open" href="{scheme}://{_link_host()}:{port}{path}" target="_blank" rel="noopener" '
-                f'onclick="window.open(\'{scheme}://\'+window.location.hostname+\':{port}{path}\',\'_blank\',\'noopener\');return false;" '
+                f'onclick="window.open(\'{js_scheme}://\'+window.location.hostname+\':{js_port}{js_path}\',\'_blank\',\'noopener\');return false;" '
                 f'style="background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.3);text-decoration:none;display:inline-flex;align-items:center;gap:4px">'
                 f'{ICON_EXTERNAL_LINK} Buka</a>'
             )
