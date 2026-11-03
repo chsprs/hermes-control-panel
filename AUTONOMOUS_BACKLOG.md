@@ -828,3 +828,26 @@ pekerjaan Wave 82 (fast-path cache).
 ### Artefak
 - /tmp/panel_baseline_mem.py, /tmp/panel_render_mem.py (skrip pengukuran, bisa
   dipindahkan ke tools/ bila ingin dipakai ulang).
+
+## Wave 97 — Sparkline performa: riwayat asli + hilangkan data dummy (t_e42bba09)
+
+**Konteks**: dispatch worker Kanban rusak deterministik pasca-update v0.22.6
+(receipt 'unknown' → worker exit 1; 6 percobaan/3 task identik; v0.22.6 merombak
+`kanban_worker_client.py` 141 baris; gateway kini Python 3.14 hasil repin).
+Task dikerjakan langsung oleh sesi interaktik; board tetap dipakai untuk
+pelacakan (komentar + complete). Task t_309252ae & t_6f2efe25 masih diparkir.
+
+**Temuan**: sparkline sudah ada, tetapi riwayatnya di-seed angka DUMMY → tren
+CPU/RAM PALSU ±30 dtk pertama setelah reload + riwayat hilang tiap reload.
+
+**Implementasi** (commit `b6f567b`):
+- `_perf_ring` 120 titik (jeda sampel 2 dtk) + `get_perf_series()` + GET
+  `/api/perf/series` (tidak masuk SSE_CLIENT_KEYS — paritas render aman).
+- Klien: dummy dihapus; `seedPerfHistory()` lazy saat tab Performa aktif
+  (hook switchTab + delta SSE; diekspos `window.seedPerfHistory`).
+- Label `min/maks/sekarang` per grafik; <2 titik → polyline dikosongkan +
+  'menunggu data…'.
+
+**Test**: +10 `TestPerfSparklineHistory`; negative control 10/10 error tanpa
+patch; suite penuh **452 OK**. Verifikasi live: seri nyata bertambah (2→3 titik
+dalam ±15 dtk), dummy hilang dari halaman.
