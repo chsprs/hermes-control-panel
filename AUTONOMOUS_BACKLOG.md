@@ -738,3 +738,23 @@ halaman, service aktif.
 
 ### Commit
 - `23bf44d` fix(panel): kontrak empty/null yang sama untuk semua kartu log SSE
+
+## Wave 93 — Pagar regresi paritas render (patch worker, hanya test)
+
+**Diterapkan dari worker `t_e9de7e4e`** (commit `1b4be63`): 415 baris test baru,
+tanpa perubahan kode produksi → tidak perlu restart service (md5 repo = runtime).
+- Paritas nilai full vs SSE-only vs payload JSON untuk **semua** key
+  `SSE_CLIENT_KEYS` + pemetaan fragmen ke slot DOM.
+- Delta empty/large: fragmen unicode besar round-trip; non-empty → `""` tetap
+  terkirim; pengulangan empty boleh di-omit; 4 kartu log memakai `!== undefined`.
+- Kanban 0/1/12/13/25 (konstanta limit server=klien, badge, offset/remaining,
+  placeholder, field kosong tidak jadi `None`/badge `@` kosong).
+- Tabel proses (PID 0 dipertahankan, PID/mem kosong → `-`), empty state profil &
+  gateway, model chips offline tidak dikirim SSE, rate-limit 180/181 karakter,
+  versi kosong → `v?`.
+
+**Verifikasi live**: 8/8 PASS; `unittest discover -s tests` → **433 OK**
+(termasuk dua test yang hanya gagal di scratch worker).
+
+### Commit
+- `1b4be63` test(panel): 8 test regresi paritas render server-klien
