@@ -161,6 +161,22 @@ sudo journalctl -u hermes-panel.service -f
 sudo ./uninstall.sh
 ```
 
+### Health check (cron-friendly)
+
+```bash
+python3 tools/panel-health-check.py          # ringkas; exit 1 bila ada yang gagal
+python3 tools/panel-health-check.py --json   # keluaran JSON untuk parsing
+```
+
+Memeriksa `/status`, `/api/status` (fragmen wajib), `/api/perf/series`, dan delta
+pertama stream `/events`, lengkap dengan latensi dan ambang "lambat" (bawaan 2,5 dtk).
+Contoh pemakaian di cron:
+
+```cron
+*/15 * * * * python3 /root/hermes-control-panel/tools/panel-health-check.py --json \
+  >> /var/log/hermes-panel-health.log 2>&1 || echo "panel tidak sehat" | mail -s "hermes-panel" root
+```
+
 ---
 
 ## 📄 Lisensi
