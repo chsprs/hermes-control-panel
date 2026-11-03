@@ -986,3 +986,18 @@ mensyaratkan otorisasi eksplisit sebelum dihapus.
 
 ### Commit
 - (lihat git log) test(panel): audit callback UI lengkap — 88 handler dikunci
+
+## Wave 105 — Container hantu tidak diprobe ulang (TTL missing 300 dtk)
+
+Dua inspeksi docker termahal di render adalah kandidat Pi-hole yang tidak ada
+(0,32 dtk) — dan karena status "missing" cuma di-cache 3 dtk, itu berulang
+terus selama panel terbuka, bukan sekadar biaya bangun.
+
+`DOCKER_METRIC_MISSING_TTL = 300` dtk; aksi proses tetap memaksa refresh via
+`invalidate_process_list_cache()`; container baru terdeteksi <=5 mnt.
+Container yang ada tetap TTL 3 dtk. Test +3 `TestDockerMissingTtl`
+(time-travel monotonic); negative control 2/3 gagal tanpa patch;
+suite **481 OK**; live dingin 2,2 dtk / hangat 44 ms.
+
+### Commit
+- (lihat git log) perf(panel): TTL 300 dtk untuk status container "missing"
