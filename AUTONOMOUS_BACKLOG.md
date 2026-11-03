@@ -782,3 +782,24 @@ muncul di lingkungan scratch worker (mock path/aset), selalu hijau di live.
 
 ### Commit
 - `753597e` fix(panel): paritas judul kosong kartu Kanban (patch penutup t_cb20e435)
+
+## Wave 95 — Cek update Hermes tidak lagi selalu "mengecek"
+
+Keluhan pengguna: kartu update Hermes selalu "Mengecek pembaruan Hermes…". Cek di
+server sebenarnya sukses; hasilnya hanya tidak pernah dikirim ke browser.
+- `hermes_update_block` dipindah sebelum early return `sse_only` + masuk
+  `SSE_CLIENT_KEYS` + diterapkan JS ke `hermes-update-slot` (akar yang sama dengan
+  `update_block` 9router di Wave 91, fragmen ini tertinggal).
+- Slot log Hermes dipisah ke template (`hermes-update-card` berisi
+  `hermes-update-slot` + `hermes-log-slot`) agar push status update tidak menimpa
+  log / membangkitkan log yang sudah di-dismiss.
+- `build_status_page` memakai `.get("hermes_log_card", "")`.
+- Test +3 (`TestHermesUpdateBlockLive`) & 1 test paritas disesuaikan; 442 OK.
+- Bukti live: SSE mengirim "Mengecek…" lalu ±40 dtk "Pembaruan tersedia: stable
+  v0.22.6 (f0d94882e89a) · channel stable" tanpa reload.
+
+Catatan: tepat setelah restart service, status memang "checking" sampai cek
+latar belakang selesai — itu normal dan kini terselesaikan sendiri.
+
+### Commit
+- (lihat git log) fix(panel): kartu update Hermes tidak lagi berhenti di 'Mengecek pembaruan…'
