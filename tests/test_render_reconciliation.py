@@ -258,3 +258,56 @@ process.stdout.write(JSON.stringify({
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHermesUpdateBlockLive(TestRenderReconciliation):
+    """Kartu update Hermes tidak boleh berhenti di 'Mengecek pembaruan Hermes…'.
+
+    Akar masalah: fragmen dihitung SETELAH early return sse_only dan tidak ada di
+    SSE_CLIENT_KEYS, jadi hasil cek hanya terlihat setelah reload penuh. Slot log
+    juga dulu bersarang di dalam blok update, sehingga ikut tertimpa bila blok
+    dikirim utuh.
+    """
+
+    def test_sse_carries_hermes_update_block_not_stuck_checking(self):
+        with ExitStack() as stack:
+            self._mock_fragment_dependencies(stack)
+            stack.enter_context(mock.patch.object(panel, "get_hermes_update", return_value={
+                "status": "available", "local": "0.22.5",
+                "remote": "stable v0.22.6 (f0d94882e89a)", "behind": 3,
+                "channel": "stable",
+            }))
+            sse = panel.build_fragments(sse_only=True)
+            full = panel.build_fragments()
+            payload = json.loads(panel._sse_payload(sse))
+        self.assertIn("hermes_update_block", sse)
+        self.assertIn("hermes_update_block", payload)
+        self.assertEqual(sse["hermes_update_block"], full["hermes_update_block"])
+        self.assertIn("Pembaruan tersedia", sse["hermes_update_block"])
+        self.assertNotIn("Mengecek pembaruan Hermes", sse["hermes_update_block"])
+        self.assertNotIn('id="hermes-log-slot"', sse["hermes_update_block"])
+
+    def test_checking_transitions_to_current_via_delta(self):
+        with ExitStack() as stack:
+            self._mock_fragment_dependencies(stack)
+            panel._sse_last_keys = {}
+            stack.enter_context(mock.patch.object(panel, "get_hermes_update", return_value={
+                "status": "checking", "local": "?", "remote": "?",
+                "behind": 0, "channel": "",
+            }))
+            checking = json.loads(panel._sse_payload(panel.build_fragments(sse_only=True), delta=True))
+            self.assertIn("Mengecek pembaruan Hermes", checking["hermes_update_block"])
+            stack.enter_context(mock.patch.object(panel, "get_hermes_update", return_value={
+                "status": "current", "local": "0.22.6", "remote": "0.22.6",
+                "behind": 0, "channel": "stable",
+            }))
+            settled = json.loads(panel._sse_payload(panel.build_fragments(sse_only=True), delta=True))
+        self.assertIn("hermes_update_block", settled)
+        self.assertIn("sudah versi terbaru", settled["hermes_update_block"])
+
+    def test_page_slots_and_js_apply(self):
+        self.assertEqual(panel.PAGE.count('id="hermes-log-slot"'), 1)
+        self.assertEqual(panel.PAGE.count('id="hermes-update-slot"'), 1)
+        self.assertIn("hermes_update_block", panel.SSE_CLIENT_KEYS)
+        js = panel.PAGE + getattr(panel, "SSE_SCRIPT", "")
+        self.assertIn("set('hermes-update-slot', d.hermes_update_block)", js)

@@ -2132,7 +2132,10 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
         onclick="toggleLog('logDismissed','log-show-wrap')">Tampilkan Log Pembaruan 9router</button>
     </div>
   </div>
-  <div class="card card-warn" id="hermes-update-slot">{hermes_update_block}</div>
+  <div class="card card-warn" id="hermes-update-card">
+    <div id="hermes-update-slot">{hermes_update_block}</div>
+    <div id="hermes-log-slot">{hermes_log_card}</div>
+  </div>
   <div id="hermes-log-show" style="display:none;margin-top:.6rem">
     <button type="button" class="btn" style="width:auto;padding:0.35rem 0.8rem;font-size:0.75rem;margin:0"
       onclick="toggleLog('hermesLogDismissed','hermes-log-show')">Tampilkan Log Hermes</button>
@@ -9040,6 +9043,7 @@ SSE_SCRIPT = """<script>
       }
     }
     if(d.update_block) set('update-content-slot',d.update_block);
+    if(d.hermes_update_block) set('hermes-update-slot', d.hermes_update_block);
     if(d.gateway_list_block) set('gateway-list-slot', d.gateway_list_block);
     if(d.profiles_block) set('profiles-slot', d.profiles_block);
     if(d.gw_summary_text){
@@ -17923,6 +17927,57 @@ def build_fragments(sse_only: bool = False) -> dict:
         else:  # checking — the auto-poll picks up the settled result
             update_block = f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan 9router…</div>' + cek_btn + router_patch_notes_html
 
+    hermes_notes = get_hermes_patch_notes()
+    hermes_patch_notes_html = render_patch_notes_block("Hermes Agent", hermes_notes)
+    hermes_cek_btn = f'<a class="toggle restart" href="/check-hermes-update">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
+    hermes_channel = hermes_upd.get("channel") or ""
+    hermes_remote = hermes_upd.get("remote") or ""
+    hermes_chan_txt = f" · channel {html.escape(hermes_channel)}" if hermes_channel else ""
+
+    if hermes_result.get("running"):
+        hermes_update_block = (
+            f'<div class="update-hint">{ICON_CLOCK}Updater Hermes sedang berjalan live…</div>'
+            + hermes_patch_notes_html
+        )
+    elif hermes_status == "available":
+        target_txt = (html.escape(hermes_remote) if hermes_remote and hermes_remote != hermes_local
+                      else f"{hermes_behind} komit")
+        hermes_update_block = (
+            f'<div class="update-hint">{ICON_ARROW_UP_CIRCLE}Pembaruan tersedia: {target_txt}{hermes_chan_txt}</div>'
+            f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);color:#141922" href="/update-hermes">'
+            f'{ICON_ARROW_UP_CIRCLE}Perbarui Hermes ({target_txt})</a>'
+            + hermes_cek_btn
+            + hermes_patch_notes_html
+        )
+    elif hermes_status == "ahead":
+        hermes_update_block = (
+            f'<div class="update-hint">{ICON_CHECK}Versi terpasang ({html.escape(hermes_local)}) lebih baru dari rilis '
+            f'{html.escape(hermes_remote) or "channel ini"}{hermes_chan_txt}. Tombol update disembunyikan karena '
+            f'<code>hermes update</code> akan menurunkan versi ke rilis tersebut.</div>'
+            + hermes_cek_btn
+            + hermes_patch_notes_html
+        )
+    elif hermes_status == "current":
+        hermes_update_block = (
+            f'<div class="update-hint">{ICON_CHECK}Hermes sudah versi terbaru ({html.escape(hermes_remote or hermes_local)}{hermes_chan_txt})</div>'
+            + hermes_cek_btn
+            + hermes_patch_notes_html
+        )
+    elif hermes_status == "unknown":
+        err_txt = html.escape(hermes_upd.get("error") or "")
+        hermes_update_block = (
+            f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek pembaruan Hermes — periksa koneksi atau coba lagi'
+            + (f'<br><small>{err_txt}</small>' if err_txt else '') + '</div>'
+            + hermes_cek_btn
+            + hermes_patch_notes_html
+        )
+    else:  # checking
+        hermes_update_block = (
+            f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan Hermes…</div>'
+            + hermes_cek_btn
+            + hermes_patch_notes_html
+        )
+
     if sse_only:
         return {
             "cells": cells,
@@ -17938,6 +17993,7 @@ def build_fragments(sse_only: bool = False) -> dict:
             "clean_junk_card": render_clean_junk_card(),
             "gateway_log_card": gateway_log_card,
             "update_block": update_block,
+            "hermes_update_block": hermes_update_block,
             "profiles_block": render_profiles_block(),
             "updating": updating,
             "dash_active": dash_active,
@@ -18049,57 +18105,6 @@ def build_fragments(sse_only: bool = False) -> dict:
     else:
         rate_limit_card = ""
 
-    hermes_notes = get_hermes_patch_notes()
-    hermes_patch_notes_html = render_patch_notes_block("Hermes Agent", hermes_notes)
-    hermes_cek_btn = f'<a class="toggle restart" href="/check-hermes-update">{ICON_REFRESH}Cek Pembaruan Hermes</a>'
-    hermes_channel = hermes_upd.get("channel") or ""
-    hermes_remote = hermes_upd.get("remote") or ""
-    hermes_chan_txt = f" · channel {html.escape(hermes_channel)}" if hermes_channel else ""
-
-    if hermes_result.get("running"):
-        hermes_update_block = (
-            f'<div class="update-hint">{ICON_CLOCK}Updater Hermes sedang berjalan live…</div>'
-            + hermes_patch_notes_html
-        )
-    elif hermes_status == "available":
-        target_txt = (html.escape(hermes_remote) if hermes_remote and hermes_remote != hermes_local
-                      else f"{hermes_behind} komit")
-        hermes_update_block = (
-            f'<div class="update-hint">{ICON_ARROW_UP_CIRCLE}Pembaruan tersedia: {target_txt}{hermes_chan_txt}</div>'
-            f'<a class="toggle" style="background:linear-gradient(135deg,var(--warning),#d9860bcc);color:#141922" href="/update-hermes">'
-            f'{ICON_ARROW_UP_CIRCLE}Perbarui Hermes ({target_txt})</a>'
-            + hermes_cek_btn
-            + hermes_patch_notes_html
-        )
-    elif hermes_status == "ahead":
-        hermes_update_block = (
-            f'<div class="update-hint">{ICON_CHECK}Versi terpasang ({html.escape(hermes_local)}) lebih baru dari rilis '
-            f'{html.escape(hermes_remote) or "channel ini"}{hermes_chan_txt}. Tombol update disembunyikan karena '
-            f'<code>hermes update</code> akan menurunkan versi ke rilis tersebut.</div>'
-            + hermes_cek_btn
-            + hermes_patch_notes_html
-        )
-    elif hermes_status == "current":
-        hermes_update_block = (
-            f'<div class="update-hint">{ICON_CHECK}Hermes sudah versi terbaru ({html.escape(hermes_remote or hermes_local)}{hermes_chan_txt})</div>'
-            + hermes_cek_btn
-            + hermes_patch_notes_html
-        )
-    elif hermes_status == "unknown":
-        err_txt = html.escape(hermes_upd.get("error") or "")
-        hermes_update_block = (
-            f'<div class="update-hint">{ICON_ALERT_TRIANGLE}Gagal cek pembaruan Hermes — periksa koneksi atau coba lagi'
-            + (f'<br><small>{err_txt}</small>' if err_txt else '') + '</div>'
-            + hermes_cek_btn
-            + hermes_patch_notes_html
-        )
-    else:  # checking
-        hermes_update_block = (
-            f'<div class="update-hint">{ICON_CLOCK}Mengecek pembaruan Hermes…</div>'
-            + hermes_cek_btn
-            + hermes_patch_notes_html
-        )
-    hermes_update_block += f'<div id="hermes-log-slot">{hermes_log_card}</div>'
 
     quick_links_block = (
         (get_open_block_active() if dash_active else OPEN_BLOCK_INACTIVE)
@@ -18343,6 +18348,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         clean_junk_card=frag["clean_junk_card"],
         update_block=frag["update_block"],
         hermes_update_block=frag["hermes_update_block"],
+        hermes_log_card=frag.get("hermes_log_card", ""),
         aux_tasks_block=frag["aux_tasks_block"],
         backup_models_block=frag["backup_models_block"],
         profiles_block=frag.get("profiles_block", ""),
@@ -18467,6 +18473,7 @@ SSE_CLIENT_KEYS = (
     "cells", "cell_load", "cpu_pct", "ram_pct", "processes_table", "gateway_list_block",
     "gw_summary_text", "gw_summary_badge_class", "log_card", "hermes_log_card",
     "clean_junk_card", "gateway_log_card", "profiles_block", "update_block",
+    "hermes_update_block",
 )
 
 

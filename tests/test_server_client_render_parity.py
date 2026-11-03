@@ -419,7 +419,11 @@ class TestServerClientRenderParity(unittest.TestCase):
         assert full["update_block"] == sse["update_block"] == payload["update_block"]
         assert full["hermes_log_card"] == sse["hermes_log_card"] == ""
         assert payload["hermes_log_card"] == "", "empty Hermes log must survive serialization"
-        assert '<div id="hermes-log-slot"></div>' in full["hermes_update_block"]
+        # Slot log kini berada di template, bukan di dalam blok update, supaya
+        # pengiriman blok update via SSE tidak menimpa log/dismiss pengguna.
+        assert '<div id="hermes-log-slot">{hermes_log_card}</div>' in panel.PAGE
+        assert 'id="hermes-log-slot"' not in full["hermes_update_block"]
+        assert full["hermes_update_block"] == sse["hermes_update_block"] == payload["hermes_update_block"]
         assert "Gagal cek pembaruan Hermes" in full["hermes_update_block"]
         assert "None" not in full["hermes_update_block"]
 
