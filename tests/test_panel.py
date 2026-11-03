@@ -2727,11 +2727,13 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
         decompressed = gzip.decompress(raw).decode("utf-8")
         self.assertIn("<!doctype html>", decompressed.lower())
         self.assertIn("Hermes Control Panel", decompressed)
-        # Verify significant payload reduction: 400KB+ to < 90KB (~80% reduction).
+        # Verify significant payload reduction: 400KB+ to < 95KB (~80% reduction).
         # Baseline moved from 85 KB to ~85.6 KB when fonts were self-hosted
         # (commit e7517a5, Wave 78) — the woff2 payload is now part of the page
-        # instead of a CDN round-trip. The guard still catches a 2x page bloat.
-        self.assertLess(len(raw), 90000)
+        # instead of a CDN round-trip. 90 KB → 95 KB (Wave 98): riwayat performa
+        # asli t_e42bba09 (seed lazy + label min/maks/sekarang, ~2,5 KB gzip).
+        # Terukur 92,5 KB — guard tetap menangkap bloat 2×.
+        self.assertLess(len(raw), 95000)
         self.assertGreater(len(decompressed), 350000)
 
     def test_deflate_compression_on_status_page(self):
@@ -2743,8 +2745,9 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
         decompressed = zlib.decompress(raw).decode("utf-8")
         self.assertIn("<!doctype html>", decompressed.lower())
         # 85 KB → 90 KB: tab Profil sekarang membawa modal Skills/Tools/Config
-        # (selector platform + pane config). Guard tetap menangkap bloat 2×.
-        self.assertLess(len(raw), 90000)
+        # (selector platform + pane config). 90 KB → 95 KB (Wave 98): riwayat
+        # performa t_e42bba09 (~2,5 KB gzip). Guard tetap menangkap bloat 2×.
+        self.assertLess(len(raw), 95000)
         self.assertGreater(len(decompressed), 350000)
 
     def test_no_compression_without_accept_encoding(self):
@@ -7938,6 +7941,134 @@ setTimeout(function(){
             "during": True, "afterDisabled": False, "afterLabel": "Matikan",
             "pending": False, "refreshes": 0, "toast": "err",
         })
+
+
+
+# ---------------------------------------------------------------------------
+# t_6f2efe25 — interaksi gabungan filter Kuota & Model (Node harness fake-DOM).
+# Test perilaku murni untuk kode yang sudah ada; temuan gap didokumentasikan di
+# komentar task (bukan dipaksa patch): filterModels tidak punya empty state.
+# ---------------------------------------------------------------------------
+
+def _model_filter_js() -> str:
+    """JS filterModels persis seperti dirender (PAGE memakai str.format)."""
+    start = panel.PAGE.index("function filterModels")
+    end = panel.PAGE.index("function toggleLog")
+    return panel.PAGE[start:end].replace("{{", "{").replace("}}", "}")
+
+
+_MODEL_HARNESS = r"""
+var __chips = [];
+var __groups = [];
+var document = {
+  querySelectorAll: function(sel){
+    if(sel === '#model-chips .model-chip') return __chips;
+    if(sel === '#model-chips .model-group') return __groups;
+    return [];
+  }
+};
+function mkGroup(){
+  var g = {style: {}, _chips: [], querySelectorAll: function(sel){
+    return sel === '.model-chip' ? this._chips : [];
+  }};
+  __groups.push(g); return g;
+}
+function mkChip(text, group){
+  var c = {textContent: text, style: {}, innerHTML: '<chip>' + text + '</chip>'};
+  group._chips.push(c); __chips.push(c); return c;
+}
+"""
+
+
+class TestQuotaModelFilterInteractionJs(unittest.TestCase):
+    """Skenario gabungan: kap 6 vs pencarian, ranking kritis, showAllProv, regex literal."""
+
+    def _run(self, body: str) -> str:
+        script = _QUOTA_HARNESS + _quota_js() + body
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def _run_model(self, body: str) -> str:
+        script = _MODEL_HARNESS + _model_filter_js() + body
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_search_bypasses_cap_and_clear_restores_cap(self):
+        out = self._run("""
+var p = {provider: 'qoder', label: 'Q', accountCount: 8, accounts: mkAccounts(8)};
+QUOTA.filter = 'key';
+var withQ = quotaProviderHtml(p);
+QUOTA.filter = '';
+var cleared = quotaProviderHtml(p);
+process.stdout.write(String((withQ.match(/Key /g) || []).length) + '|'
+  + String((cleared.match(/Key /g) || []).length) + '|'
+  + String(cleared.indexOf('2 akun lainnya') !== -1));
+""")
+        self.assertEqual(out, "8|6|true")
+
+    def test_critical_promoted_even_with_full_sibling_provider(self):
+        out = self._run("""
+var acc = mkAccounts(9);
+acc[8].status = 'expired';
+var qh = quotaProviderHtml({provider: 'qoder', label: 'Q', accounts: acc});
+var gh = quotaProviderHtml({provider: 'gemini', label: 'G', accounts: mkAccounts(8)});
+process.stdout.write(String(qh.indexOf('Key 9') !== -1) + '|'
+  + String(gh.indexOf('Key 7') !== -1) + '|' + String(gh.indexOf('Key 8') !== -1));
+""")
+        self.assertEqual(out, "true|false|false")
+
+    def test_showall_state_survives_search_clear(self):
+        out = self._run("""
+QUOTA.showAllProv.qoder = true;
+QUOTA.filter = 'key';
+var during = quotaProviderHtml({provider: 'qoder', label: 'Q', accounts: mkAccounts(9)});
+QUOTA.filter = '';
+var after = quotaProviderHtml({provider: 'qoder', label: 'Q', accounts: mkAccounts(9)});
+var sibling = quotaProviderHtml({provider: 'gemini', label: 'G', accounts: mkAccounts(8)});
+process.stdout.write(String((during.match(/Key /g) || []).length) + '|'
+  + String((after.match(/Key /g) || []).length) + '|'
+  + String((sibling.match(/Key /g) || []).length));
+""")
+        self.assertEqual(out, "9|9|6")
+
+    def test_model_filter_treats_regex_chars_literally(self):
+        out = self._run_model("""
+var g = mkGroup();
+mkChip('combo-deepseek-v4.1', g);
+mkChip('gemini-flash', g);
+filterModels('.');          // literal titik — bukan regex "semua karakter"
+var dot = __chips[0].style.display !== 'none' && __chips[1].style.display === 'none';
+filterModels('');
+var reset = __chips[0].style.display !== 'none' && __chips[1].style.display !== 'none';
+process.stdout.write(String(dot) + '|' + String(reset));
+""")
+        self.assertEqual(out, "true|true")
+
+    def test_model_filter_no_match_hides_groups_without_crash(self):
+        out = self._run_model("""
+var g1 = mkGroup(), g2 = mkGroup();
+mkChip('gpt-4o', g1); mkChip('claude-3', g2);
+filterModels('zzz-tidak-ada');
+process.stdout.write(String(__chips[0].style.display) + '|' + String(__chips[1].style.display) + '|'
+  + String(g1.style.display) + '|' + String(g2.style.display));
+""")
+        self.assertEqual(out, "none|none|none|none")
+
+    def test_model_filter_never_touches_inner_html(self):
+        # SSE delta untuk fragmen lain tidak boleh menghapus hasil filter:
+        # filterModels hanya mengubah visibilitas (style/textContent), bukan innerHTML.
+        src = _model_filter_js()
+        self.assertNotIn("innerHTML", src)
+        out = self._run_model("""
+var g = mkGroup();
+var c = mkChip('gpt-4o', g);
+var before = c.innerHTML;
+filterModels('gpt');
+process.stdout.write(String(c.innerHTML === before) + '|' + String(c.style.display));
+""")
+        self.assertEqual(out, "true|")
 
 
 if __name__ == "__main__":
