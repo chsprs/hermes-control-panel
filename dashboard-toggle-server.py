@@ -6606,6 +6606,8 @@ def get_openclaw_open_block() -> str:
             f'onclick="window.open(\'https://\'+window.location.hostname+\':18789/\',\'_blank\',\'noopener\');return false;">'
             f'{ICON_EXTERNAL_LINK}Buka Dasbor OpenClaw</a>'
         )
+    if not _unit_installed("openclaw-gateway.service", user=True):
+        return '<div class="update-hint" style="margin:0">Dasbor OpenClaw tidak terpasang di server ini</div>'
     return '<div class="update-hint warn" style="margin:0">Dasbor OpenClaw mati — nyalakan dulu untuk membukanya</div>'
 
 _status_probe_cache = {}
@@ -10222,6 +10224,14 @@ def _refresh_hermes_update() -> None:
     finally:
         with _hermes_update_lock:
             _hermes_check_running = False
+        # Fragmen blok pembaruan di-cache; tanpa invalidasi di sini blok tetap
+        # menampilkan "Mengecek pembaruan Hermes…" sampai TTL habis walaupun
+        # hasil cek sudah ada.
+        try:
+            _invalidate_status_cache("hermes_update_block", "update_block",
+                                     "hermes_log_card", "processes_table")
+        except Exception as _exc:
+            _log_swallow("invalidate after hermes update check", _exc)
 
 def translate_to_id(text: str) -> str:
     """Pass-through default raw text without translation."""

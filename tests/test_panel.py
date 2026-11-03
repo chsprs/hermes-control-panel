@@ -7132,5 +7132,52 @@ class TestServiceTableTruth(unittest.TestCase):
         self.assertIn("Tidak terpasang", html_out)
 
 
+class TestStaleFragmentsAfterBackgroundChecks(unittest.TestCase):
+    """Fragmen cache harus disegarkan saat pengecekan latar selesai."""
+
+    def setUp(self):
+        panel._status_probe_cache.clear()
+
+    def tearDown(self):
+        panel._status_probe_cache.clear()
+        with panel._hermes_update_lock:
+            panel._hermes_update_cache = {"status": "unknown", "local": "?", "remote": "?",
+                                          "behind": 0, "patch_notes": [], "error": "", "at": 0}
+            panel._hermes_check_running = False
+
+    def test_update_block_invalidated_when_check_finishes(self):
+        panel._status_probe_cache["hermes_update_block"] = {"at": 1.0, "value": "<div>Mengecek…</div>"}
+        panel._status_probe_cache["processes_table"] = {"at": 1.0, "value": "<table></table>"}
+
+        def fake_run(cmd, *args, **kwargs):
+            text = ""
+            if "rev-parse" in cmd:
+                text = "bf0203a794a0deadbeef\n"
+            elif "describe" in cmd:
+                text = "v0.22.5\n"
+            elif "update" in cmd and "--check" in cmd:
+                text = "Update available: v0.23.0 (3 commits behind)"
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=text, stderr="")
+
+        with mock.patch.object(panel.subprocess, "run", side_effect=fake_run):
+            with mock.patch.object(panel, "_clear_stale_hermes_git_lock"):
+                with mock.patch.object(panel.urllib.request, "urlopen", side_effect=OSError("offline")):
+                    panel._refresh_hermes_update()
+
+        self.assertNotIn("hermes_update_block", panel._status_probe_cache,
+                         "blok pembaruan harus disegarkan agar 'Mengecek…' tidak nyangkut")
+        self.assertNotIn("processes_table", panel._status_probe_cache)
+        self.assertFalse(panel._hermes_check_running)
+
+    def test_openclaw_hint_distinguishes_absent_from_stopped(self):
+        with mock.patch.object(panel, "is_openclaw_control_ui_enabled", return_value=False):
+            with mock.patch.object(panel, "_unit_installed", return_value=False):
+                absent = panel.get_openclaw_open_block()
+            with mock.patch.object(panel, "_unit_installed", return_value=True):
+                stopped = panel.get_openclaw_open_block()
+        self.assertIn("tidak terpasang", absent)
+        self.assertIn("mati", stopped)
+
+
 if __name__ == "__main__":
     unittest.main()
