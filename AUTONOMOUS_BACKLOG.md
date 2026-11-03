@@ -642,3 +642,26 @@ aktif kembali dengan pesan gagal saat fetch error.
 
 ### Commit
 - `3234417` fix(panel): batas kolom Kanban juga berlaku setelah refresh + arsip ikut segar
+
+## Wave 89 — Pencarian Kanban menembus batas kolom + backlog di Kanban
+
+**Bug**
+- Setelah lazy-load, `filterKanbanCards()` hanya menyaring kartu yang sudah dirender:
+  tugas ke-13..101 tidak bisa ditemukan lewat pencarian, dan filter assignee/
+  prioritas ikut meleset.
+- Perbaikan: `kanbanFilterActive()` + bypass batas kolom saat filter aktif, dan
+  `onKanbanFilterChanged()` (search + 2 select) dengan debounce 250 ms yang memuat
+  ulang papan. Saat filter dikosongkan, kolom kembali dibatasi 12 kartu.
+
+**Kanban dipakai sebagai backlog (permintaan pengguna)**
+- `t_cb20e435` — Audit renderer klien yang menimpa fragmen server (triage, assignee
+  coder) + komentar progres & daftar fragmen yang sudah diverifikasi.
+- `t_0ef6419f` — Test perilaku JS untuk modal profil (skills & toolset).
+- Keduanya sengaja di **triage** agar tidak di-dispatch bersamaan dengan sesi
+  interaktif yang mengedit file yang sama.
+
+**Test**: +3 `TestKanbanFilterJs` (deteksi filter aktif, debounce 3 ketukan → 1
+refresh, assert bypass hanya saat memfilter). Suite **414 OK**.
+
+### Commit
+- `0692484` fix(panel): pencarian/filter Kanban menjangkau tugas di luar 12 kartu pertama
