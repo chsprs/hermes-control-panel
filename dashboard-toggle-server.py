@@ -8521,13 +8521,14 @@ function renderProfileSkillsList(){
         : '<span class="badge badge-muted" style="font-size:0.62rem" title="Tidak ditawarkan di host/platform ini' + (s.hidden_reason ? ': ' + escHtml(s.hidden_reason) : '') + '">Tak berlaku</span>');
     var cat = s.category ? '<span class="badge" style="font-size:0.62rem">' + escHtml(s.category) + '</span>' : '';
     var nameAttr = ' data-skill-name="' + escHtml(s.name) + '"';
+    var submitting = !!profileSkillSubmitting[s.name];
     var tgl;
     if(s.essential){
       tgl = '<span style="font-size:0.68rem;color:var(--text-dim)">esensial</span>';
     } else if(s.state === 'hidden'){
       tgl = '<span style="font-size:0.68rem;color:var(--text-dim)" title="Skill ini tidak lolos gate platform/environment/requires_apps, jadi tak akan dimuat Hermes di sini.">—</span>';
     } else {
-      tgl = '<button type="button" class="btn-action-sm"' + nameAttr + ' onclick="toggleProfileSkill(this.getAttribute(\'data-skill-name\'), ' + (s.enabled ? 'false' : 'true') + ')">' + (s.enabled ? 'Matikan' : 'Nyalakan') + '</button>';
+      tgl = '<button type="button" class="btn-action-sm"' + nameAttr + ' data-skill-toggle="' + escHtml(s.name) + '"' + (submitting ? ' disabled' : '') + ' onclick="toggleProfileSkill(this.getAttribute(\'data-skill-name\'), ' + (s.enabled ? 'false' : 'true') + ')">' + (submitting ? '...' : (s.enabled ? 'Matikan' : 'Nyalakan')) + '</button>';
     }
     rows.push(
       '<div style="display:flex;gap:0.5rem;align-items:flex-start;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:0.5rem 0.65rem">'
@@ -8551,7 +8552,7 @@ var profileSkillSubmitting = {};
 function toggleProfileSkill(skill, enable){
   if(profileSkillSubmitting[skill]) return;
   profileSkillSubmitting[skill] = true;
-  var btn = document.querySelector('button[data-skill-name="' + escHtml(skill) + '"]');
+  var btn = document.querySelector('button[data-skill-toggle="' + escHtml(skill) + '"]');
   if(btn){ btn.disabled = true; btn.textContent = '...'; }
   var mutationProfile = currentSkillsProfile;
   var mutationLoadGen = profileSkillsLoadGen;
@@ -8695,12 +8696,14 @@ function renderProfileToolsList(){
     var toolsBtn = (r.tools && r.tools.length)
       ? '<button type="button" class="btn-action-sm"' + nameAttr + ' onclick="toggleProfileToolTools(this.getAttribute(\'data-ts-name\'))">' + (profileToolsExpanded[r.name] ? 'Sembunyikan' : count + ' tool') + '</button>'
       : '';
+    var submitting = !!profileToolSubmitting[r.name];
+    var toggleBtn = '<button type="button" class="btn-action-sm"' + nameAttr + ' data-ts-toggle="' + escHtml(r.name) + '"' + (submitting ? ' disabled' : '') + ' onclick="toggleProfileToolset(this.getAttribute(\'data-ts-name\'), ' + (r.enabled ? 'false' : 'true') + ')">' + (submitting ? '...' : (r.enabled ? 'Matikan' : 'Nyalakan')) + '</button>';
     rows.push(
       '<div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:0.45rem 0.65rem">'
       + '<div style="display:flex;gap:0.45rem;align-items:center;flex-wrap:wrap">'
       + '<strong style="font-family:var(--font-mono);font-size:0.8rem">' + escHtml(r.name) + '</strong>' + badge + bundle + unknown
       + '<span style="flex:1"></span>' + toolsBtn
-      + '<button type="button" class="btn-action-sm"' + nameAttr + ' onclick="toggleProfileToolset(this.getAttribute(\'data-ts-name\'), ' + (r.enabled ? 'false' : 'true') + ')">' + (r.enabled ? 'Matikan' : 'Nyalakan') + '</button>'
+      + toggleBtn
       + '</div>'
       + (r.description ? '<div style="font-size:0.7rem;color:var(--text-dim);margin-top:0.15rem;line-height:1.35">' + escHtml(r.description) + '</div>' : '')
       + (profileToolsExpanded[r.name] && r.tools && r.tools.length
@@ -8744,7 +8747,7 @@ var profileToolSubmitting = {};
 function toggleProfileToolset(toolset, enable){
   if(profileToolSubmitting[toolset]) return;
   profileToolSubmitting[toolset] = true;
-  var btn = document.querySelector('button[data-ts-name="' + escHtml(toolset) + '"]');
+  var btn = document.querySelector('button[data-ts-toggle="' + escHtml(toolset) + '"]');
   if(btn){ btn.disabled = true; btn.textContent = '...'; }
   var mutationProfile = currentSkillsProfile;
   var mutationLoadGen = profileToolsLoadGen;

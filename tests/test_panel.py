@@ -7654,5 +7654,291 @@ setTimeout(function(){
         self.assertEqual(panel.PAGE.count('onchange="onKanbanFilterChanged()"'), 2)
 
 
+def _profile_modal_js() -> str:
+    """JS modal profil persis seperti dirender dari PAGE + PROFILE_SCRIPT."""
+    source = panel.PAGE.replace("{profile_script}", panel.PROFILE_SCRIPT)
+    start = source.index("var currentSkillsProfile = '';")
+    end = source.index("function loadProfileConfig", start)
+    return source[start:end].replace("{{", "{").replace("}}", "}")
+
+
+_PROFILE_MODAL_DOM = r"""
+function profileDecodeAttr(s){
+  return String(s == null ? '' : s).replace(/&quot;/g, '"').replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+}
+function profileParseButtons(html){
+  var out = [], re = /<button\b([^>]*)>([\s\S]*?)<\/button>/g, match;
+  while((match = re.exec(html))){
+    var btn = {attrs: {}, disabled: false, textContent: match[2].replace(/<[^>]*>/g, '')};
+    var attrs = match[1], attrRe = /([:\w-]+)(?:="([^"]*)")?/g, attr;
+    while((attr = attrRe.exec(attrs))){
+      btn.attrs[attr[1]] = profileDecodeAttr(attr[2] == null ? '' : attr[2]);
+      if(attr[1] === 'disabled') btn.disabled = true;
+    }
+    btn.getAttribute = function(name){
+      return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null;
+    };
+    out.push(btn);
+  }
+  return out;
+}
+function profileEl(id){
+  var el = {id: id, value: '', checked: false, style: {}, _innerHTML: '', buttons: []};
+  Object.defineProperty(el, 'innerHTML', {
+    get: function(){ return this._innerHTML; },
+    set: function(value){
+      this._innerHTML = String(value);
+      this.buttons = profileParseButtons(this._innerHTML);
+    }
+  });
+  return el;
+}
+var els = {};
+var document = {
+  getElementById: function(id){ return els[id] || null; },
+  querySelector: function(selector){
+    var match = /^button\[([:\w-]+)(?:="([^"]*)")?\]$/.exec(selector);
+    if(!match) return null;
+    var lists = [els['profile-skills-list'], els['profile-tools-list']];
+    for(var i = 0; i < lists.length; i++){
+      if(!lists[i]) continue;
+      for(var j = 0; j < lists[i].buttons.length; j++){
+        var btn = lists[i].buttons[j], actual = btn.getAttribute(match[1]);
+        if(actual !== null && (match[2] == null || actual === profileDecodeAttr(match[2]))) return btn;
+      }
+    }
+    return null;
+  }
+};
+var pendingFetches = [];
+function fetchJsonChecked(url, opts){
+  return new Promise(function(resolve, reject){
+    pendingFetches.push({url: url, opts: opts, resolve: resolve, reject: reject});
+  });
+}
+var refreshCalls = [];
+var toastCalls = [];
+function toast(message, kind){ toastCalls.push({message: message, kind: kind}); }
+function profileAction(listId, name, toolset){
+  var list = els[listId], attr = toolset ? 'data-ts-name' : 'data-skill-name';
+  var fn = toolset ? 'toggleProfileToolset(' : 'toggleProfileSkill(';
+  if(!list) return null;
+  for(var i = 0; i < list.buttons.length; i++){
+    var btn = list.buttons[i], onclick = btn.getAttribute('onclick') || '';
+    if(btn.getAttribute(attr) === name && onclick.indexOf(fn) !== -1) return btn;
+  }
+  return null;
+}
+function seedProfileSkills(rows){
+  els['profile-skills-list'] = profileEl('profile-skills-list');
+  els['profile-skills-search'] = profileEl('profile-skills-search');
+  els['profile-skills-hide-off'] = profileEl('profile-skills-hide-off');
+  currentSkillsProfile = 'coder';
+  profileSkillsMeta.platform = 'cli';
+  profileSkillsCache = rows;
+  renderProfileSkillsList();
+}
+function seedProfileTools(rows){
+  els['profile-tools-list'] = profileEl('profile-tools-list');
+  els['profile-skills-platform'] = profileEl('profile-skills-platform');
+  els['profile-skills-platform'].value = 'cli';
+  currentSkillsProfile = 'coder';
+  profileToolsCache = {
+    rows: rows, disabled: [], tools: [], count: rows.length, other: [],
+    explicit: true, source: '', platform: 'cli', extraDisabled: []
+  };
+  renderProfileToolsList();
+}
+"""
+
+
+@unittest.skipUnless(subprocess.run(["which", "node"], capture_output=True).returncode == 0, "node not installed")
+class TestProfileModalBehaviourJs(unittest.TestCase):
+    """Perilaku JS modal profil: filter, render besar, dan toggle in-flight."""
+
+    def _run(self, body: str) -> str:
+        # Refresh diganti setelah JS asli dimuat agar test dapat mengontrol data segar.
+        refresh_stub = "\nrefreshProfilePanel = function(platform){ refreshCalls.push(platform); };\n"
+        script = _PROFILE_MODAL_DOM + _profile_modal_js() + refresh_stub + body
+        r = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r.stdout
+
+    def test_render_156_valid_skills_without_crash(self):
+        out = self._run("""
+var rows = [];
+for(var i = 0; i < 156; i++){
+  var state = i % 3 === 0 ? 'on' : (i % 3 === 1 ? 'off' : 'hidden');
+  rows.push({
+    name: 'skill-' + i, description: 'Deskripsi <skill> & ' + i,
+    category: 'kategori-' + (i % 5), state: state,
+    enabled: state === 'on', essential: false
+  });
+}
+seedProfileSkills(rows);
+var list = els['profile-skills-list'];
+var readCount = list.buttons.filter(function(btn){
+  return (btn.getAttribute('onclick') || '').indexOf('readProfileSkill(') !== -1;
+}).length;
+process.stdout.write(JSON.stringify({
+  rendered: (list.innerHTML.match(/<strong[^>]*>skill-\\d+<\\/strong>/g) || []).length,
+  readCount: readCount,
+  escaped: list.innerHTML.indexOf('Deskripsi &lt;skill&gt; &amp; 155') !== -1,
+  empty: list.innerHTML.indexOf('Tidak ada skill cocok') !== -1
+}));
+""")
+        self.assertEqual(json.loads(out), {
+            "rendered": 156, "readCount": 156, "escaped": True, "empty": False,
+        })
+
+    def test_skill_filter_preserves_in_flight_toggle(self):
+        out = self._run("""
+seedProfileSkills([
+  {name:'alpha', description:'Alpha', category:'test', state:'on', enabled:true, essential:false},
+  {name:'beta', description:'Beta', category:'test', state:'off', enabled:false, essential:false}
+]);
+toggleProfileSkill('alpha', false);
+var initial = profileAction('profile-skills-list', 'alpha', false);
+var before = {disabled:initial.disabled, label:initial.textContent};
+els['profile-skills-search'].value = 'beta';
+filterProfileSkills();
+var filteredOut = profileAction('profile-skills-list', 'alpha', false) === null;
+els['profile-skills-search'].value = '';
+els['profile-skills-hide-off'].checked = true;
+filterProfileSkills();
+var restored = profileAction('profile-skills-list', 'alpha', false);
+toggleProfileSkill('alpha', false);
+process.stdout.write(JSON.stringify({
+  before:before, filteredOut:filteredOut,
+  restored:!!restored, disabled:restored.disabled, label:restored.textContent,
+  betaHidden:els['profile-skills-list'].innerHTML.indexOf('>beta</strong>') === -1,
+  requests:pendingFetches.length, pending:!!profileSkillSubmitting.alpha
+}));
+""")
+        self.assertEqual(json.loads(out), {
+            "before": {"disabled": True, "label": "..."},
+            "filteredOut": True, "restored": True, "disabled": True, "label": "...",
+            "betaHidden": True, "requests": 1, "pending": True,
+        })
+
+    def test_skill_toggle_disables_only_action_and_restores_on_success(self):
+        out = self._run("""
+seedProfileSkills([
+  {name:'alpha', description:'Alpha', category:'test', state:'on', enabled:true, essential:false}
+]);
+var readBefore = document.querySelector('button[data-skill-name="alpha"]');
+toggleProfileSkill('alpha', false);
+var actionDuring = profileAction('profile-skills-list', 'alpha', false);
+var during = {
+  actionDisabled:actionDuring.disabled, actionLabel:actionDuring.textContent,
+  readDisabled:readBefore.disabled
+};
+toggleProfileSkill('alpha', false);
+refreshProfilePanel = function(platform){
+  refreshCalls.push(platform);
+  profileSkillsCache[0].enabled = false;
+  profileSkillsCache[0].state = 'off';
+  renderProfileSkillsList();
+};
+pendingFetches[0].resolve({ok:true, message:'tersimpan'});
+setTimeout(function(){
+  var after = profileAction('profile-skills-list', 'alpha', false);
+  process.stdout.write(JSON.stringify({
+    during:during, afterDisabled:after.disabled, afterLabel:after.textContent,
+    requests:pendingFetches.length, pending:!!profileSkillSubmitting.alpha,
+    refreshes:refreshCalls.length, toast:toastCalls[0].kind
+  }));
+}, 0);
+""")
+        self.assertEqual(json.loads(out), {
+            "during": {"actionDisabled": True, "actionLabel": "...", "readDisabled": False},
+            "afterDisabled": False, "afterLabel": "Nyalakan", "requests": 1,
+            "pending": False, "refreshes": 1, "toast": "ok",
+        })
+
+    def test_skill_toggle_restores_action_on_api_failure(self):
+        out = self._run("""
+seedProfileSkills([
+  {name:'alpha', description:'Alpha', category:'test', state:'on', enabled:true, essential:false}
+]);
+toggleProfileSkill('alpha', false);
+var during = profileAction('profile-skills-list', 'alpha', false).disabled;
+pendingFetches[0].resolve({ok:false, error:'ditolak'});
+setTimeout(function(){
+  var after = profileAction('profile-skills-list', 'alpha', false);
+  process.stdout.write(JSON.stringify({
+    during:during, afterDisabled:after.disabled, afterLabel:after.textContent,
+    pending:!!profileSkillSubmitting.alpha, refreshes:refreshCalls.length,
+    toast:toastCalls[0].kind
+  }));
+}, 0);
+""")
+        self.assertEqual(json.loads(out), {
+            "during": True, "afterDisabled": False, "afterLabel": "Matikan",
+            "pending": False, "refreshes": 0, "toast": "err",
+        })
+
+    def test_toolset_toggle_disables_only_action_and_restores_on_success(self):
+        out = self._run("""
+seedProfileTools([
+  {name:'coding', enabled:true, tools:['read'], tool_count:1, description:'Coding'}
+]);
+var toolsBefore = document.querySelector('button[data-ts-name="coding"]');
+toggleProfileToolset('coding', false);
+// Expand/collapse atau render ulang lain tidak boleh melepas status in-flight.
+renderProfileToolsList();
+var actionDuring = profileAction('profile-tools-list', 'coding', true);
+var during = {
+  actionDisabled:actionDuring.disabled, actionLabel:actionDuring.textContent,
+  toolsDisabled:toolsBefore.disabled, toolsLabel:toolsBefore.textContent
+};
+refreshProfilePanel = function(platform){
+  refreshCalls.push(platform);
+  profileToolsCache.rows[0].enabled = false;
+  renderProfileToolsList();
+};
+pendingFetches[0].resolve({ok:true});
+setTimeout(function(){
+  var after = profileAction('profile-tools-list', 'coding', true);
+  process.stdout.write(JSON.stringify({
+    during:during, afterDisabled:after.disabled, afterLabel:after.textContent,
+    pending:!!profileToolSubmitting.coding, refreshes:refreshCalls.length,
+    toast:toastCalls[0].kind
+  }));
+}, 0);
+""")
+        self.assertEqual(json.loads(out), {
+            "during": {
+                "actionDisabled": True, "actionLabel": "...",
+                "toolsDisabled": False, "toolsLabel": "1 tool",
+            },
+            "afterDisabled": False, "afterLabel": "Nyalakan", "pending": False,
+            "refreshes": 1, "toast": "ok",
+        })
+
+    def test_toolset_toggle_restores_action_on_rejection(self):
+        out = self._run("""
+seedProfileTools([
+  {name:'coding', enabled:true, tools:[], tool_count:0, description:'Coding'}
+]);
+toggleProfileToolset('coding', false);
+var during = profileAction('profile-tools-list', 'coding', true).disabled;
+pendingFetches[0].reject(new Error('offline'));
+setTimeout(function(){
+  var after = profileAction('profile-tools-list', 'coding', true);
+  process.stdout.write(JSON.stringify({
+    during:during, afterDisabled:after.disabled, afterLabel:after.textContent,
+    pending:!!profileToolSubmitting.coding, refreshes:refreshCalls.length,
+    toast:toastCalls[0].kind
+  }));
+}, 0);
+""")
+        self.assertEqual(json.loads(out), {
+            "during": True, "afterDisabled": False, "afterLabel": "Matikan",
+            "pending": False, "refreshes": 0, "toast": "err",
+        })
+
+
 if __name__ == "__main__":
     unittest.main()
