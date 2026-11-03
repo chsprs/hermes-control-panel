@@ -718,3 +718,23 @@ membawa `update_block` pada payload awal (14 key, 8 event/10 dtk); `/status` 200
 
 ### Commit
 - `e62dd23` fix(panel): rekonsiliasi SSE — update_block live, log kosong, proses tertunda
+
+## Wave 92 — Kontrak empty/null seragam untuk semua kartu log (patch worker)
+
+**Diterapkan dari worker `t_1981fc9a`** (commit `23bf44d`, basis `8392644`).
+- `log_card` (router), `clean_junk_card`, `gateway_log_card` kini memakai kontrak
+  yang sama dengan `hermes_log_card`: key tidak ada = delta tak berubah (DOM/cache
+  dibiarkan); key ada dengan `""`/`null` = slot dikosongkan + `_last...`="",
+  `_has...`=false; nonkosong = cache dulu, lalu stickySet/removal sesuai preferensi
+  dismiss (perilaku dismiss tidak berubah).
+- Negative control dari worker: 3 subtest memang gagal pada basis sebelum patch
+  (cache router basi, DOM clean & gateway tidak kosong) → perubahan terbukti
+  mengubah perilaku, bukan sekadar refactor.
+- Audit tanpa perubahan (didokumentasikan worker): `profiles_block`,
+  `gateway_list_block`, `model_chips` tidak punya renderer klien kedua.
+
+**Verifikasi live**: 425 test OK, `/status` 200, 4 guard `!== undefined` muncul di
+halaman, service aktif.
+
+### Commit
+- `23bf44d` fix(panel): kontrak empty/null yang sama untuk semua kartu log SSE
