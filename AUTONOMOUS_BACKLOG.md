@@ -478,3 +478,42 @@ script, dan payload deflate (87,4 KB, guard dinaikkan 85→90 KB karena tab Conf
 ### Commit
 - `314820d` fix(panel): tabel layanan jujur soal memori dan layanan hantu
 - `ddff6ea` fix(panel): blok pembaruan tidak nyangkut "Mengecek…" + jujur soal OpenClaw
+
+## Wave 84 — Loop semua tab (Proses, Performa, Layanan, Tugas AI, Profil, Kanban, Kuota, Model)
+
+**Bug diperbaiki**
+- **Kanban: status `completed` disimpan apa adanya.** Menandai tugas selesai lewat
+  panel membuat papan punya dua bucket (done/completed) dan hitungan `done` di
+  `hermes kanban boards list` tidak cocok dengan kolom Done. Sekarang
+  `_normalize_kanban_status()` menerima alias tapi selalu menulis `done`
+  (create + update); status tidak valid tetap ditolak dengan pesan input aslinya.
+  Live: task dibuat dengan `status=completed` → tersimpan `done` + completed_at.
+
+**Audit semua tab yang hasilnya sudah benar (tidak diubah)**
+- **Performa**: zram 316 MB (2,6x) = orig 331.808.768 B / compr 126.035.561 B
+  (`/sys/block/zram0/mm_stat`); RAM, temp (44,9 °C), disk 56 % (31,7/56,4 GB),
+  eMMC 30–40 %, load — semua cocok procfs/sysfs.
+- **Tugas AI**: 12+ tugas menampilkan provider/model persis seperti `auxiliary`
+  datar di config.yaml; review & delegation "otomatis (pakai model utama)" benar.
+- **Kuota AI**: `stale: true` (fetch gagal) memang tampil "cache lama" + auto-retry
+  4 dtk; 5 provider (antigravity 10 akun/2 kritis, gemini 15, codex 1, qoder 156,
+  openai-compatible 1) sesuai sumber.
+- **Model**: daftar chip = **69/69 model** dari `/v1/models` 9router (8 kombo,
+  7 antigravity, 3 CBAI, 20 codex, 9 gemini, 1 MMF, 7 OC, 14 QD), tidak ada yang
+  hilang; data live dengan cache TTL, bukan hardcode.
+- **Kanban keamanan**: judul `<img src=x onerror=alert(1)>` dirender ter-escape
+  (`&lt;img…&gt;`), komentar HTML juga aman; create/status/comment/delete masuk ke
+  DB board yang benar; board aktif dikembalikan ke `default` dan semua board/task
+  uji (`looptest`, `loopnorm`, task stray di default) sudah dibersihkan.
+- **Password panel**: tetap kosong atas permintaan eksplisit user (akses bebas di
+  LAN/Tailscale). Tidak ada `PANEL_PASSWORD` di `/etc/hermes-panel.env`; panel
+  menampilkan "Akses Bebas (Tanpa Sandi)".
+
+### Verifikasi
+- `tests.test_install tests.test_panel` → **388 test OK** (+4
+  `TestKanbanStatusCanonical`).
+- Live: board aktif `default` (0 aktif, 12 arsip), profil = 9 profil nyata,
+  `/status` 200, RSS 62,6 MB, md5 runtime = repo.
+
+### Commit
+- `e04db3d` fix(panel): kanban simpan status kanonik `done` (alias `completed`)
