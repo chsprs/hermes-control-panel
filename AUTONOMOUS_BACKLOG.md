@@ -691,3 +691,30 @@ Atribut baru muncul di halaman, `/status` 200 (0,04 s), service aktif, md5 = rep
 
 ### Commit
 - `5d1a6ae` fix(panel): toggle skill/toolset mengenai tombol yang benar & state submitting awet
+
+## Wave 91 — Rekonsiliasi SSE (patch audit worker t_85c2e88f)
+
+**Diterapkan dari worker Kanban** (commit `e62dd23`), diverifikasi sampai klien:
+1. **`update_block` ikut SSE.** Status "Mengecek pembaruan 9router…" sebelumnya
+   permanen sampai reload penuh: blok dihitung setelah early return `sse_only` dan
+   tidak ada di `SSE_CLIENT_KEYS`. Kini dihitung sebelum early return + masuk
+   `SSE_CLIENT_KEYS` + diterapkan ke `update-content-slot`. Fallback patch-notes
+   ikut di-cache TTL 10 menit agar tick offline tidak memanggil GitHub.
+2. **`hermes_log_card` kosong membersihkan DOM/cache** (`!== undefined`, bedakan
+   delta-tak-berubah dari kosong) — `_hasHermesLog` ikut false.
+3. **`processes_table` tidak lagi membuang update saat hover/focus/selection**:
+   disimpan di `deferredProcessesTable` dan ditulis setelah interaksi selesai.
+4. Hardening: label versi update di-escape, PID null → "-", `rate_limit_card`
+   tahan field null (sebelumnya `AttributeError` menggagalkan `build_fragments`).
+
+**Verifikasi live**: 425 test OK (+5 `test_render_reconciliation`); SSE `/events`
+membawa `update_block` pada payload awal (14 key, 8 event/10 dtk); `/status` 200.
+
+**Pelajaran review**: klaim worker tetap diverifikasi — tetapi kecurigaan saya soal
+`SSE_CLIENT_KEYS` ternyata keliru (tampilan diff terpotong); patch memang lengkap.
+
+**Follow-up tercatat**: guard truthy serupa pada `log_card`, `clean_junk_card`,
+`gateway_log_card`.
+
+### Commit
+- `e62dd23` fix(panel): rekonsiliasi SSE — update_block live, log kosong, proses tertunda
