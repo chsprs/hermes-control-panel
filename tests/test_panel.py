@@ -8218,6 +8218,12 @@ class TestFastYamlLoader(unittest.TestCase):
         )
         self.assertEqual(panel._yaml_load(doc), yaml.safe_load(doc))
 
+    def test_yaml_load_handles_empty_document(self):
+        # Dokumen kosong sah (file config baru/kosong) dan harus menghasilkan
+        # None, bukan exception, agar pemanggil bisa memakai `or {}` dengan aman.
+        self.assertIsNone(panel._yaml_load(""))
+        self.assertEqual(panel._yaml_load("a: 1")["a"], 1)
+
     def test_all_read_sites_use_fast_loader(self):
         src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dashboard-toggle-server.py")).read()
         self.assertNotIn("yaml.safe_load(", src)
