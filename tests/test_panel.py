@@ -4,6 +4,7 @@ import io
 import zlib
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -9324,6 +9325,143 @@ var document = {
         self.assertEqual(out, "none")
 
 
+
+
+
+class TestHermesSessionsBridge(unittest.TestCase):
+    """Jembatan sesi Hermes (state.db read-only): daftar, cari FTS, detail."""
+
+    def setUp(self):
+        import tempfile
+        self.tmpdir = tempfile.mkdtemp(prefix="hdb-")
+        self.dbpath = os.path.join(self.tmpdir, "state.db")
+        conn = sqlite3.connect(self.dbpath)
+        conn.executescript("""
+            CREATE TABLE sessions (
+                id TEXT PRIMARY KEY, title TEXT, source TEXT, profile_name TEXT,
+                model TEXT, message_count INT, tool_call_count INT,
+                input_tokens INT, output_tokens INT, cache_read_tokens INT,
+                estimated_cost_usd REAL, started_at REAL, ended_at REAL,
+                last_activity_at REAL, parent_session_id TEXT, hidden INT DEFAULT 0
+            );
+            CREATE TABLE messages (
+                id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT,
+                tool_name TEXT, timestamp REAL, token_count INT
+            );
+            CREATE VIRTUAL TABLE messages_fts USING fts5(content);
+        """)
+        rows = [
+            ("s1", "Deploy panel", "telegram", "default", "combo-x", 12, 3, 100, 50, 200,
+             0.01, 1000.0, None, 1600.0, "", 0),
+            ("s2", "Judul dengan api_key sk-ABCdef12345678901234567890", "tui", "coder", "combo-y", 5, 0, 10, 5, 20,
+             0.0, 900.0, 950.0, 950.0, "", 0),
+            ("s3", "Sesi tersembunyi", "telegram", "default", "combo-z", 1, 0, 1, 1, 1,
+             0.0, 800.0, None, 800.0, "", 1),
+        ]
+        conn.executemany(
+            "INSERT INTO sessions (id,title,source,profile_name,model,message_count,"
+            "tool_call_count,input_tokens,output_tokens,cache_read_tokens,estimated_cost_usd,"
+            "started_at,ended_at,last_activity_at,parent_session_id,hidden) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        msgs = [
+            (1, "s1", "user", "tolong deploy panel", "", 1100.0, 4),
+            (2, "s1", "assistant", "baik, saya deploy sekarang", "", 1200.0, 7),
+            (3, "s2", "assistant", "isi dengan token bot_token 123456789:AAbcdefghijklmnopqrstuvwxyzABCD", "", 930.0, 9),
+        ]
+        conn.executemany(
+            "INSERT INTO messages (id,session_id,role,content,tool_name,timestamp,token_count) "
+            "VALUES (?,?,?,?,?,?,?)", msgs)
+        conn.executemany("INSERT INTO messages_fts (rowid, content) VALUES (?,?)",
+                         [(m[0], m[3]) for m in msgs])
+        conn.commit()
+        conn.close()
+        self._orig = panel.HERMES_STATE_DB
+        panel.HERMES_STATE_DB = self.dbpath
+
+    def tearDown(self):
+        panel.HERMES_STATE_DB = self._orig
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_list_orders_by_activity_and_hides_hidden(self):
+        res = panel.list_hermes_sessions()
+        self.assertTrue(res["ok"])
+        ids = [s["id"] for s in res["sessions"]]
+        self.assertEqual(ids, ["s1", "s2"])   # s3 hidden=1 tidak muncul
+        self.assertEqual(res["total"], 2)
+        s1 = res["sessions"][0]
+        self.assertEqual(s1["messages"], 12)
+        self.assertTrue(s1["active"])
+        self.assertIn({"source": "telegram", "count": 1}, res["facets"])
+
+    def test_list_filters_source_and_profile(self):
+        res = panel.list_hermes_sessions(source="tui")
+        self.assertEqual([s["id"] for s in res["sessions"]], ["s2"])
+        res = panel.list_hermes_sessions(profile="default")
+        self.assertEqual([s["id"] for s in res["sessions"]], ["s1"])
+
+    def test_list_redacts_secrets_in_title(self):
+        res = panel.list_hermes_sessions()
+        s2 = [s for s in res["sessions"] if s["id"] == "s2"][0]
+        self.assertNotIn("sk-ABCdef12345678901234567890", s2["title"])
+
+    def test_detail_returns_messages_in_time_order(self):
+        res = panel.get_hermes_session_detail("s1", limit=10)
+        self.assertTrue(res["ok"])
+        texts = [m["text"] for m in res["messages"]]
+        self.assertTrue(texts[0].startswith("tolong deploy"))
+        self.assertTrue(texts[-1].startswith("baik, saya deploy"))
+        self.assertEqual(res["session"]["shown_messages"], 2)
+
+    def test_detail_rejects_invalid_and_missing_ids(self):
+        self.assertFalse(panel.get_hermes_session_detail("../../etc")["ok"])
+        self.assertFalse(panel.get_hermes_session_detail("")["ok"])
+        self.assertFalse(panel.get_hermes_session_detail("tidakada")["ok"])
+
+    def test_detail_redacts_message_secrets(self):
+        res = panel.get_hermes_session_detail("s2")
+        body = " ".join(m["text"] for m in res["messages"])
+        self.assertNotIn("123456789:AAbcdefghijklmnopqrstuvwxyzABCD", body)
+
+    def test_detail_truncates_long_content(self):
+        conn = sqlite3.connect(self.dbpath)
+        conn.execute("INSERT INTO messages (id,session_id,role,content,timestamp) "
+                     "VALUES (99,'s1','assistant',?,1500.0)", ("x" * 3000,))
+        conn.commit()
+        conn.close()
+        res = panel.get_hermes_session_detail("s1", limit=10)
+        long_msg = [m for m in res["messages"] if len(m["text"]) > 200][0]
+        self.assertLessEqual(len(long_msg["text"]), panel.SESSION_CONTENT_CHARS + 1)
+        self.assertTrue(long_msg["text"].endswith("…"))
+
+    def test_search_groups_hits_per_session(self):
+        res = panel.search_hermes_messages("deploy")
+        self.assertTrue(res["ok"])
+        self.assertEqual(len(res["sessions"]), 1)
+        self.assertEqual(res["sessions"][0]["id"], "s1")
+        self.assertEqual(res["matched_messages"], 2)
+        self.assertTrue(res["sessions"][0]["hits"][0]["snippet"])
+
+    def test_search_treats_operators_as_literals(self):
+        # Operator FTS tidak boleh membocorkan sintaks / memicu error.
+        res = panel.search_hermes_messages('deploy OR "tidak ada"')
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["matched_messages"], 0)
+
+    def test_search_empty_query_rejected(self):
+        self.assertFalse(panel.search_hermes_messages("   ")["ok"])
+
+    def test_missing_db_returns_graceful_error(self):
+        panel.HERMES_STATE_DB = os.path.join(self.tmpdir, "tidakada.db")
+        self.assertFalse(panel.list_hermes_sessions()["ok"])
+        self.assertFalse(panel.get_hermes_session_detail("s1")["ok"])
+        self.assertFalse(panel.search_hermes_messages("x")["ok"])
+
+    def test_clamp_limit_bounds_input(self):
+        self.assertEqual(panel._clamp_limit("", 25, 100), 25)
+        self.assertEqual(panel._clamp_limit("999", 25, 100), 100)
+        self.assertEqual(panel._clamp_limit("-5", 25, 100), 1)
+        self.assertEqual(panel._clamp_limit("abc", 25, 100), 25)
 
 
 if __name__ == "__main__":

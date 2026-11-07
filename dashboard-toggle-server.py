@@ -449,6 +449,7 @@ ICON_GLOBE = _icon('<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22"
 ICON_BOT = _icon('<rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8.01" y2="16"/><line x1="16" y1="16" x2="16.01" y2="16"/>', size=16)
 ICON_ROUTER = _icon('<rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6" y2="14"/><line x1="18" y1="6" x2="18" y2="14"/><line x1="6" y1="18" x2="6.01" y2="18"/><line x1="10" y1="18" x2="10.01" y2="18"/>', size=16)
 ICON_USERS = _icon('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', size=16)
+ICON_CHAT = _icon('<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>', size=16)
 ICON_KANBAN = _icon('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 7v7"/><path d="M12 7v4"/><path d="M16 7v9"/>', size=16)
 ICON_HERMES = _icon('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>', size=16)
 ICON_TRASH = _icon('<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>', size=16)
@@ -1916,6 +1917,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('control', this)">{icon_layers} Layanan</button>
   <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('auxiliary', this)">{icon_bot} Tugas AI</button>
   <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('profiles', this)">{icon_users} Profil Agent</button>
+  <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('sessions', this)">{icon_chat} Sesi Hermes</button>
   <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('kanban', this)">{icon_kanban} Kanban</button>
   <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('quota', this)">{icon_layers} Kuota AI</button>
 </div>
@@ -2016,6 +2018,33 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   <div id="rl-slot">{rate_limit_card}</div>
 </div>
 
+
+<!-- TAB SESI HERMES -->
+<div class="tab-panel" id="tab-sessions">
+  <div class="card card-status" style="padding:1.25rem">
+    <div class="aux-header">
+      <div class="card-title" style="margin-bottom:0">{icon_chat} Sesi Hermes</div>
+      <span class="badge" id="sessions-count-badge">—</span>
+    </div>
+    <div class="aux-desc">
+      Riwayat percakapan agent dari <code>~/.hermes/state.db</code> (read-only). Cari isi pesan
+      atau buka satu sesi untuk melihat percakapannya. Data di sini sama dengan yang dilihat agent.
+    </div>
+    <input type="text" id="sessions-search" class="search-input"
+           placeholder="Cari isi percakapan… (mis. kanban, deploy)" aria-label="Cari isi percakapan"
+           oninput="sessionsSearchDebounced(this.value)">
+    <div id="sessions-status" class="qz-note" role="status" aria-live="polite">Memuat sesi…</div>
+    <div id="sessions-list"></div>
+    <div id="sessions-detail-wrap" style="display:none;margin-top:1rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap;margin-bottom:.6rem">
+        <div id="sessions-detail-title" style="font-size:.85rem;font-weight:600"></div>
+        <button type="button" class="btn-action-sm" onclick="closeSessionDetail()">Tutup detail</button>
+      </div>
+      <div id="sessions-detail-meta" style="font-size:.72rem;color:var(--text-muted);font-family:var(--font-mono);margin-bottom:.6rem"></div>
+      <div id="sessions-detail-msgs" style="max-height:60vh;overflow-y:auto"></div>
+    </div>
+  </div>
+</div>
 <!-- PERFORMANCE TAB -->
 <div class="tab-panel" id="tab-performance">
   <div class="perf-tile">
@@ -3255,6 +3284,7 @@ function switchTab(name, tab){{
   }}
   safeStore('setItem', 'activeTab', name);
   if(name === 'performance' && !window._perfSeeded && typeof window.seedPerfHistory === 'function') window.seedPerfHistory();
+  if(name === 'sessions' && typeof maybeLoadSessions === 'function') maybeLoadSessions();
   scrollAllLogsToBottom();
   restorePatchPages();
   syncGwLogTabUI();
@@ -6652,6 +6682,123 @@ function restorePatchPages(){{
     }}
   }}
 }}
+
+// --- Tab Sesi Hermes -------------------------------------------------------
+// Keamanan: semua konten dari state.db (judul, snippet, isi pesan, model, sumber)
+// dirender lewat escHtml() SEBELUM masuk innerHTML — tidak ada HTML mentah yang
+// dimasukkan; atribut id memakai escHtml juga. Tidak ada eval/Function().----------------------------------------------------
+var _sessionsSeq = 0, _sessionsTimer = null;
+function sessionsSearchDebounced(v){{
+  if(_sessionsTimer) clearTimeout(_sessionsTimer);
+  _sessionsTimer = setTimeout(function(){{ loadSessions(v); }}, 280);
+}}
+function _sessionsStatus(text, color){{
+  var el = document.getElementById('sessions-status');
+  if(el){{ el.textContent = text; el.style.color = color || 'var(--text-muted)'; }}
+}}
+function _fmtAge(sec){{
+  if(sec == null) return '—';
+  if(sec < 90) return 'baru saja';
+  if(sec < 3600) return Math.round(sec/60) + ' mnt lalu';
+  if(sec < 86400) return Math.round(sec/3600) + ' jam lalu';
+  return Math.round(sec/86400) + ' hari lalu';
+}}
+function _fmtTokens(n){{
+  if(!n) return '0';
+  return n >= 1000 ? (n/1000).toFixed(1) + 'k' : String(n);
+}}
+function loadSessions(q){{
+  var seq = ++_sessionsSeq;
+  var url = '/api/sessions?limit=25';
+  if(q && q.trim()) url += '&q=' + encodeURIComponent(q.trim());
+  _sessionsStatus(q && q.trim() ? 'Mencari "' + q.trim() + '"…' : 'Memuat sesi…');
+  fetchJsonChecked(url)
+    .then(function(d){{
+      if(seq !== _sessionsSeq) return;   // respons usang
+      if(!d || !d.ok){{ _sessionsStatus((d && d.error) || 'Gagal memuat sesi', 'var(--danger)'); return; }}
+      var list = document.getElementById('sessions-list');
+      var badge = document.getElementById('sessions-count-badge');
+      if(badge) badge.textContent = d.sessions.length + ' sesi';
+      if(!list) return;
+      if(!d.sessions.length){{
+        list.innerHTML = '';
+        _sessionsStatus(q && q.trim() ? 'Tidak ada sesi yang cocok dengan pencarian.' : 'Belum ada sesi.');
+        return;
+      }}
+      var rows = d.sessions.map(function(s){{
+        var hits = s.hits && s.hits.length
+          ? '<div style="margin-top:.35rem;font-size:.74rem;color:var(--text-muted)">'
+            + s.hits.map(function(h){{ return '<div style="padding:.15rem 0">· <b>' + escHtml(h.role) + '</b>: ' + escHtml(h.snippet) + '</div>'; }}).join('')
+            + '</div>'
+          : '';
+        var stats = s.hits ? '' :
+          (s.messages + ' pesan · ' + _fmtTokens(s.input_tokens) + ' in / ' + _fmtTokens(s.output_tokens) + ' out'
+           + (s.active ? ' <span class="badge badge-up" style="font-size:.6rem">aktif</span>' : '')
+           + ' · ' + _fmtAge(s.age_seconds));
+        return '<div class="qz-row" style="cursor:pointer;padding:.6rem .7rem;border:1px solid var(--border);border-radius:8px;margin-bottom:.45rem"'
+          + ' role="button" tabindex="0" data-session-id="' + escHtml(s.id) + '"'
+          + ' onclick="openSessionDetail(this.getAttribute(\\'data-session-id\\'))"'
+          + ' onkeydown="if(event.key===\\'Enter\\'||event.key===\\' \\'){{event.preventDefault();openSessionDetail(this.getAttribute(\\'data-session-id\\'));}}">'
+          + '<div style="display:flex;justify-content:space-between;gap:.6rem;align-items:baseline;flex-wrap:wrap">'
+          + '<div style="font-size:.84rem;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis">' + escHtml(s.title) + '</div>'
+          + '<div style="font-size:.68rem;color:var(--text-dim);font-family:var(--font-mono)">' + escHtml(s.source || '-') + '</div>'
+          + '</div>'
+          + '<div style="font-size:.7rem;color:var(--text-muted);font-family:var(--font-mono);margin-top:.25rem">' + escHtml(s.model || '-') + ' · ' + stats + '</div>'
+          + hits
+          + '</div>';
+      }});
+      list.innerHTML = rows.join('');
+      _sessionsStatus(d.matched_messages
+        ? d.matched_messages + ' pesan cocok di ' + d.sessions.length + ' sesi'
+        : 'Klik sesi untuk melihat percakapan.');
+    }})
+    .catch(function(err){{ if(seq === _sessionsSeq) _sessionsStatus('Gagal: ' + err, 'var(--danger)'); }});
+}}
+function openSessionDetail(id){{
+  var wrap = document.getElementById('sessions-detail-wrap');
+  if(!wrap || !id) return;
+  wrap.style.display = 'block';
+  document.getElementById('sessions-detail-title').textContent = 'Memuat…';
+  document.getElementById('sessions-detail-meta').textContent = '';
+  document.getElementById('sessions-detail-msgs').innerHTML = '<div class="qz-note">Memuat pesan…</div>';
+  fetchJsonChecked('/api/session-detail?id=' + encodeURIComponent(id) + '&limit=40')
+    .then(function(d){{
+      if(!d || !d.ok){{
+        document.getElementById('sessions-detail-title').textContent = 'Gagal memuat';
+        document.getElementById('sessions-detail-msgs').innerHTML = '<div class="qz-note" style="color:var(--danger)">' + escHtml((d && d.error) || 'tidak diketahui') + '</div>';
+        return;
+      }}
+      var s = d.session;
+      document.getElementById('sessions-detail-title').textContent = s.title;
+      document.getElementById('sessions-detail-meta').textContent =
+        [s.id, s.source, s.model, s.messages + ' pesan', _fmtTokens(s.input_tokens) + '↑ ' + _fmtTokens(s.output_tokens) + '↓', '$' + (s.cost_usd || 0).toFixed(4)].join(' · ');
+      var body = d.messages.map(function(m){{
+        var who = m.role === 'assistant' ? 'Hermes' : (m.tool_name ? 'tool:' + m.tool_name : m.role);
+        var tint = m.role === 'assistant' ? 'rgba(59,130,246,0.10)' : (m.role === 'user' ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)');
+        return '<div style="background:' + tint + ';border:1px solid var(--border);border-radius:8px;padding:.55rem .7rem;margin-bottom:.45rem">'
+          + '<div style="font-size:.66rem;color:var(--text-dim);font-family:var(--font-mono);margin-bottom:.25rem">' + escHtml(who) + '</div>'
+          + '<div style="font-size:.78rem;white-space:pre-wrap;word-break:break-word">' + escHtml(m.text) + '</div>'
+          + '</div>';
+      }});
+      document.getElementById('sessions-detail-msgs').innerHTML = body.length ? body.join('') : '<div class="qz-note">Tidak ada pesan.</div>';
+      wrap.scrollIntoView({{block:'nearest'}});
+    }})
+    .catch(function(err){{
+      document.getElementById('sessions-detail-msgs').innerHTML = '<div class="qz-note" style="color:var(--danger)">' + escHtml(String(err)) + '</div>';
+    }});
+}}
+function closeSessionDetail(){{
+  var wrap = document.getElementById('sessions-detail-wrap');
+  if(wrap) wrap.style.display = 'none';
+}}
+var _sessionsLoaded = false;
+function maybeLoadSessions(){{
+  var tp = document.getElementById('tab-sessions');
+  if(!tp || !tp.classList.contains('active') || _sessionsLoaded) return;
+  _sessionsLoaded = true;
+  loadSessions('');
+}}
+
 function filterModels(q){{
   q = (q || '').trim().toLowerCase();
   var emptyNote = document.getElementById('model-search-empty');
@@ -17730,6 +17877,196 @@ def set_panel_password(new_password: str, env_path: str = None) -> tuple[bool, s
     return True, msg
 
 
+
+# --- Sesi Hermes: jembatan read-only ke state.db (tab "Sesi") -----------------
+# Hermes menyimpan seluruh percakapan di ~/.hermes/state.db (tabel sessions +
+# messages + indeks FTS). Panel hanya MEMBACA (mode=ro), tidak pernah menulis.
+HERMES_STATE_DB = os.environ.get("HERMES_STATE_DB", "/root/.hermes/state.db")
+SESSIONS_PAGE_LIMIT = 25
+SESSION_MSG_LIMIT = 40
+SESSION_CONTENT_CHARS = 700
+
+
+def _state_db_readonly():
+    """Koneksi read-only ke state.db; None bila berkas tidak ada."""
+    if not os.path.isfile(HERMES_STATE_DB):
+        return None
+    conn = sqlite3.connect(f"file:{HERMES_STATE_DB}?mode=ro", uri=True, timeout=3.0)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _session_meta(row) -> dict:
+    started = float(row["started_at"] or 0)
+    last = float(row["last_activity_at"] or started or 0)
+    return {
+        "id": row["id"],
+        "title": redact_sensitive_tokens(str(row["title"] or "")).strip() or "(tanpa judul)",
+        "source": str(row["source"] or ""),
+        "profile": str(row["profile_name"] or ""),
+        "model": str(row["model"] or ""),
+        "messages": int(row["message_count"] or 0),
+        "tool_calls": int(row["tool_call_count"] or 0),
+        "input_tokens": int(row["input_tokens"] or 0),
+        "output_tokens": int(row["output_tokens"] or 0),
+        "cache_read_tokens": int(row["cache_read_tokens"] or 0),
+        "cost_usd": round(float(row["estimated_cost_usd"] or 0.0), 6),
+        "started_at": started,
+        "last_activity_at": last,
+        "age_seconds": max(0, int(time.time() - last)) if last else None,
+        "active": row["ended_at"] is None,
+        "parent_id": (row["parent_session_id"] or ""),
+    }
+
+
+def _clamp_limit(raw, default: int, ceiling: int) -> int:
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(ceiling, val))
+
+
+def list_hermes_sessions(limit: int = SESSIONS_PAGE_LIMIT, source: str = "", profile: str = "") -> dict:
+    """Sesi terbaru (diurutkan aktivitas terakhir). Read-only, tanpa rahasia."""
+    conn = _state_db_readonly()
+    if conn is None:
+        return {"ok": False, "error": f"state.db tidak ditemukan: {HERMES_STATE_DB}", "sessions": []}
+    try:
+        where = ["hidden = 0"]
+        params: list = []
+        if source:
+            where.append("source = ?")
+            params.append(source)
+        if profile:
+            where.append("profile_name = ?")
+            params.append(profile)
+        params.append(limit)
+        rows = conn.execute(
+            "SELECT id,title,source,profile_name,model,message_count,tool_call_count,"
+            "input_tokens,output_tokens,cache_read_tokens,estimated_cost_usd,"
+            "started_at,ended_at,last_activity_at,parent_session_id "
+            f"FROM sessions WHERE {' AND '.join(where)} "
+            "ORDER BY COALESCE(last_activity_at, started_at) DESC LIMIT ?",
+            params,
+        ).fetchall()
+        total = conn.execute("SELECT COUNT(*) FROM sessions WHERE hidden = 0").fetchone()[0]
+        facets = [
+            {"source": r[0], "count": r[1]}
+            for r in conn.execute(
+                "SELECT source, COUNT(*) FROM sessions WHERE hidden = 0 "
+                "GROUP BY source ORDER BY COUNT(*) DESC").fetchall()
+        ]
+        return {"ok": True, "sessions": [_session_meta(r) for r in rows],
+                "total": int(total), "facets": facets}
+    except sqlite3.Error as exc:
+        return {"ok": False, "error": f"gagal membaca state.db: {exc}", "sessions": []}
+    finally:
+        conn.close()
+
+
+def search_hermes_messages(query: str, limit: int = SESSIONS_PAGE_LIMIT) -> dict:
+    """Cari isi percakapan (FTS5) dan kelompokkan per sesi."""
+    q = (query or "").strip()
+    if not q:
+        return {"ok": False, "error": "Kata kunci pencarian kosong", "sessions": []}
+    conn = _state_db_readonly()
+    if conn is None:
+        return {"ok": False, "error": f"state.db tidak ditemukan: {HERMES_STATE_DB}", "sessions": []}
+    try:
+        # Kutip tiap token agar karakter operator FTS tidak dianggap sintaks.
+        tokens = [t for t in re.split(r"\s+", q) if t]
+        fts_query = " ".join('"' + t.replace('"', "") + '"' for t in tokens)
+        rows = conn.execute(
+            "SELECT m.session_id, m.role, m.content, m.timestamp, "
+            "       s.title, s.source, s.profile_name, s.model "
+            "FROM messages_fts f "
+            "JOIN messages m ON m.id = f.rowid "
+            "JOIN sessions s ON s.id = m.session_id "
+            "WHERE messages_fts MATCH ? AND s.hidden = 0 "
+            "ORDER BY m.timestamp DESC LIMIT ?",
+            (fts_query, limit * 3),
+        ).fetchall()
+        grouped: dict[str, dict] = {}
+        for r in rows:
+            sid = r["session_id"]
+            entry = grouped.get(sid)
+            if entry is None:
+                if len(grouped) >= limit:
+                    continue
+                entry = {
+                    "id": sid,
+                    "title": redact_sensitive_tokens(str(r["title"] or "")).strip() or "(tanpa judul)",
+                    "source": str(r["source"] or ""),
+                    "profile": str(r["profile_name"] or ""),
+                    "model": str(r["model"] or ""),
+                    "hits": [],
+                }
+                grouped[sid] = entry
+            if len(entry["hits"]) < 3:
+                text = redact_sensitive_tokens(str(r["content"] or ""))
+                entry["hits"].append({
+                    "role": str(r["role"] or ""),
+                    "snippet": _session_text(text, 220),
+                    "timestamp": float(r["timestamp"] or 0),
+                })
+        return {"ok": True, "query": q, "sessions": list(grouped.values()),
+                "matched_messages": len(rows)}
+    except sqlite3.Error as exc:
+        return {"ok": False, "error": f"pencarian gagal: {exc}", "sessions": []}
+    finally:
+        conn.close()
+
+
+def _session_text(text: str, limit: int = SESSION_CONTENT_CHARS) -> str:
+    """Rapikan isi pesan untuk ditampilkan (tanpa rahasia, dipotong di batas kata)."""
+    text = redact_sensitive_tokens(str(text or "")).strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    space = cut.rfind(" ")
+    if space > limit * 0.6:
+        cut = cut[:space]
+    return cut + "…"
+
+
+def get_hermes_session_detail(session_id: str, limit: int = SESSION_MSG_LIMIT) -> dict:
+    """Metadata satu sesi + pesan terakhir (urut waktu naik)."""
+    sid = (session_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_\-:.]+", sid or ""):
+        return {"ok": False, "error": "ID sesi tidak valid", "messages": []}
+    conn = _state_db_readonly()
+    if conn is None:
+        return {"ok": False, "error": f"state.db tidak ditemukan: {HERMES_STATE_DB}", "messages": []}
+    try:
+        row = conn.execute(
+            "SELECT id,title,source,profile_name,model,message_count,tool_call_count,"
+            "input_tokens,output_tokens,cache_read_tokens,estimated_cost_usd,"
+            "started_at,ended_at,last_activity_at,parent_session_id "
+            "FROM sessions WHERE id = ?", (sid,)).fetchone()
+        if row is None:
+            return {"ok": False, "error": "Sesi tidak ditemukan", "messages": []}
+        msgs = conn.execute(
+            "SELECT role, content, tool_name, timestamp, token_count FROM messages "
+            "WHERE session_id = ? ORDER BY timestamp DESC LIMIT ?", (sid, limit)).fetchall()
+        messages = []
+        for m in reversed(msgs):
+            messages.append({
+                "role": str(m["role"] or ""),
+                "tool_name": str(m["tool_name"] or ""),
+                "text": _session_text(m["content"]),
+                "timestamp": float(m["timestamp"] or 0),
+                "tokens": int(m["token_count"] or 0),
+            })
+        meta = _session_meta(row)
+        meta["shown_messages"] = len(messages)
+        return {"ok": True, "session": meta, "messages": messages}
+    except sqlite3.Error as exc:
+        return {"ok": False, "error": f"gagal membaca sesi: {exc}", "messages": []}
+    finally:
+        conn.close()
+
+
 def render_auth_setting_block() -> str:
     """Render password management card for Control tab."""
     active = is_auth_required()
@@ -18739,7 +19076,7 @@ def build_fragments(sse_only: bool = False) -> dict:
     }
 
 
-VALID_TABS = {"status", "performance", "control", "auxiliary", "profiles", "kanban"}
+VALID_TABS = {"status", "performance", "control", "auxiliary", "profiles", "sessions", "kanban", "quota"}
 
 
 def _to_bool(val, default: bool = False) -> bool:
@@ -18974,6 +19311,7 @@ def build_status_page(just: str = "", active_tab: str = "") -> str:
         icon_bot=ICON_BOT,
         icon_router=ICON_ROUTER,
         icon_users=ICON_USERS,
+        icon_chat=ICON_CHAT,
         icon_kanban=ICON_KANBAN,
         icon_hermes=ICON_HERMES,
         icon_box=ICON_BOX,
@@ -19873,6 +20211,26 @@ class Handler(BaseHTTPRequestHandler):
             # pengguna mengunduh berkas ini (lihat build_export_snapshot).
             self._send_json(build_export_snapshot())
             return
+        if parsed.path == "/api/sessions":
+            limit = _clamp_limit((qs.get("limit") or [""])[0], SESSIONS_PAGE_LIMIT, 100)
+            query = (qs.get("q") or [""])[0]
+            if query.strip():
+                res = search_hermes_messages(query, limit)
+            else:
+                res = list_hermes_sessions(
+                    limit,
+                    source=(qs.get("source") or [""])[0],
+                    profile=(qs.get("profile") or [""])[0],
+                )
+            self._send_json(res)
+            return
+
+        if parsed.path == "/api/session-detail":
+            limit = _clamp_limit((qs.get("limit") or [""])[0], SESSION_MSG_LIMIT, 200)
+            res = get_hermes_session_detail((qs.get("id") or [""])[0], limit)
+            self._send_json(res, code=200 if res.get("ok") else 404)
+            return
+
         if parsed.path == "/api/provider-quota":
             want_refresh = (qs.get("refresh") or ["0"])[0] in ("1", "true", "yes")
             prov = (qs.get("provider") or [""])[0]
