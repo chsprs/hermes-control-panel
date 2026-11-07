@@ -762,6 +762,7 @@ display:flex;flex-direction:column;gap:.45rem;align-items:center;pointer-events:
 border-radius:12px;padding:.6rem .85rem;font-size:.8rem;line-height:1.35;box-shadow:0 10px 30px rgba(0,0,0,.45);
 opacity:0;transform:translateY(8px);transition:opacity .2s var(--ease),transform .2s var(--ease)}}
 .toast.in{{opacity:1;transform:translateY(0)}}
+.toast.info{{border-color:rgba(59,130,246,.45);color:#bfdbfe}}
 .toast.ok{{border-color:rgba(16,185,129,.45)}}
 .toast.err{{border-color:rgba(239,68,68,.5);color:#fecaca}}
 
@@ -2599,6 +2600,23 @@ function copyCodeBlock(btn){{
   }});
 }}
 
+
+// Global loading spinner untuk operasi async
+var _loadingSpinner = null;
+function showLoadingSpinner(message) {{
+  if(_loadingSpinner) return;
+  _loadingSpinner = document.createElement('div');
+  _loadingSpinner.id = 'global-loading-spinner';
+  _loadingSpinner.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--surface-elevated);border:1px solid var(--border);border-radius:12px;padding:1.2rem 1.8rem;z-index:9999;display:flex;align-items:center;gap:0.75rem;box-shadow:0 8px 32px rgba(0,0,0,0.4)';
+  _loadingSpinner.innerHTML = '<div style="width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></div><span style="font-size:0.9rem;color:var(--text)">' + (message || 'Memuat...') + '</span>';
+  document.body.appendChild(_loadingSpinner);
+}}
+function hideLoadingSpinner() {{
+  if(_loadingSpinner) {{
+    _loadingSpinner.remove();
+    _loadingSpinner = null;
+  }}
+}}
 
 function fetchJsonChecked(url, options){{
   return fetch(url, options).then(function(response){{
@@ -10749,6 +10767,21 @@ function toast(msg, kind){
 }
 window.toast = toast;
 
+// Helper untuk mengganti alert() dengan toast notifications yang lebih informatif
+function showError(message, details) {{
+  var fullMsg = message + (details ? ': ' + details : '');
+  toast(fullMsg, 'err');
+}}
+function showSuccess(message) {{
+  toast(message, 'ok');
+}}
+function showInfo(message) {{
+  toast(message, 'in');
+}}
+window.showError = showError;
+window.showSuccess = showSuccess;
+window.showInfo = showInfo;
+
 /* Setiap fetch non-GET yang balas JSON {ok,message,error} langsung jadi toast. */
 (function(){
   var origFetch = window.fetch;
@@ -10789,6 +10822,19 @@ window.toast = toast;
     'view-kanban-attachment-modal': 'closeAttachmentViewerModal'
   };
   document.addEventListener('keydown', function(e){
+    // Ctrl+K atau Cmd+K untuk focus ke search input
+    if((e.ctrlKey || e.metaKey) && e.key === 'k') {{
+      e.preventDefault();
+      var searchInput = document.getElementById('kanban-search-input') ||
+                        document.getElementById('sessions-search') ||
+                        document.getElementById('qz-search') ||
+                        document.querySelector('input[type="text"][placeholder*="ari"]');
+      if(searchInput) {{
+        searchInput.focus();
+        searchInput.select();
+      }}
+      return;
+    }}
     if(e.key !== 'Escape' && e.key !== 'Esc') return;
     var open = Array.prototype.slice.call(document.querySelectorAll('[id$="-modal"]'))
       .filter(function(m){ return m.classList.contains('show'); });
