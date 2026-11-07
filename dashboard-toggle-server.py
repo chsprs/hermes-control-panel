@@ -688,6 +688,14 @@ PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%232563eb'/%3E%3C/svg%3E">
 <style>
 @font-face{{font-family:'Geist';src:url('/static/fonts/Geist-400.woff2') format('woff2');font-weight:400 700;font-display:swap}}
+@font-face{{font-family:'Cinzel';src:url('/static/fonts/Cinzel-400.woff2') format('woff2');font-weight:400;font-display:swap}}
+@font-face{{font-family:'Cinzel';src:url('/static/fonts/Cinzel-600.woff2') format('woff2');font-weight:600;font-display:swap}}
+@font-face{{font-family:'Cinzel';src:url('/static/fonts/Cinzel-700.woff2') format('woff2');font-weight:700;font-display:swap}}
+@font-face{{font-family:'Spectral';src:url('/static/fonts/Spectral-400.woff2') format('woff2');font-weight:400;font-display:swap}}
+@font-face{{font-family:'Spectral';src:url('/static/fonts/Spectral-500.woff2') format('woff2');font-weight:500;font-display:swap}}
+@font-face{{font-family:'Spectral';src:url('/static/fonts/Spectral-600.woff2') format('woff2');font-weight:600;font-display:swap}}
+@font-face{{font-family:'Fira Code';src:url('/static/fonts/FiraCode-400.woff2') format('woff2');font-weight:400;font-display:swap}}
+
 @font-face{{font-family:'Geist Mono';src:url('/static/fonts/GeistMono-400.woff2') format('woff2');font-weight:400 600;font-display:swap}}
 :root{{
   color-scheme:dark;
@@ -1263,6 +1271,163 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
   .qz-row-foot{{font-size:.63rem}}
 }}
 
+
+/* ===================== QuestUI Theme (RPG fantasy) ===================== */
+/* Dipetakan dari questui-DESIGN.md: emas #CA8A04, merah #991B1B, ungu #581C87,
+   latar cokelat gelap berlapis, Cinzel untuk judul, Spectral untuk isi. */
+:root{{
+  --bg:#1A0F0A;
+  --surface:rgba(44,26,16,0.86);
+  --surface-solid:#2C1A10;
+  --surface-elevated:rgba(61,37,23,0.85);
+  --surface-hover:rgba(61,37,23,0.95);
+  --border:#5C3D2E;
+  --border-subtle:rgba(92,61,46,0.55);
+  --border-hover:#CA8A04;
+  --text:#F5E6D3;
+  --text-muted:#BFA98A;
+  --text-dim:#9c8468;
+  --accent:#CA8A04;
+  --accent-light:#DAA520;
+  --accent-dim:rgba(202,138,4,0.16);
+  --accent-squircle:linear-gradient(135deg,#B8780A,#CA8A04);
+  --success:#22C55E;
+  --success-dim:rgba(34,197,94,0.16);
+  --warning:#CA8A04;
+  --warning-dim:rgba(202,138,4,0.16);
+  --danger:#991B1B;
+  --danger-dim:rgba(153,27,27,0.18);
+  --purple:#581C87;
+  --radius-xl:8px;
+  --radius-lg:8px;
+  --radius-md:6px;
+  --radius-sm:4px;
+  --font-sans:'Spectral',Georgia,'Times New Roman',serif;
+  --font-mono:'Fira Code',ui-monospace,monospace;
+  --quest-gold-glow:0 0 20px rgba(202,138,4,0.35);
+}}
+html,body{{
+  background:var(--bg);
+  font-family:var(--font-sans);
+  color:var(--text);
+  font-size:16px;
+  line-height:1.7;
+}}
+/* Cinzel untuk semua heading, judul kartu, tombol, label UI */
+h1,h2,h3,h4,.card-title,.tab,.btn,.btn-action-sm,.toggle,.badge,.search-input::placeholder{{
+  font-family:'Cinzel',Georgia,serif;
+}}
+h1,h2,h3{{letter-spacing:.02em;line-height:1.25}}
+.card-title{{font-weight:600;letter-spacing:.03em}}
+.tab,.btn,.btn-action-sm,.toggle{{font-weight:600;letter-spacing:.04em}}
+/* Chip/badge: uppercase letter-spaced seperti ukiran */
+.badge{{
+  text-transform:uppercase;letter-spacing:1px;font-size:11px;
+  border-radius:2px;font-weight:400;
+}}
+/* Kartu: permukaan cokelat berlapis + bayangan emas halus */
+.card,.card-status,.kanban-column,.modal-content{{
+  background:var(--surface-solid);
+  border:1px solid var(--border);
+  border-radius:4px;
+  box-shadow:0 2px 8px rgba(202,138,4,0.18);
+}}
+.card-status:hover{{
+  background:var(--surface-elevated);
+  border-color:rgba(202,138,4,0.35);
+  box-shadow:0 4px 16px rgba(202,138,4,0.25);
+  transition:box-shadow .3s var(--ease),border-color .3s var(--ease);
+}}
+/* Aksen garis atas emas untuk kartu utama (quest header) */
+.card.card-status > .aux-header:first-child{{
+  border-top:2px solid var(--accent);
+  padding-top:0.6rem;
+}}
+/* Tombol utama: emas penuh dengan teks gelap */
+.btn.btn-on,.btn-action-primary,.toggle{{
+  background:var(--accent);
+  color:#1A0F0A;
+  border:1px solid var(--accent-light);
+  border-radius:4px;
+}}
+.btn.btn-on:hover,.btn-action-primary:hover{{background:#B8780A}}
+/* Tombol sekunder/ghost: transparan dengan garis emas */
+.btn-action-sm{{
+  background:transparent;color:var(--accent);
+  border:1px solid var(--accent);border-radius:4px;
+}}
+.btn-action-sm:hover{{background:rgba(202,138,4,0.12)}}
+.btn-action-sm.btn-off,.btn-action-danger{{
+  background:var(--danger);color:#F5E6D3;border-color:#B91C1C;
+}}
+.btn-action-sm:disabled{{opacity:.35;box-shadow:none;border-color:#5C3D2E}}
+/* Input: fokus cincin emas */
+input[type=text],input[type=password],select,textarea,.search-input{{
+  background:var(--surface-solid);color:var(--text);
+  border:1px solid var(--border);border-radius:4px;
+  font-family:var(--font-sans);
+}}
+input:focus,select:focus,textarea:focus,.search-input:focus{{
+  border-color:var(--accent);outline:none;
+  box-shadow:0 0 0 3px rgba(202,138,4,0.25);
+}}
+/* Log/kode tetap monospace */
+.logbox,code,pre{{font-family:var(--font-mono);font-size:13px}}
+.logbox{{background:#1A0F0A;border:1px solid var(--border-subtle)}}
+/* Scrollbar hangat */
+::-webkit-scrollbar-thumb{{background:#5C3D2E}}
+::-webkit-scrollbar-thumb:hover{{background:var(--accent)}}
+::-webkit-scrollbar-track{{background:var(--bg)}}
+/* Status sukses/warna bahaya mengikuti palet QuestUI */
+.badge-up{{color:var(--success)}}
+.badge-down{{color:#F87171}}
+.dot.up{{background:var(--success)}}
+.dot.down{{background:#991B1B}}
+
+/* --- QuestUI: koreksi hasil verifikasi visual (kontras & sisa aksen biru) --- */
+.tabs{{
+  background:rgba(44,26,16,0.85);
+  border-color:var(--border);
+}}
+.tab{{
+  color:var(--text-muted);
+  border-radius:4px;
+}}
+.tab:hover{{color:var(--text);background:rgba(202,138,4,0.10)}}
+.tab.active{{
+  background:rgba(202,138,4,0.22);
+  color:#F5E6D3;
+  border:1px solid rgba(218,165,32,0.65);
+  box-shadow:0 3px 14px rgba(202,138,4,0.30);
+}}
+.header-logo{{filter:drop-shadow(0 4px 14px rgba(202,138,4,0.35))}}
+/* Badge status: hijau/merah TERANG agar terbaca di atas cokelat gelap */
+.badge-up{{
+  background:rgba(34,197,94,0.16);color:#4ade80;
+  border:1px solid rgba(34,197,94,0.35);
+}}
+.badge-down{{
+  background:rgba(153,27,27,0.22);color:#f87171;
+  border:1px solid rgba(153,27,27,0.45);
+}}
+td .badge.badge-up,td .badge.badge-down{{font-weight:600}}
+/* Tombol aksi proses */
+.btn-end-task{{
+  background:rgba(153,27,27,0.16);color:#f87171;
+  border:1px solid rgba(153,27,27,0.45);border-radius:4px;
+}}
+.btn-end-task:hover{{background:rgba(153,27,27,0.32);color:#F5E6D3}}
+.btn-restart-task{{
+  background:rgba(202,138,4,0.10);color:var(--accent-light);
+  border:1px solid rgba(202,138,4,0.35);border-radius:4px;
+}}
+.btn-restart-task:hover{{background:rgba(202,138,4,0.22);color:#F5E6D3}}
+.btn-start-task{{
+  background:rgba(34,197,94,0.14);color:#4ade80;
+  border:1px solid rgba(34,197,94,0.4);border-radius:4px;
+}}
+/* Tautan & nilai mono: emas lembut, bukan biru */
+a{{color:var(--accent-light)}}
 </style></head><body>
 <div id="pbar"></div>
 <div id="navloader"><div class="ring"></div><span id="nav-label">Memproses…</span></div>
@@ -10625,7 +10790,10 @@ NETWORK_SCRIPT_TAG = f'<script src="/assets/network-card.js?v={NETWORK_ASSET_VER
 
 # Self-hosted fonts: panel must render fully offline (warp-svc off = no internet).
 FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
-FONT_FILES = {"Geist-400.woff2", "GeistMono-400.woff2"}
+FONT_FILES = {"Geist-400.woff2", "GeistMono-400.woff2",
+              "Cinzel-400.woff2", "Cinzel-600.woff2", "Cinzel-700.woff2",
+              "Spectral-400.woff2", "Spectral-500.woff2", "Spectral-600.woff2",
+              "FiraCode-400.woff2"}
 
 
 NAV_SCRIPT = """<script>

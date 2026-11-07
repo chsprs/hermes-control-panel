@@ -2734,7 +2734,9 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
         # instead of a CDN round-trip. 90 KB → 95 KB (Wave 98): riwayat performa
         # asli t_e42bba09 (seed lazy + label min/maks/sekarang, ~2,5 KB gzip).
         # Terukur 92,5 KB — guard tetap menangkap bloat 2×.
-        self.assertLess(len(raw), 95000)
+        # 95 KB → 100 KB (Wave 118): tema QuestUI (Cinzel/Spectral/Fira Code
+        # self-hosted + lapisan CSS RPG, ±3,5 KB gzip; terukur 98,5 KB).
+        self.assertLess(len(raw), 100000)
         self.assertGreater(len(decompressed), 350000)
 
     def test_deflate_compression_on_status_page(self):
@@ -2748,7 +2750,8 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
         # 85 KB → 90 KB: tab Profil sekarang membawa modal Skills/Tools/Config
         # (selector platform + pane config). 90 KB → 95 KB (Wave 98): riwayat
         # performa t_e42bba09 (~2,5 KB gzip). Guard tetap menangkap bloat 2×.
-        self.assertLess(len(raw), 95000)
+        # 95 KB → 100 KB (Wave 118): tema QuestUI self-hosted, ±3,5 KB gzip.
+        self.assertLess(len(raw), 100000)
         self.assertGreater(len(decompressed), 350000)
 
     def test_no_compression_without_accept_encoding(self):
