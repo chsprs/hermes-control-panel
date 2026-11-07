@@ -1253,6 +1253,18 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .qz-det .qz-bar{{height:4px}}
 .qz-det .qz-row-foot{{font-size:.62rem}}
 
+
+.qz-ag-card{{border:1px solid var(--border);border-radius:8px;padding:.6rem .7rem;
+margin-bottom:.5rem;background:rgba(255,255,255,0.02)}}
+.qz-ag-card.toggle{{cursor:pointer}}
+.qz-ag-card.toggle.open .qz-caret{{transform:rotate(90deg);display:inline-block}}
+.qz-ag-main{{display:flex;align-items:center;gap:.7rem}}
+.qz-ag-text{{flex:1;min-width:0}}
+.qz-ag-title{{font-size:.86rem;font-weight:600;color:var(--text)}}
+.qz-ag-models{{font-size:.72rem;color:var(--text-muted);margin-top:.15rem;line-height:1.4}}
+.qz-ag-reset{{font-size:.68rem;color:var(--text-dim);margin-top:.2rem;font-family:var(--font-mono)}}
+.qz-circle{{flex-shrink:0}}
+.qz-circle.na{{font-size:.6rem;color:var(--text-dim);width:46px;text-align:center}}
 /* flat bucket list (non-antigravity) */
 .qz-flat{{padding-top:.1rem}}
 
@@ -3183,6 +3195,65 @@ function qzRow(o){{
     + '<div class="qz-row-foot">' + foot.join('') + '</div>'
     + '</div>';
 }}
+
+// Meter lingkaran: cincin hijau/amber/merah dengan % di tengah (gaya Antigravity)
+function qzCircle(pct, status){{
+  if(pct === null || pct === undefined){{
+    return '<span class="qz-circle na" aria-hidden="true">N/A</span>';
+  }}
+  var q = Math.max(0, Math.min(100, Number(pct)));
+  var col = q < 10 ? '#f87171' : (q < 25 ? '#fbbf24' : '#4ade80');
+  var r = 15.9155;                       // keliling = 100
+  var circ = 2 * Math.PI * r;
+  var filled = (q / 100) * circ;
+  return '<svg class="qz-circle" viewBox="0 0 40 40" width="46" height="46" role="img" '
+    + 'aria-label="sisa ' + q.toFixed(0) + '%">'
+    + '<circle cx="20" cy="20" r="' + r + '" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4"/>'
+    + '<circle cx="20" cy="20" r="' + r + '" fill="none" stroke="' + col + '" stroke-width="4" '
+    + 'stroke-linecap="round" stroke-dasharray="' + filled.toFixed(2) + ' ' + circ.toFixed(2) + '" '
+    + 'transform="rotate(-90 20 20)"/>'
+    + '<text x="20" y="21" text-anchor="middle" dominant-baseline="central" '
+    + 'fill="' + col + '" font-size="9" font-weight="700" font-family="inherit">'
+    + q.toFixed(0) + '%</text></svg>';
+}}
+
+// Kartu kategori Antigravity: meter + judul + daftar model + waktu reset.
+// opts: title, pct, status, models[], sessionReset, weeklyReset, buckets, key, open
+function qzAgCard(o){{
+  var detId = qzDetId(o.key);
+  var hasDet = !!(o.buckets && o.buckets.length);
+  var rows = [];
+  if(o.models && o.models.length){{
+    rows.push('<div class="qz-ag-models">' + escHtml(o.models.join(' · ')) + '</div>');
+  }}
+  var resets = [];
+  if(o.sessionReset) resets.push('reset 5 jam: ' + escHtml(o.sessionReset));
+  if(o.weeklyReset) resets.push('reset mingguan: ' + escHtml(o.weeklyReset));
+  if(o.note) resets.push(escHtml(o.note));
+  if(resets.length) rows.push('<div class="qz-ag-reset">' + resets.join(' · ') + '</div>');
+
+  var toggleA11y = hasDet
+    ? ' role="button" tabindex="0" aria-expanded="' + (o.open ? 'true' : 'false') + '"'
+      + ' aria-controls="' + escHtml(detId) + '"'
+    : '';
+  var h = '<div class="qz-ag-card' + (hasDet ? ' toggle' : '') + '"' + toggleA11y
+    + (hasDet ? ' data-qk="' + escHtml(o.key) + '"' : '') + '>'
+    + '<div class="qz-ag-main">' + qzCircle(o.pct, o.status)
+    + '<div class="qz-ag-text"><div class="qz-ag-title">' + escHtml(o.title) + '</div>'
+    + rows.join('') + '</div>'
+    + (hasDet ? '<span class="qz-caret" aria-hidden="true">&#9654;</span>' : '')
+    + '</div>';
+  if(hasDet){{
+    h += '<div class="qz-det' + (o.open ? ' open' : '') + '" id="' + escHtml(detId) + '" data-qd="' + escHtml(o.key) + '">';
+    o.buckets.forEach(function(b){{
+      h += qzRow({{label: b.label, pct: b.pct, status: null,
+        used: b.used, total: b.total, resetText: quotaFmtReset(b.resetAt)}});
+    }});
+    h += '</div>';
+  }}
+  return h + '</div>';
+}}
+
 function quotaAccountHtml(a){{
   var prov = a.provider || '';
   var sub = [];
@@ -3202,7 +3273,42 @@ function quotaAccountHtml(a){{
     + escHtml(quotaStatusLabel(a.status, true)) + '</span>';
   h += '</div></div>';
 
-  if(a.groups && a.groups.length){{
+  if(a.provider === 'antigravity' && a.groups && a.groups.length){{
+    // Tampilan kartu Antigravity: gabungkan grup session+weekly menjadi satu
+    // kartu per kategori (Gemini Models / Claude & GPT / Argon), lengkap dengan
+    // meter lingkaran dan waktu reset mingguan + 5 jam.
+    var byKey = {{}};
+    a.groups.forEach(function(g){{ byKey[g.key] = g; }});
+    var cards = [
+      {{title: 'Gemini Models', ses: 'gemini_session', wk: 'gemini_weekly'}},
+      {{title: 'Claude and GPT models', ses: 'claude_gpt_session', wk: 'claude_gpt_weekly'}},
+      {{title: 'Gemini 4 Argon', ses: 'gemini-4-argon', wk: null}}
+    ];
+    cards.forEach(function(c){{
+      var ses = byKey[c.ses], wk = c.wk ? byKey[c.wk] : null;
+      if(!ses && !wk) return;
+      var base = ses || wk;
+      var pcts = [];
+      [ses, wk].forEach(function(g){{ if(g && g.pct !== null && g.pct !== undefined) pcts.push(g.pct); }});
+      var pct = pcts.length ? Math.min.apply(null, pcts) : (base ? base.pct : null);
+      var buckets = (ses && ses.buckets && ses.buckets.length ? ses.buckets : (wk ? wk.buckets : []));
+      var models = [];
+      [ses, wk].forEach(function(g){{
+        if(g && g.model_names) g.model_names.forEach(function(m){{
+          if(models.indexOf(m) === -1) models.push(m);
+        }});
+      }});
+      var key = a.id + '::' + c.ses;
+      h += qzAgCard({{
+        title: c.title, pct: pct, status: base ? base.status : 'ok',
+        models: models,
+        sessionReset: ses ? quotaFmtReset(ses.resetAt) : '',
+        weeklyReset: wk ? quotaFmtReset(wk.resetAt) : '',
+        note: base && base.status === 'no_access' ? 'Tidak tersedia (butuh Pro/Ultra)' : '',
+        buckets: buckets, key: key, open: QUOTA.openDet[key] === true
+      }});
+    }});
+  }} else if(a.groups && a.groups.length){{
     a.groups.forEach(function(g){{
       var key = a.id + '::' + g.key;
       var hasDet = !!(g.buckets && g.buckets.length);
@@ -18413,11 +18519,11 @@ _QUOTA_AGGREGATE_KEYS = frozenset({
 # Antigravity renders as exactly these five rows, in this order, always.
 # (group key, UI label, main bucket, detail prefixes, detail exclusions)
 _ANTIGRAVITY_GROUPS = (
-    ("gemini_session", "Kuota Gemini (Flash & Pro)", "gemini_session", ("gemini-",), ("gemini-4-argon-",)),
-    ("gemini_weekly", "Kuota Weekly Gemini", "gemini_weekly", (), ()),
-    ("claude_gpt_session", "Kuota Claude", "claude_gpt_session", ("claude-",), ()),
-    ("claude_gpt_weekly", "Kuota Weekly Claude", "claude_gpt_weekly", (), ()),
-    ("gemini-4-argon", "Kuota Weekly Argon", None, ("gemini-4-argon-",), ()),
+    ("gemini_session", "Gemini Models", "gemini_session", ("gemini-",), ("gemini-4-argon-",)),
+    ("gemini_weekly", "Gemini Models (Weekly)", "gemini_weekly", (), ()),
+    ("claude_gpt_session", "Claude and GPT models", "claude_gpt_session", ("claude-",), ()),
+    ("claude_gpt_weekly", "Claude and GPT models (Weekly)", "claude_gpt_weekly", (), ()),
+    ("gemini-4-argon", "Gemini 4 Argon", None, ("gemini-4-argon-",), ()),
 )
 _ANTIGRAVITY_AGGREGATE_SET = frozenset({"gemini_session", "gemini_weekly", "claude_gpt_session", "claude_gpt_weekly"})
 
@@ -18532,11 +18638,27 @@ def _antigravity_groups(quotas: dict) -> list:
                 worst = min(details, key=lambda d: (d["pct"] is None, d["pct"] or 0))
                 used, total = worst.get("used"), worst.get("total")
             fallback = True
+        
+        # Untuk Claude/GPT: kumpulkan nama model unik dari bucket (tanpa suffix High/Low/Medium)
+        model_names = []
+        if gkey in ("claude_gpt_session", "claude_gpt_weekly") and details:
+            seen = set()
+            for d in details:
+                # Hapus suffix -high, -low, -medium dari key untuk dapatkan base model name
+                base = d["key"].replace("-high", "").replace("-low", "").replace("-medium", "")
+                if base not in seen:
+                    seen.add(base)
+                    # Gunakan label dari bucket (sudah dalam format "Claude Opus 5.5 (High)")
+                    # Hapus suffix (High), (Low), (Medium) untuk dapatkan nama model saja
+                    label = d["label"].replace(" (High)", "").replace(" (Low)", "").replace(" (Medium)", "")
+                    model_names.append(label)
+        
         groups.append({
             "key": gkey, "label": glabel, "pct": pct,
             "status": _quota_status_from_pcts([pct] + [d["pct"] for d in details]),
             "resetAt": reset, "used": used, "total": total,
             "fallback": fallback, "buckets": details, "note": None,
+            "model_names": model_names,  # Nama model AI yang tersedia di akun ini
         })
     return groups
 

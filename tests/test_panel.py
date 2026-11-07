@@ -6275,16 +6275,29 @@ class TestProviderQuota(unittest.TestCase):
         acct = self._account(self._ag_usage())
         self.assertEqual(len(acct["groups"]), 5)
         self.assertEqual([g["label"] for g in acct["groups"]], [
-            "Kuota Gemini (Flash & Pro)",
-            "Kuota Weekly Gemini",
-            "Kuota Claude",
-            "Kuota Weekly Claude",
-            "Kuota Weekly Argon",
+            "Gemini Models",
+            "Gemini Models (Weekly)",
+            "Claude and GPT models",
+            "Claude and GPT models (Weekly)",
+            "Gemini 4 Argon",
         ])
         self.assertEqual([g["key"] for g in acct["groups"]], [
             "gemini_session", "gemini_weekly", "claude_gpt_session",
             "claude_gpt_weekly", "gemini-4-argon",
         ])
+
+    def test_claude_groups_expose_unique_model_names(self):
+        # Setiap akun bisa punya jenis model berbeda; panel harus menampilkannya.
+        acct = self._account(self._ag_usage())
+        g = {x["key"]: x for x in acct["groups"]}
+        names = g["claude_gpt_session"]["model_names"]
+        self.assertTrue(names, "model_names harus terisi untuk Claude/GPT")
+        # Tanpa duplikat walau bucket punya varian High/Low/Medium
+        self.assertEqual(len(names), len(set(names)))
+        for n in names:
+            self.assertNotIn("(High)", n)
+            self.assertNotIn("(Low)", n)
+            self.assertNotIn("(Medium)", n)
 
     def test_group_main_bars_use_their_aggregate_bucket(self):
         acct = self._account(self._ag_usage())
