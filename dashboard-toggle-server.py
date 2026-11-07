@@ -687,46 +687,39 @@ PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
 <meta name="theme-color" content="#07090e">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%232563eb'/%3E%3C/svg%3E">
 <style>
-@font-face{{font-family:'Cinzel';src:url('/static/fonts/Cinzel-400.woff2') format('woff2');font-weight:400;font-display:swap}}
-@font-face{{font-family:'Cinzel';src:url('/static/fonts/Cinzel-600.woff2') format('woff2');font-weight:600;font-display:swap}}
-@font-face{{font-family:'Cinzel';src:url('/static/fonts/Cinzel-700.woff2') format('woff2');font-weight:700;font-display:swap}}
-@font-face{{font-family:'Spectral';src:url('/static/fonts/Spectral-400.woff2') format('woff2');font-weight:400;font-display:swap}}
-@font-face{{font-family:'Spectral';src:url('/static/fonts/Spectral-500.woff2') format('woff2');font-weight:500;font-display:swap}}
-@font-face{{font-family:'Spectral';src:url('/static/fonts/Spectral-600.woff2') format('woff2');font-weight:600;font-display:swap}}
-@font-face{{font-family:'Fira Code';src:url('/static/fonts/FiraCode-400.woff2') format('woff2');font-weight:400;font-display:swap}}
 
 :root{{
   color-scheme:dark;
-  --bg:#1A0F0A;
-  --surface:#2C1A10;
-  --surface-solid:#2C1A10;
-  --surface-elevated:#3D2517;
-  --surface-hover:#3D2517;
-  --border:#5C3D2E;
-  --border-subtle:rgba(92,61,46,0.4);
-  --border-hover:#CA8A04;
-  --text:#F5E6D3;
-  --text-muted:#BFA98A;
-  --text-dim:#8B7355;
-  --accent:#CA8A04;
-  --accent-light:#DAA520;
-  --accent-dim:rgba(202,138,4,0.15);
-  --accent-squircle:linear-gradient(135deg,#B8860B,#CA8A04);
-  --success:#22C55E;
-  --success-dim:rgba(34,197,94,0.14);
-  --warning:#CA8A04;
-  --warning-dim:rgba(202,138,4,0.14);
-  --danger:#991B1B;
-  --danger-dim:rgba(153,27,27,0.14);
-  --purple:#581C87;
-  --purple-dim:rgba(88,28,135,0.14);
-  --radius-xl:8px;
-  --radius-lg:6px;
-  --radius-md:4px;
-  --radius-sm:2px;
+  --bg:#1a1a1a;
+  --surface:#111111;
+  --surface-solid:#111111;
+  --surface-elevated:#1c1c1c;
+  --surface-hover:#262626;
+  --border:#808080;
+  --border-subtle:#4a4a4a;
+  --border-hover:#FFFF00;
+  --text:#FFFFFF;
+  --text-muted:#B0B0B0;
+  --text-dim:#9a9a9a;
+  --accent:#0000FF;
+  --accent-light:#7da2ff;
+  --accent-dim:rgba(0,0,255,0.15);
+  --accent-squircle:linear-gradient(135deg,#0000FF,#0000FF);
+  --success:#008000;
+  --success-dim:rgba(0,128,0,0.14);
+  --warning:#FFFF00;
+  --warning-dim:rgba(255,255,0,0.14);
+  --danger:#FF0000;
+  --danger-dim:rgba(255,0,0,0.14);
+  --purple:#0000FF;
+  --purple-dim:rgba(0,0,255,0.14);
+  --radius-xl:0px;
+  --radius-lg:0px;
+  --radius-md:0px;
+  --radius-sm:0px;
   --ease:cubic-bezier(.16,1,.3,1);
-  --font-sans:'Spectral',serif;
-  --font-mono:'Fira Code',monospace;
+  --font-sans:'Courier New',monospace;
+  --font-mono:'Courier New',monospace;
 }}
 html,body{{overflow-x:hidden;max-width:100vw;box-sizing:border-box}}
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -740,19 +733,21 @@ html,body{{overflow-x:hidden;max-width:100vw;box-sizing:border-box}}
 
 body{{font-family:var(--font-sans);background:var(--bg);color:var(--text);
 min-height:100vh;display:flex;flex-direction:column;align-items:center;
-padding:1.4rem .9rem;font-size:16px;line-height:1.7;
+padding:1.4rem .9rem;font-size:16px;line-height:1.6;
 -webkit-font-smoothing:antialiased;
-background-image:radial-gradient(circle at 50% 0%, rgba(202,138,4,0.08) 0%, transparent 55%),
-radial-gradient(circle at 85% 30%, rgba(88,28,135,0.04) 0%, transparent 40%)}}
+background-image:
+  linear-gradient(rgba(128,128,128,0.18) 1px, transparent 1px),
+  linear-gradient(90deg, rgba(128,128,128,0.18) 1px, transparent 1px);
+background-size:32px 32px}}
 .icon{{display:inline-block;vertical-align:-3px;flex-shrink:0}}
 
 /* Header & Brand */
 .header{{display:flex;width:100%;max-width:1040px;align-items:center;justify-content:space-between;gap:.8rem;margin-bottom:1.3rem}}
 .header-brand{{display:flex;align-items:center;gap:.75rem}}
 .header-logo{{width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 4px 14px rgba(202,138,4,0.35))}}
-h1{{font-size:1.22rem;font-weight:600;letter-spacing:-.025em;color:var(--text);font-family:'Cinzel',serif}}
+h1{{font-size:1.22rem;font-weight:600;letter-spacing:-.025em;color:var(--text);font-family:'Courier New',monospace}}
 .live-badge{{display:inline-flex;align-items:center;gap:.45rem;padding:.24rem .7rem;
-border-radius:2px;font-size:.68rem;font-weight:600;font-family:'Cinzel',serif;
+border-radius:2px;font-size:.68rem;font-weight:600;font-family:'Courier New',monospace;
 background:rgba(202,138,4,0.10);border:1px solid rgba(202,138,4,0.28);color:var(--accent);
 letter-spacing:.04em;text-transform:uppercase;transition:color .2s,background .2s,border-color .2s}}
 .live-badge .dot{{width:6px;height:6px;border-radius:50%;background:var(--text-dim);transition:background .2s,box-shadow .2s}}
@@ -816,7 +811,7 @@ border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.35rem;wi
 box-shadow:0 2px 8px rgba(202,138,4,0.20);transition:border-color .2s var(--ease),box-shadow .2s var(--ease)}}
 .card:hover{{border-color:var(--border-hover);box-shadow:0 4px 16px rgba(202,138,4,0.25)}}
 .card+.card{{margin-top:1.15rem}}
-.card-title{{font-size:.72rem;font-family:'Cinzel',serif;color:var(--accent);
+.card-title{{font-size:.72rem;font-family:'Courier New',monospace;color:var(--accent);
 text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:1rem;
 display:flex;align-items:center;gap:.5rem}}
 
@@ -1442,6 +1437,142 @@ td .badge.badge-up,td .badge.badge-down{{font-weight:600}}
 }}
 /* Tautan & nilai mono: emas lembut, bukan biru */
 a{{color:var(--accent-light)}}
+
+/* ================= BRUTALIST WEB DESIGN (override terakhir) ================= */
+/* Prinsip: struktur terlihat, border tegas, tanpa rounded, tanpa glow, font sistem. */
+*,*::before,*::after{{
+  border-radius:0 !important;
+  box-shadow:none !important;
+  text-shadow:none !important;
+}}
+body{{color:#f5f5f5}}
+.card,.card-status,.kanban-column,.qz-ag-card,.modal-content,.cc-tile{{
+  background:#111111;
+  color:#FFFFFF;
+  border:2px solid #808080 !important;
+  padding:16px;
+}}
+.card-title{{
+  font-family:'Courier New',monospace;font-weight:700;
+  color:#FFFF00;text-transform:uppercase;letter-spacing:.06em;
+  border-bottom:2px solid #808080;padding-bottom:6px;
+}}
+/* --- Tombol gaya [TAG] ala referensi --- */
+.btn,.btn-action-sm,.toggle,.btn-end-task,.btn-restart-task,.btn-start-task,
+a.open,.tab,.kb-load-more{{
+  font-family:'Courier New',monospace;font-weight:700;
+  background:#000000 !important;
+  color:#FFFF00 !important;
+  border:2px solid #FFFF00 !important;
+  padding:8px 22px !important;
+  text-transform:uppercase;letter-spacing:.05em;
+}}
+.btn::before,.btn-action-sm::before,.toggle::before,
+.btn-end-task::before,.btn-restart-task::before,.btn-start-task::before{{
+  content:'[';color:#FFFF00;margin-right:6px;
+}}
+.btn::after,.btn-action-sm::after,.toggle::after,
+.btn-end-task::after,.btn-restart-task::after,.btn-start-task::after{{
+  content:']';color:#FFFF00;margin-left:6px;
+}}
+.btn:hover,.btn-action-sm:hover,.toggle:hover,
+.btn-end-task:hover,.btn-restart-task:hover,.btn-start-task:hover{{
+  background:#FFFF00 !important;color:#000000 !important;
+}}
+.btn:hover::before,.btn:hover::after,
+.btn-action-sm:hover::before,.btn-action-sm:hover::after,
+.toggle:hover::before,.toggle:hover::after{{
+  color:#000000;
+}}
+/* Varian destruktif: merah */
+.btn-end-task,.btn-action-danger{{
+  background:#FF0000 !important;color:#FFFFFF !important;border-color:#FFFFFF !important;
+}}
+.btn-end-task::before,.btn-end-task::after,
+.btn-action-danger::before,.btn-action-danger::after{{color:#FFFFFF}}
+.btn-end-task:hover,.btn-action-danger:hover{{background:#FFFFFF !important;color:#FF0000 !important}}
+.btn-end-task:hover::before,.btn-end-task:hover::after,
+.btn-action-danger:hover::before,.btn-action-danger:hover::after{{color:#FF0000}}
+/* Tombol nonaktif */
+.btn:disabled,.btn-action-sm:disabled{{
+  opacity:.4;border-color:#808080 !important;color:#808080 !important;background:#1a1a1a !important;
+}}
+/* --- Tab navigasi --- */
+.tabs{{
+  background:#000000;border:2px solid #FFFF00 !important;padding:6px;
+}}
+.tab{{
+  background:transparent !important;color:#FFFF00 !important;
+  border:2px solid transparent !important;font-weight:700;
+}}
+.tab.active{{
+  background:#0000FF !important;color:#FFFFFF !important;
+  border:2px solid #FFFFFF !important;
+}}
+.tab:hover{{background:#FFFF00 !important;color:#000000 !important}}
+.tab.active::before{{content:'['}}
+.tab.active::after{{content:']'}}
+/* --- Input: border tegas, fokus biru --- */
+input[type=text],input[type=password],select,textarea,.search-input{{
+  background:#ffffff;color:#000000;border:2px solid #000000 !important;
+  font-family:'Courier New',monospace;
+}}
+input:focus,select:focus,textarea:focus,.search-input:focus{{
+  border-color:#0000FF !important;outline:2px solid #0000FF;outline-offset:2px;
+  box-shadow:none !important;
+}}
+/* --- Log & kode --- */
+.logbox,code,pre{{
+  font-family:'Courier New',monospace;background:#000000;color:#00FF00;
+  border:2px solid #808080 !important;
+}}
+/* --- Badge status --- */
+.badge-up{{background:#00FF00 !important;color:#000000 !important;border:2px solid #000000 !important}}
+.badge-down{{background:#FF0000 !important;color:#FFFFFF !important;border:2px solid #000000 !important}}
+.badge,.live-badge{{
+  font-family:'Courier New',monospace;font-weight:700;text-transform:uppercase;
+  border:2px solid #000000 !important;
+}}
+/* --- Header situs: gaya RAW_VISION.LOG --- */
+.header-brand h1,.header h1{{
+  font-family:'Courier New',monospace;font-weight:700;color:#FFFF00;
+  text-transform:uppercase;letter-spacing:.04em;
+}}
+.header-brand h1::after{{content:'.LOG';color:#7da2ff}}
+/* --- Link: garis bawah biru sistem --- */
+a{{color:#0000FF;text-decoration:underline}}
+a:hover{{background:#FFFF00;color:#000000}}
+/* --- Meter & bar kuota --- */
+.qz-ag-card{{background:#f5f5f5;color:#000000}}
+.qz-ag-title{{color:#000000;font-weight:700}}
+.qz-ag-models{{color:#0000FF}}
+.qz-ag-reset{{color:#404040}}
+/* --- Scrollbar tegas --- */
+::-webkit-scrollbar-thumb{{background:#808080;border:1px solid #000000}}
+::-webkit-scrollbar-track{{background:#1a1a1a}}
+
+/* Brutalist: badge kuota untuk latar kartu TERANG (teks gelap, kontras WCAG) */
+.qz-badge{{
+  color:#333333;background:transparent;border:1px solid #808080 !important;
+  border-radius:0 !important;font-family:'Courier New',monospace;
+}}
+.qz-badge.ok{{color:#15803d;border-color:#15803d !important;background:rgba(34,197,94,0.12)}}
+.qz-badge.low{{color:#a16207;border-color:#a16207 !important;background:rgba(202,138,4,0.12)}}
+.qz-badge.exhausted,.qz-badge.error{{color:#b91c1c;border-color:#b91c1c !important;background:rgba(153,27,27,0.10)}}
+.qz-badge.auth_expired{{color:#6d28d9;border-color:#6d28d9 !important;background:rgba(109,40,217,0.10)}}
+.qz-badge.tier{{color:#1d4ed8;border-color:#1d4ed8 !important;background:rgba(0,0,255,0.08)}}
+.qz-badge.no_access,.qz-badge.unsupported{{color:#595959}}
+/* Teks meta kuota di atas kartu terang */
+.qz-ag-models,.qz-ag-reset,.qz-row-label,.qz-row-foot,.qz-prov-meta,.qz-acct-sub{{
+  color:#333333;
+}}
+.qz-ag-title,.qz-row-label{{color:#000000}}
+/* Judul grup model & subjudul pemilih: gelap agar terbaca di latar terang */
+.model-group-title,.aux-model-opt-sub,.model-chip-badge{{
+  color:#333333;
+}}
+.model-chip{{color:#000000}}
+.model-chip-badge{{color:#333333}}
 </style></head><body>
 <div id="pbar"></div>
 <div id="navloader"><div class="ring"></div><span id="nav-label">Memproses…</span></div>

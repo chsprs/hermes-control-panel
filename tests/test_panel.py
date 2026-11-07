@@ -5938,12 +5938,10 @@ class TestWave77Audit(unittest.TestCase):
         self.assertNotIn("https://fonts.googleapis.com", page)
         self.assertNotIn("https://fonts.gstatic.com", page)
         self.assertNotIn("https://cdn.jsdelivr.net", page)
-        # Local @font-face must be present
-        self.assertIn("@font-face", page)
-        self.assertIn("/static/fonts/Cinzel-400.woff2", page)
-        self.assertIn("/static/fonts/Spectral-400.woff2", page)
-        self.assertIn("/static/fonts/FiraCode-400.woff2", page)
-        self.assertIn("font-display:swap", page)
+        # Brutalist design memakai font SISTEM (Courier New) — tidak ada unduhan
+        # font sama sekali, sehingga halaman tetap utuh saat offline.
+        self.assertIn("Courier New", page)
+        self.assertNotIn("fonts.googleapis.com", page)
 
     def test_font_route_serves_woff2_with_immutable_cache(self):
         """GET /static/fonts/Geist-400.woff2 returns 200 with font/woff2 + immutable cache."""
