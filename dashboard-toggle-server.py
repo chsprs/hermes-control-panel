@@ -1543,8 +1543,8 @@ input:focus,select:focus,textarea:focus,.search-input:focus{{
 a{{color:#0000FF;text-decoration:underline}}
 a:hover{{background:#FFFF00;color:#000000}}
 /* --- Meter & bar kuota --- */
-.qz-ag-card{{background:#f5f5f5;color:#000000}}
-.qz-ag-title{{color:#000000;font-weight:700}}
+.qz-ag-card{{background:#111111;color:#FFFFFF}}
+.qz-ag-title{{color:#FFFFFF;font-weight:700}}
 .qz-ag-models{{color:#0000FF}}
 .qz-ag-reset{{color:#404040}}
 /* --- Scrollbar tegas --- */
@@ -1563,16 +1563,16 @@ a:hover{{background:#FFFF00;color:#000000}}
 .qz-badge.tier{{color:#7da2ff;border-color:#7da2ff !important;background:rgba(0,0,255,0.08)}}
 .qz-badge.no_access,.qz-badge.unsupported{{color:#595959}}
 /* Teks meta kuota di atas kartu terang */
-.qz-ag-models,.qz-ag-reset,.qz-row-label,.qz-row-foot,.qz-prov-meta,.qz-acct-sub{{
-  color:#333333;
-}}
-.qz-ag-title,.qz-row-label{{color:#000000}}
+.qz-ag-models{{color:#00FFFF}}
+.qz-ag-reset,.qz-row-foot,.qz-prov-meta,.qz-acct-sub{{color:#B0B0B0}}
+.qz-row-label{{color:#FFFFFF}}
+.qz-ag-title,.qz-row-label{{color:#FFFFFF}}
 /* Judul grup model & subjudul pemilih: gelap agar terbaca di latar terang */
 .model-group-title,.aux-model-opt-sub,.model-chip-badge{{
-  color:#333333;
+  color:#B0B0B0;
 }}
-.model-chip{{color:#000000}}
-.model-chip-badge{{color:#333333}}
+.model-chip{{color:#FFFFFF}}
+.model-chip-badge{{color:#B0B0B0}}
 </style></head><body>
 <div id="pbar"></div>
 <div id="navloader"><div class="ring"></div><span id="nav-label">Memproses…</span></div>
