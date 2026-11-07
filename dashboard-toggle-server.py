@@ -744,17 +744,17 @@ background-size:32px 32px}}
 /* Header & Brand */
 .header{{display:flex;width:100%;max-width:1040px;align-items:center;justify-content:space-between;gap:.8rem;margin-bottom:1.3rem}}
 .header-brand{{display:flex;align-items:center;gap:.75rem}}
-.header-logo{{width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 4px 14px rgba(202,138,4,0.35))}}
+.header-logo{{width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 4px 14px rgba(255,255,0,0.35))}}
 h1{{font-size:1.22rem;font-weight:600;letter-spacing:-.025em;color:var(--text);font-family:'Courier New',monospace}}
 .live-badge{{display:inline-flex;align-items:center;gap:.45rem;padding:.24rem .7rem;
 border-radius:2px;font-size:.68rem;font-weight:600;font-family:'Courier New',monospace;
-background:rgba(202,138,4,0.10);border:1px solid rgba(202,138,4,0.28);color:var(--accent);
+background:rgba(255,255,0,0.10);border:1px solid rgba(255,255,0,0.28);color:var(--accent);
 letter-spacing:.04em;text-transform:uppercase;transition:color .2s,background .2s,border-color .2s}}
 .live-badge .dot{{width:6px;height:6px;border-radius:50%;background:var(--text-dim);transition:background .2s,box-shadow .2s}}
 .live-badge.connected{{color:var(--success);background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.25)}}
 .live-badge.connected .dot{{background:var(--success);box-shadow:0 0 8px var(--success)}}
-.live-badge.reconnecting{{color:#fbbf24;background:rgba(245,158,11,0.10);border-color:rgba(245,158,11,0.30)}}
-.live-badge.reconnecting .dot{{background:#fbbf24;box-shadow:0 0 8px rgba(245,158,11,0.6);animation:kb-pulse 1.2s ease-in-out infinite}}
+.live-badge.reconnecting{{color:#FFFF00;background:rgba(245,158,11,0.10);border-color:rgba(245,158,11,0.30)}}
+.live-badge.reconnecting .dot{{background:#FFFF00;box-shadow:0 0 8px rgba(245,158,11,0.6);animation:kb-pulse 1.2s ease-in-out infinite}}
 .live-badge.offline{{color:var(--danger);background:rgba(239,68,68,0.10);border-color:rgba(239,68,68,0.30)}}
 .live-badge.offline .dot{{background:var(--danger);box-shadow:none}}
 
@@ -765,7 +765,7 @@ display:flex;flex-direction:column;gap:.45rem;align-items:center;pointer-events:
 border-radius:12px;padding:.6rem .85rem;font-size:.8rem;line-height:1.35;box-shadow:0 10px 30px rgba(0,0,0,.45);
 opacity:0;transform:translateY(8px);transition:opacity .2s var(--ease),transform .2s var(--ease)}}
 .toast.in{{opacity:1;transform:translateY(0)}}
-.toast.info{{border-color:rgba(59,130,246,.45);color:#bfdbfe}}
+.toast.info{{border-color:rgba(59,130,246,.45);color:#7da2ff}}
 .toast.ok{{border-color:rgba(16,185,129,.45)}}
 .toast.err{{border-color:rgba(239,68,68,.5);color:#fecaca}}
 
@@ -808,8 +808,8 @@ border:1px solid rgba(96,165,250,0.65);box-shadow:0 3px 14px rgba(37,99,235,0.40
    backdrop here is a faint gradient, so the blur was invisible anyway. Overlays keep theirs. */
 .card{{background:var(--surface);
 border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.35rem;width:100%;
-box-shadow:0 2px 8px rgba(202,138,4,0.20);transition:border-color .2s var(--ease),box-shadow .2s var(--ease)}}
-.card:hover{{border-color:var(--border-hover);box-shadow:0 4px 16px rgba(202,138,4,0.25)}}
+box-shadow:0 2px 8px rgba(255,255,0,0.20);transition:border-color .2s var(--ease),box-shadow .2s var(--ease)}}
+.card:hover{{border-color:var(--border-hover);box-shadow:0 4px 16px rgba(255,255,0,0.25)}}
 .card+.card{{margin-top:1.15rem}}
 .card-title{{font-size:.72rem;font-family:'Courier New',monospace;color:var(--accent);
 text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:1rem;
@@ -869,12 +869,12 @@ transition:all .18s var(--ease);cursor:pointer}}
 a.toggle:hover,.btn:hover,a.open:hover{{border-color:var(--border-hover);background:rgba(255,255,255,0.07);transform:translateY(-1px)}}
 a.toggle:active,.btn:active,a.open:active{{transform:scale(.98)}}
 
-a.toggle.btn-on{{background:rgba(16,185,129,0.12) !important;color:#34d399 !important;
+a.toggle.btn-on{{background:rgba(16,185,129,0.12) !important;color:#00FF00 !important;
 border-color:rgba(16,185,129,0.3) !important;box-shadow:0 2px 10px rgba(16,185,129,0.1)}}
-a.toggle.btn-off{{background:rgba(239,68,68,0.12) !important;color:#f87171 !important;
+a.toggle.btn-off{{background:rgba(239,68,68,0.12) !important;color:#FF5555 !important;
 border-color:rgba(239,68,68,0.3) !important;box-shadow:0 2px 10px rgba(239,68,68,0.1)}}
 
-a.open{{background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#fff;border-color:rgba(255,255,255,0.1);
+a.open{{background:linear-gradient(135deg,#7da2ff,#2563eb);color:#fff;border-color:rgba(255,255,255,0.1);
 box-shadow:0 4px 14px rgba(37,99,235,0.3)}}
 a.open:hover{{background:linear-gradient(135deg,#2563eb,#3b82f6);box-shadow:0 6px 18px rgba(37,99,235,0.45);color:#fff}}
 
@@ -892,12 +892,12 @@ a.open:hover{{background:linear-gradient(135deg,#2563eb,#3b82f6);box-shadow:0 6p
   font-family:var(--font-sans);
 }}
 .btn-action-sm:hover{{background:var(--surface-hover);border-color:var(--border-hover);color:var(--text)}}
-.btn-action-danger{{background:var(--danger);color:#F5E6D3;border:1px solid #B91C1C}}
-.btn-action-danger:hover{{background:#7F1D1D;border-color:var(--danger);color:#F5E6D3}}
+.btn-action-danger{{background:var(--danger);color:#FFFFFF;border:1px solid #FF0000}}
+.btn-action-danger:hover{{background:#990000;border-color:var(--danger);color:#FFFFFF}}
 .btn-action-primary{{background:var(--accent-dim);color:var(--accent-light);border:1px solid var(--accent)}}
-.btn-action-primary:hover{{background:var(--accent);color:#1A0F0A;border-color:var(--accent-light)}}
-.btn-action-sm.active{{background:var(--accent);color:#1A0F0A;border-color:var(--accent);font-weight:600}}
-.badge-danger{{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(153,27,27,0.3);padding:.15rem .45rem;border-radius:2px;font-size:.68rem;font-weight:600}}
+.btn-action-primary:hover{{background:var(--accent);color:#1a1a1a;border-color:var(--accent-light)}}
+.btn-action-sm.active{{background:var(--accent);color:#1a1a1a;border-color:var(--accent);font-weight:600}}
+.badge-danger{{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(255,0,0,0.3);padding:.15rem .45rem;border-radius:2px;font-size:.68rem;font-weight:600}}
 
 /* Gateway Platform Card Responsive Elements */
 .gw-card-row{{display:flex;flex-direction:column;gap:.6rem;padding:.75rem .9rem;
@@ -932,7 +932,7 @@ a.model-chip:hover{{
 }}
 a.model-chip:active{{transform:scale(.98)}}
 .model-chip.active{{
-  background:rgba(59,130,246,0.16) !important;color:#bfdbfe !important;
+  background:rgba(59,130,246,0.16) !important;color:#7da2ff !important;
   font-weight:600;border-color:rgba(96,165,250,0.55) !important;box-shadow:0 0 16px rgba(59,130,246,0.22);
 }}
 .model-chip-content{{
@@ -946,7 +946,7 @@ a.model-chip:active{{transform:scale(.98)}}
   background:rgba(255,255,255,0.07);color:var(--text-muted);letter-spacing:.02em;
 }}
 .model-chip.active .model-chip-badge{{
-  background:rgba(59,130,246,0.25);color:#bfdbfe;
+  background:rgba(59,130,246,0.25);color:#7da2ff;
 }}
 @media (max-width:480px){{
   .models-grid{{grid-template-columns:1fr;}}
@@ -959,7 +959,7 @@ select option, select optgroup{{background:#161b26;color:#f1f5f9;}}
 font-family:var(--font-sans);font-size:14px;font-weight:500;background:var(--surface-solid);
 border:1px solid var(--border);color:var(--text);outline:none;
 transition:border-color .18s var(--ease);margin-bottom:.9rem}}
-.search-input:focus{{border-color:var(--accent);box-shadow:0 0 0 3px rgba(202,138,4,0.25)}}
+.search-input:focus{{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,255,0,0.25)}}
 .search-input::placeholder{{color:var(--text-dim)}}
 .logbox{{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);
 padding:.9rem;font-family:var(--font-mono);font-size:14px;color:var(--success);
@@ -1014,7 +1014,7 @@ display:none;align-items:center;justify-content:center;z-index:300;padding:1.5re
 @keyframes kb-pulse{{0%,100%{{opacity:1}}50%{{opacity:0.3}}}}
 .kb-dot{{width:6px;height:6px;border-radius:50%;background:currentColor;animation:kb-pulse 1.2s ease-in-out infinite;flex:none}}
 .kb-badge-live{{display:inline-flex;align-items:center;gap:.3rem}}
-.kb-badge-idle{{display:inline-flex;align-items:center;gap:.3rem;background:rgba(245,158,11,0.15)!important;color:#fbbf24!important;border:1px solid rgba(245,158,11,0.35)!important;padding:.15rem .45rem;border-radius:4px;font-size:.62rem;font-weight:600}}
+.kb-badge-idle{{display:inline-flex;align-items:center;gap:.3rem;background:rgba(245,158,11,0.15)!important;color:#FFFF00!important;border:1px solid rgba(245,158,11,0.35)!important;padding:.15rem .45rem;border-radius:4px;font-size:.62rem;font-weight:600}}
 .kb-badge-stale{{display:inline-flex;align-items:center;gap:.3rem;background:rgba(239,68,68,0.15)!important;color:#fca5a5!important;border:1px solid rgba(239,68,68,0.4)!important;padding:.15rem .45rem;border-radius:4px;font-size:.62rem;font-weight:600}}
 /* Markdown Rich Rendering */
 .markdown-body{{font-family:var(--font-sans);color:var(--text);font-size:0.82rem;line-height:1.6;word-break:break-word}}
@@ -1034,7 +1034,7 @@ display:none;align-items:center;justify-content:center;z-index:300;padding:1.5re
 .markdown-body del{{text-decoration:line-through;opacity:0.65}}
 .markdown-body .md-link{{color:var(--accent-light);text-decoration:underline;text-underline-offset:2px;transition:opacity 0.15s ease}}
 .markdown-body .md-link:hover{{opacity:0.8}}
-.markdown-body .md-inline-code{{font-family:var(--font-mono);font-size:0.78em;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:4px;padding:0.15em 0.35em;color:#93c5fd;white-space:pre-wrap;word-break:break-all}}
+.markdown-body .md-inline-code{{font-family:var(--font-mono);font-size:0.78em;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:4px;padding:0.15em 0.35em;color:#7da2ff;white-space:pre-wrap;word-break:break-all}}
 .markdown-body .md-code-wrap{{margin:0.55rem 0;background:#0b0f17;border:1px solid var(--border);border-radius:6px;overflow:hidden}}
 .markdown-body .md-code-header{{display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.03);border-bottom:1px solid var(--border-subtle);padding:0.25rem 0.65rem;font-size:0.68rem;font-family:var(--font-mono);color:var(--text-dim);text-transform:lowercase}}
 .markdown-body .btn-copy-code{{background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:4px;padding:0.1rem 0.45rem;font-size:0.65rem;cursor:pointer;transition:all 0.15s ease}}
@@ -1135,7 +1135,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .spark-meta{{display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-dim);margin-top:.3rem;min-height:32px;align-items:center}}
 .spark-poly{{fill:none;stroke:var(--accent-light);stroke-width:2;vector-effect:non-scaling-stroke}}
 .spark-fill{{fill:rgba(96,165,250,0.12);stroke:none}}
-.spark-poly.ram{{stroke:#c084fc}}
+.spark-poly.ram{{stroke:#7da2ff}}
 .spark-fill.ram{{fill:rgba(192,132,252,0.12)}}
 
 /* 2-column layout for Performance Storage & Network on Desktop */
@@ -1213,12 +1213,12 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 
 /* badges */
 .qz-badge{{font-size:.62rem;font-weight:600;padding:.14rem .5rem;border-radius:999px;border:1px solid var(--border);font-family:var(--font-mono);letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;color:var(--text-muted);background:transparent}}
-.qz-badge.ok{{color:#34d399;border-color:rgba(52,211,153,.32);background:rgba(16,185,129,.12)}}
-.qz-badge.low{{color:#fbbf24;border-color:rgba(251,191,36,.32);background:rgba(245,158,11,.12)}}
-.qz-badge.exhausted,.qz-badge.error{{color:#f87171;border-color:rgba(248,113,113,.32);background:rgba(239,68,68,.12)}}
+.qz-badge.ok{{color:#00FF00;border-color:rgba(52,211,153,.32);background:rgba(16,185,129,.12)}}
+.qz-badge.low{{color:#FFFF00;border-color:rgba(251,191,36,.32);background:rgba(245,158,11,.12)}}
+.qz-badge.exhausted,.qz-badge.error{{color:#FF5555;border-color:rgba(248,113,113,.32);background:rgba(239,68,68,.12)}}
 .qz-badge.no_access,.qz-badge.unsupported{{color:var(--text-muted)}}
-.qz-badge.auth_expired{{color:#c084fc;border-color:rgba(192,132,252,.32);background:rgba(168,85,247,.12)}}
-.qz-badge.tier{{color:#93c5fd;border-color:rgba(147,197,253,.28);background:rgba(59,130,246,.1)}}
+.qz-badge.auth_expired{{color:#7da2ff;border-color:rgba(192,132,252,.32);background:rgba(168,85,247,.12)}}
+.qz-badge.tier{{color:#7da2ff;border-color:rgba(147,197,253,.28);background:rgba(59,130,246,.1)}}
 
 /* quota row — full width, stacked like the 9router tracker */
 .qz-row{{padding:.62rem 0 .55rem}}
@@ -1281,38 +1281,38 @@ margin-bottom:.5rem;background:rgba(255,255,255,0.02)}}
 
 
 /* ===================== QuestUI Theme (RPG fantasy) ===================== */
-/* Dipetakan dari questui-DESIGN.md: emas #CA8A04, merah #991B1B, ungu #581C87,
+/* Dipetakan dari questui-DESIGN.md: emas #FFFF00, merah #cc0000, ungu #0000FF,
    latar cokelat gelap berlapis, Cinzel untuk judul, Spectral untuk isi. */
 :root{{
-  --bg:#1A0F0A;
-  --surface:rgba(44,26,16,0.86);
-  --surface-solid:#2C1A10;
-  --surface-elevated:rgba(61,37,23,0.85);
-  --surface-hover:rgba(61,37,23,0.95);
-  --border:#5C3D2E;
-  --border-subtle:rgba(92,61,46,0.55);
-  --border-hover:#CA8A04;
-  --text:#F5E6D3;
-  --text-muted:#BFA98A;
-  --text-dim:#9c8468;
-  --accent:#CA8A04;
-  --accent-light:#DAA520;
-  --accent-dim:rgba(202,138,4,0.16);
-  --accent-squircle:linear-gradient(135deg,#B8780A,#CA8A04);
-  --success:#22C55E;
+  --bg:#1a1a1a;
+  --surface:rgba(17,17,17,0.86);
+  --surface-solid:#111111;
+  --surface-elevated:rgba(28,28,28,0.85);
+  --surface-hover:rgba(28,28,28,0.95);
+  --border:#808080;
+  --border-subtle:rgba(128,128,128,0.55);
+  --border-hover:#FFFF00;
+  --text:#FFFFFF;
+  --text-muted:#B0B0B0;
+  --text-dim:#9a9a9a;
+  --accent:#FFFF00;
+  --accent-light:#FFFF00;
+  --accent-dim:rgba(255,255,0,0.16);
+  --accent-squircle:linear-gradient(135deg,#e6c200,#FFFF00);
+  --success:#00FF00;
   --success-dim:rgba(34,197,94,0.16);
-  --warning:#CA8A04;
-  --warning-dim:rgba(202,138,4,0.16);
-  --danger:#991B1B;
-  --danger-dim:rgba(153,27,27,0.18);
-  --purple:#581C87;
+  --warning:#FFFF00;
+  --warning-dim:rgba(255,255,0,0.16);
+  --danger:#cc0000;
+  --danger-dim:rgba(255,0,0,0.18);
+  --purple:#0000FF;
   --radius-xl:8px;
   --radius-lg:8px;
   --radius-md:6px;
   --radius-sm:4px;
   --font-sans:'Spectral',Georgia,'Times New Roman',serif;
   --font-mono:'Fira Code',ui-monospace,monospace;
-  --quest-gold-glow:0 0 20px rgba(202,138,4,0.35);
+  --quest-gold-glow:0 0 20px rgba(255,255,0,0.35);
 }}
 html,body{{
   background:var(--bg);
@@ -1338,12 +1338,12 @@ h1,h2,h3{{letter-spacing:.02em;line-height:1.25}}
   background:var(--surface-solid);
   border:1px solid var(--border);
   border-radius:4px;
-  box-shadow:0 2px 8px rgba(202,138,4,0.18);
+  box-shadow:0 2px 8px rgba(255,255,0,0.18);
 }}
 .card-status:hover{{
   background:var(--surface-elevated);
-  border-color:rgba(202,138,4,0.35);
-  box-shadow:0 4px 16px rgba(202,138,4,0.25);
+  border-color:rgba(255,255,0,0.35);
+  box-shadow:0 4px 16px rgba(255,255,0,0.25);
   transition:box-shadow .3s var(--ease),border-color .3s var(--ease);
 }}
 /* Aksen garis atas emas untuk kartu utama (quest header) */
@@ -1359,17 +1359,17 @@ h1,h2,h3{{letter-spacing:.02em;line-height:1.25}}
   border-radius:4px;
   font-weight:600;
 }}
-.btn.btn-on:hover,.btn-action-primary:hover{{background:var(--accent);color:#1A0F0A}}
+.btn.btn-on:hover,.btn-action-primary:hover{{background:var(--accent);color:#1a1a1a}}
 /* Tombol sekunder/ghost: transparan dengan garis emas */
 .btn-action-sm{{
   background:transparent;color:var(--accent);
   border:1px solid var(--accent);border-radius:4px;
 }}
-.btn-action-sm:hover{{background:rgba(202,138,4,0.12)}}
+.btn-action-sm:hover{{background:rgba(255,255,0,0.12)}}
 .btn-action-sm.btn-off,.btn-action-danger{{
-  background:var(--danger);color:#F5E6D3;border-color:#B91C1C;
+  background:var(--danger);color:#FFFFFF;border-color:#FF0000;
 }}
-.btn-action-sm:disabled{{opacity:.35;box-shadow:none;border-color:#5C3D2E}}
+.btn-action-sm:disabled{{opacity:.35;box-shadow:none;border-color:#808080}}
 /* Input: fokus cincin emas */
 input[type=text],input[type=password],select,textarea,.search-input{{
   background:var(--surface-solid);color:var(--text);
@@ -1378,61 +1378,61 @@ input[type=text],input[type=password],select,textarea,.search-input{{
 }}
 input:focus,select:focus,textarea:focus,.search-input:focus{{
   border-color:var(--accent);outline:none;
-  box-shadow:0 0 0 3px rgba(202,138,4,0.25);
+  box-shadow:0 0 0 3px rgba(255,255,0,0.25);
 }}
 /* Log/kode tetap monospace */
 .logbox,code,pre{{font-family:var(--font-mono);font-size:13px}}
-.logbox{{background:#1A0F0A;border:1px solid var(--border-subtle)}}
+.logbox{{background:#1a1a1a;border:1px solid var(--border-subtle)}}
 /* Scrollbar hangat */
-::-webkit-scrollbar-thumb{{background:#5C3D2E}}
+::-webkit-scrollbar-thumb{{background:#808080}}
 ::-webkit-scrollbar-thumb:hover{{background:var(--accent)}}
 ::-webkit-scrollbar-track{{background:var(--bg)}}
 /* Status sukses/warna bahaya mengikuti palet QuestUI */
 .badge-up{{color:var(--success)}}
 .badge-down{{color:#F87171}}
 .dot.up{{background:var(--success)}}
-.dot.down{{background:#991B1B}}
+.dot.down{{background:#cc0000}}
 
 /* --- QuestUI: koreksi hasil verifikasi visual (kontras & sisa aksen biru) --- */
 .tabs{{
-  background:rgba(44,26,16,0.85);
+  background:rgba(17,17,17,0.85);
   border-color:var(--border);
 }}
 .tab{{
   color:var(--text-muted);
   border-radius:4px;
 }}
-.tab:hover{{color:var(--text);background:rgba(202,138,4,0.10)}}
+.tab:hover{{color:var(--text);background:rgba(255,255,0,0.10)}}
 .tab.active{{
-  background:rgba(202,138,4,0.22);
-  color:#F5E6D3;
-  border:1px solid rgba(218,165,32,0.65);
-  box-shadow:0 3px 14px rgba(202,138,4,0.30);
+  background:rgba(255,255,0,0.22);
+  color:#FFFFFF;
+  border:1px solid rgba(255,255,0,0.65);
+  box-shadow:0 3px 14px rgba(255,255,0,0.30);
 }}
-.header-logo{{filter:drop-shadow(0 4px 14px rgba(202,138,4,0.35))}}
+.header-logo{{filter:drop-shadow(0 4px 14px rgba(255,255,0,0.35))}}
 /* Badge status: hijau/merah TERANG agar terbaca di atas cokelat gelap */
 .badge-up{{
-  background:rgba(34,197,94,0.16);color:#4ade80;
+  background:rgba(34,197,94,0.16);color:#00FF00;
   border:1px solid rgba(34,197,94,0.35);
 }}
 .badge-down{{
-  background:rgba(153,27,27,0.22);color:#f87171;
-  border:1px solid rgba(153,27,27,0.45);
+  background:rgba(255,0,0,0.22);color:#FF5555;
+  border:1px solid rgba(255,0,0,0.45);
 }}
 td .badge.badge-up,td .badge.badge-down{{font-weight:600}}
 /* Tombol aksi proses */
 .btn-end-task{{
-  background:rgba(153,27,27,0.16);color:#f87171;
-  border:1px solid rgba(153,27,27,0.45);border-radius:4px;
+  background:rgba(255,0,0,0.16);color:#FF5555;
+  border:1px solid rgba(255,0,0,0.45);border-radius:4px;
 }}
-.btn-end-task:hover{{background:rgba(153,27,27,0.32);color:#F5E6D3}}
+.btn-end-task:hover{{background:rgba(255,0,0,0.32);color:#FFFFFF}}
 .btn-restart-task{{
-  background:rgba(202,138,4,0.10);color:var(--accent-light);
-  border:1px solid rgba(202,138,4,0.35);border-radius:4px;
+  background:rgba(255,255,0,0.10);color:var(--accent-light);
+  border:1px solid rgba(255,255,0,0.35);border-radius:4px;
 }}
-.btn-restart-task:hover{{background:rgba(202,138,4,0.22);color:#F5E6D3}}
+.btn-restart-task:hover{{background:rgba(255,255,0,0.22);color:#FFFFFF}}
 .btn-start-task{{
-  background:rgba(34,197,94,0.14);color:#4ade80;
+  background:rgba(34,197,94,0.14);color:#00FF00;
   border:1px solid rgba(34,197,94,0.4);border-radius:4px;
 }}
 /* Tautan & nilai mono: emas lembut, bukan biru */
@@ -1556,11 +1556,11 @@ a:hover{{background:#FFFF00;color:#000000}}
   color:#333333;background:transparent;border:1px solid #808080 !important;
   border-radius:0 !important;font-family:'Courier New',monospace;
 }}
-.qz-badge.ok{{color:#15803d;border-color:#15803d !important;background:rgba(34,197,94,0.12)}}
-.qz-badge.low{{color:#a16207;border-color:#a16207 !important;background:rgba(202,138,4,0.12)}}
-.qz-badge.exhausted,.qz-badge.error{{color:#b91c1c;border-color:#b91c1c !important;background:rgba(153,27,27,0.10)}}
-.qz-badge.auth_expired{{color:#6d28d9;border-color:#6d28d9 !important;background:rgba(109,40,217,0.10)}}
-.qz-badge.tier{{color:#1d4ed8;border-color:#1d4ed8 !important;background:rgba(0,0,255,0.08)}}
+.qz-badge.ok{{color:#00cc00;border-color:#00cc00 !important;background:rgba(34,197,94,0.12)}}
+.qz-badge.low{{color:#e6c200;border-color:#e6c200 !important;background:rgba(255,255,0,0.12)}}
+.qz-badge.exhausted,.qz-badge.error{{color:#FF0000;border-color:#FF0000 !important;background:rgba(255,0,0,0.10)}}
+.qz-badge.auth_expired{{color:#7da2ff;border-color:#7da2ff !important;background:rgba(109,40,217,0.10)}}
+.qz-badge.tier{{color:#7da2ff;border-color:#7da2ff !important;background:rgba(0,0,255,0.08)}}
 .qz-badge.no_access,.qz-badge.unsupported{{color:#595959}}
 /* Teks meta kuota di atas kartu terang */
 .qz-ag-models,.qz-ag-reset,.qz-row-label,.qz-row-foot,.qz-prov-meta,.qz-acct-sub{{
@@ -2384,7 +2384,7 @@ a:hover{{background:#FFFF00;color:#000000}}
         <div class="perf-title">{icon_ram} Memori · DDR4 + ZRAM</div>
         <div class="perf-sub">Penggunaan: <span id="perf-ram-sub">{cell_ram}</span> · ZRAM: <span id="cell-zram-perf">{cell_zram}</span></div>
       </div>
-      <div class="perf-big-val" id="perf-ram-val" style="color:#c084fc">{ram_pct}%</div>
+      <div class="perf-big-val" id="perf-ram-val" style="color:#7da2ff">{ram_pct}%</div>
     </div>
     <div class="sparkline-box">
       <svg class="sparkline-svg" id="ram-sparkline" viewBox="0 0 300 80" preserveAspectRatio="none">
@@ -3229,11 +3229,11 @@ function quotaStatusLabel(s, accountLevel){{
   return m[s] || s || '?';
 }}
 function qzStatusColor(s){{
-  if(s === 'low') return '#fbbf24';
-  if(s === 'exhausted' || s === 'error') return '#f87171';
-  if(s === 'auth_expired') return '#c084fc';
+  if(s === 'low') return '#FFFF00';
+  if(s === 'exhausted' || s === 'error') return '#FF5555';
+  if(s === 'auth_expired') return '#7da2ff';
   if(s === 'no_access' || s === 'unsupported') return '#64748b';
-  return '#34d399';
+  return '#00FF00';
 }}
 /* Red -> amber -> green spectrum; the fill shows a slice ending at the value,
    so a full bar reads green and a 20% bar reads red. */
@@ -3333,7 +3333,7 @@ function qzCircle(pct, status){{
     return '<span class="qz-circle na" aria-hidden="true">N/A</span>';
   }}
   var q = Math.max(0, Math.min(100, Number(pct)));
-  var col = q < 10 ? '#f87171' : (q < 25 ? '#fbbf24' : '#4ade80');
+  var col = q < 10 ? '#FF5555' : (q < 25 ? '#FFFF00' : '#00FF00');
   var r = 15.9155;                       // keliling = 100
   var circ = 2 * Math.PI * r;
   var filled = (q / 100) * circ;
@@ -4128,12 +4128,12 @@ var kanbanSwitchQueued = null;
 
 var KANBAN_COL_PAGE = 12;
 var KANBAN_COLS = [
-  {{ id: 'triage', title: 'Triage', bg: 'rgba(168,85,247,0.15)', color: '#c084fc' }},
+  {{ id: 'triage', title: 'Triage', bg: 'rgba(168,85,247,0.15)', color: '#7da2ff' }},
   {{ id: 'todo', title: 'To Do', bg: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }},
   {{ id: 'ready', title: 'Ready', bg: 'rgba(59,130,246,0.15)', color: 'var(--accent)' }},
   {{ id: 'running', title: 'Running', bg: 'rgba(16,185,129,0.15)', color: 'var(--success)' }},
   {{ id: 'blocked', title: 'Blocked', bg: 'rgba(239,68,68,0.15)', color: 'var(--danger)' }},
-  {{ id: 'review', title: 'Review', bg: 'rgba(245,158,11,0.15)', color: '#fbbf24' }},
+  {{ id: 'review', title: 'Review', bg: 'rgba(245,158,11,0.15)', color: '#FFFF00' }},
   {{ id: 'done', title: 'Done', bg: 'rgba(16,185,129,0.22)', color: 'var(--success)' }}
 ];
 
@@ -4627,7 +4627,7 @@ function renderKanbanCards(tasks) {{
         }} else if(t.priority === 1) {{
           var pBadge = document.createElement('span');
           pBadge.className = 'badge';
-          pBadge.style.cssText = 'background:rgba(245,158,11,0.15);color:#fbbf24;font-size:0.62rem';
+          pBadge.style.cssText = 'background:rgba(245,158,11,0.15);color:#FFFF00;font-size:0.62rem';
           pBadge.textContent = 'High';
           badges.appendChild(pBadge);
         }}
@@ -9732,7 +9732,7 @@ function renderProfileToolsList(){
       ? '<span class="live-badge badge-up" style="font-size:0.62rem;padding:0.1rem 0.4rem">Aktif</span>'
       : '<span class="badge badge-muted" style="font-size:0.62rem">Mati</span>';
     var bundle = r.is_bundle ? '<span class="badge" style="font-size:0.62rem" title="Toolset gabungan (bundle)">bundle</span>' : '';
-    var unknown = r.known === false ? '<span class="badge" style="background:rgba(245,158,11,0.15);color:#fbbf24;font-size:0.62rem" title="Nama ini tidak ada di registry toolsets Hermes versi ini">tak dikenal</span>' : '';
+    var unknown = r.known === false ? '<span class="badge" style="background:rgba(245,158,11,0.15);color:#FFFF00;font-size:0.62rem" title="Nama ini tidak ada di registry toolsets Hermes versi ini">tak dikenal</span>' : '';
     var count = (r.tool_count == null) ? '?' : r.tool_count;
     var nameAttr = ' data-ts-name="' + escHtml(r.name) + '"';
     var toolsBtn = (r.tools && r.tools.length)
@@ -14414,7 +14414,7 @@ def _render_profiles_block_uncached() -> str:
         act_badge = '<span class="live-badge badge-up" style="font-size:0.65rem;padding:0.15rem 0.45rem">AKTIF</span>' if is_act else ''
         type_badge = '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">Default</span>' if is_def else '<span class="badge" style="background:rgba(59,130,246,0.12);color:var(--accent);font-size:0.65rem">Profil</span>'
         env_badge = '<span class="badge" style="background:rgba(16,185,129,0.12);color:var(--success);font-size:0.65rem">.env ✓</span>' if has_env else '<span class="badge" style="background:rgba(255,255,255,0.04);color:var(--text-dim);font-size:0.65rem">.env -</span>'
-        soul_badge = '<span class="badge" style="background:rgba(168,85,247,0.15);color:#c084fc;font-size:0.65rem">SOUL.md ✓</span>' if has_soul else '<span class="badge" style="background:rgba(255,255,255,0.04);color:var(--text-dim);font-size:0.65rem">SOUL.md -</span>'
+        soul_badge = '<span class="badge" style="background:rgba(168,85,247,0.15);color:#7da2ff;font-size:0.65rem">SOUL.md ✓</span>' if has_soul else '<span class="badge" style="background:rgba(255,255,255,0.04);color:var(--text-dim);font-size:0.65rem">SOUL.md -</span>'
 
         act_btn = (
             f'<button type="button" class="btn" disabled style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem;opacity:0.6;cursor:default">'
@@ -15458,7 +15458,7 @@ def _render_kanban_task_card(t: dict, col_id: str) -> str:
     if pri >= 2:
         pri_badge = '<span class="badge" style="background:rgba(239,68,68,0.18);color:var(--danger);font-size:0.62rem">Urgent</span>'
     elif pri == 1:
-        pri_badge = '<span class="badge" style="background:rgba(245,158,11,0.15);color:#fbbf24;font-size:0.62rem">High</span>'
+        pri_badge = '<span class="badge" style="background:rgba(245,158,11,0.15);color:#FFFF00;font-size:0.62rem">High</span>'
 
     ass_badge = f'<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text);font-size:0.62rem;font-family:var(--font-mono)">@{html.escape(assignee)}</span>' if assignee else ''
     if col_id == "running":
@@ -15552,12 +15552,12 @@ def render_kanban_board_block(board_slug: str = "") -> str:
 
     # Columns to render
     cols_def = [
-        ("triage", "Triage", "rgba(168,85,247,0.15)", "#c084fc"),
+        ("triage", "Triage", "rgba(168,85,247,0.15)", "#7da2ff"),
         ("todo", "To Do", "rgba(255,255,255,0.06)", "var(--text-muted)"),
         ("ready", "Ready", "rgba(59,130,246,0.15)", "var(--accent)"),
         ("running", "Running", "rgba(16,185,129,0.15)", "var(--success)"),
         ("blocked", "Blocked", "rgba(239,68,68,0.15)", "var(--danger)"),
-        ("review", "Review", "rgba(245,158,11,0.15)", "#fbbf24"),
+        ("review", "Review", "rgba(245,158,11,0.15)", "#FFFF00"),
         ("done", "Done", "rgba(16,185,129,0.22)", "var(--success)"),
     ]
 
@@ -17943,7 +17943,7 @@ def _render_docker_apps_block_uncached() -> str:
 
     running_badge = f'<span class="badge badge-up">{running_cnt} Aktif</span>' if running_cnt else ''
     stopped_badge = (
-        f'<span class="badge" style="background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.25)">{stopped_cnt} Berhenti</span>'
+        f'<span class="badge" style="background:rgba(239,68,68,0.12);color:#FF5555;border:1px solid rgba(239,68,68,0.25)">{stopped_cnt} Berhenti</span>'
         if stopped_cnt else ''
     )
 
@@ -17977,7 +17977,7 @@ def _render_docker_apps_block_uncached() -> str:
         if is_run:
             status_badge = '<span class="live-badge badge-up" style="font-size:0.65rem;padding:0.12rem 0.45rem"><span class="kb-dot"></span>Aktif</span>'
         else:
-            status_badge = '<span class="badge" style="background:rgba(239,68,68,0.12);color:#f87171;border:1px solid rgba(239,68,68,0.25);font-size:0.65rem;padding:0.12rem 0.45rem">Berhenti</span>'
+            status_badge = '<span class="badge" style="background:rgba(239,68,68,0.12);color:#FF5555;border:1px solid rgba(239,68,68,0.25);font-size:0.65rem;padding:0.12rem 0.45rem">Berhenti</span>'
 
         if is_run and port:
             open_btn = (
@@ -18562,7 +18562,7 @@ def render_auth_setting_block() -> str:
     """Render password management card for Control tab."""
     active = is_auth_required()
     if active:
-        badge = '<span class="badge" style="background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3)">Kata Sandi Aktif</span>'
+        badge = '<span class="badge" style="background:rgba(16,185,129,0.15);color:#00FF00;border:1px solid rgba(16,185,129,0.3)">Kata Sandi Aktif</span>'
         clear_btn = (
             '<button type="submit" name="clear" value="1" class="btn btn-action-sm btn-off" '
             'style="width:auto;margin:0" onclick="return confirm(\'Hapus kata sandi dan aktifkan akses bebas tanpa login?\')">'
@@ -20083,7 +20083,7 @@ def build_login_page(error: str = "") -> str:
         "button{width:100%;min-height:46px;margin-top:1rem;border:0;border-radius:10px;"
         "background:#2563eb;color:#fff;font-size:.95rem;font-weight:600;"
         "font-family:inherit;cursor:pointer}"
-        "button:active{background:#1d4ed8}"
+        "button:active{background:#7da2ff}"
         ".err{margin:0 0 1rem;padding:.6rem .75rem;border-radius:9px;font-size:.84rem;"
         "background:#3b1e2410;border:1px solid #7f1d1d;color:#fca5a5}"
         ".foot{margin:1.1rem 0 0;font-size:.72rem;color:#5b6577;text-align:center}"
