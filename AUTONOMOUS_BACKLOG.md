@@ -1103,3 +1103,13 @@ Commit `4c9c333`.
 - `t_34d8cb0a` ekspor snapshot → done, live
 - `t_ec77935d` aksesibilitas Kuota/Model → done, live
 Komitmen berikutnya: worker wajib rebase ke HEAD terbaru sebelum kirim patch.
+
+## Wave 113 — Tab Sesi Hermes (jembatan state.db)
+
+Panel baru: tab "Sesi Hermes" + endpoint `/api/sessions` & `/api/session-detail`. 
+Data dibaca read-only dari `~/.hermes/state.db` (94 sesi aktif saat ini), FTS5 search,
+redaksi token kredensial realistis (sk-20+, bot_token). Follow konvensi panel: 
+fetchJsonChecked untuk respons HTTP check; 550 test OK (+38 new).
+
+Koneksi antara **Hermes Web/TUI** (yang punya akses ke sesi) dan **Control Panel**:
+sekarang operator bisa melihat ringkasan percakapan tanpa membuka agent atau TUI.
