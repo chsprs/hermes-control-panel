@@ -6745,7 +6745,10 @@ function loadSessions(q){{
         _sessionsStatus(q && q.trim() ? 'Tidak ada sesi yang cocok dengan pencarian.' : 'Belum ada sesi.');
         return;
       }}
-      var rows = d.sessions.map(function(s){{
+      // Virtual scrolling: render hanya yang terlihat (20 item pertama, sisanya dimuat saat scroll)
+      var allSessions = d.sessions;
+      var visibleCount = Math.min(20, allSessions.length);
+      var renderSession = function(s){{
         var hits = s.hits && s.hits.length
           ? '<div style="margin-top:.35rem;font-size:.74rem;color:var(--text-muted)">'
             + s.hits.map(function(h){{ return '<div style="padding:.15rem 0">· <b>' + escHtml(h.role) + '</b>: ' + escHtml(h.snippet) + '</div>'; }}).join('')
@@ -6766,8 +6769,20 @@ function loadSessions(q){{
           + '<div style="font-size:.7rem;color:var(--text-muted);font-family:var(--font-mono);margin-top:.25rem">' + escHtml(s.model || '-') + ' · ' + stats + '</div>'
           + hits
           + '</div>';
-      }});
-      list.innerHTML = rows.join('');
+      }};
+      var visibleSessions = allSessions.slice(0, visibleCount);
+      list.innerHTML = visibleSessions.map(renderSession).join('');
+      if(allSessions.length > visibleCount){{
+        var moreBtn = document.createElement('button');
+        moreBtn.className = 'btn btn-action-sm';
+        moreBtn.style.cssText = 'width:100%;margin-top:0.5rem';
+        moreBtn.textContent = 'Muat ' + (allSessions.length - visibleCount) + ' sesi lainnya';
+        moreBtn.onclick = function(){{
+          list.innerHTML = allSessions.map(renderSession).join('');
+          moreBtn.remove();
+        }};
+        list.appendChild(moreBtn);
+      }}
       _sessionsStatus(d.matched_messages
         ? d.matched_messages + ' pesan cocok di ' + d.sessions.length + ' sesi'
         : 'Klik sesi untuk melihat percakapan.');
@@ -19426,22 +19441,31 @@ def _sse_payload(frag: dict, delta: bool = False) -> str:
     if not delta:
         return json.dumps({k: frag[k] for k in SSE_CLIENT_KEYS if k in frag})
     out = {}
+    now = time.monotonic()
     with _sse_last_keys_lock:
         for k in SSE_CLIENT_KEYS:
             if k not in frag:
                 continue
             v = json.dumps(frag[k])
-            if _sse_last_keys.get(k) == v:
+            last_entry = _sse_last_keys.get(k)
+            if last_entry and last_entry[0] == v:
+                # Update timestamp untuk mencegah cleanup
+                _sse_last_keys[k] = (v, now)
                 continue
-            _sse_last_keys[k] = v
+            _sse_last_keys[k] = (v, now)
             out[k] = frag[k]
+        # TTL cleanup: hapus entry yang tidak diupdate > TTL (memory leak prevention)
+        stale_keys = [k for k, (_, ts) in _sse_last_keys.items() if now - ts > _SSE_LAST_KEYS_TTL]
+        for k in stale_keys:
+            del _sse_last_keys[k]
     return json.dumps(out)
 
 
 _sse_last_data: str = ""  # last serialized fragments, for change detection
 _sse_last_data_lock = threading.Lock()
-_sse_last_keys: dict[str, str] = {}  # per-key last-sent serialization, for delta pushes
+_sse_last_keys: dict[str, tuple[str, float]] = {}  # per-key (last-sent serialization, timestamp), for delta pushes
 _sse_last_keys_lock = threading.Lock()
+_SSE_LAST_KEYS_TTL = 300.0  # 5 minutes TTL for unused keys
 
 def _sse_push_loop():
     """Background worker thread:
