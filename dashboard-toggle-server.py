@@ -3915,6 +3915,7 @@ function handleKanbanDrop(e, targetStatus) {{
     if(mutationBoard !== (bSel ? bSel.value : '')) return;
     if(res && res.ok){{
       showKanbanToast('Tugas ' + mutationTaskId + ' dipindah ke ' + targetStatus);
+      updateColumnCounters();
     }} else {{
       alert('Gagal memindahkan tugas: ' + (res && res.error ? res.error : 'unknown'));
       refreshKanbanBoard(true);
@@ -4076,8 +4077,27 @@ function onKanbanFilterChanged() {{
   // Muat ulang papan (renderer akan bypass batas saat filter aktif), lalu
   // filterKanbanCards() dipanggil oleh renderKanbanCards().
   filterKanbanCards();
+  saveKanbanFilters();
   if(kanbanFilterTimer) clearTimeout(kanbanFilterTimer);
   kanbanFilterTimer = setTimeout(function(){{ refreshKanbanBoard(true); }}, 250);
+}}
+
+function saveKanbanFilters() {{
+  var q = document.getElementById('kanban-search-input');
+  var a = document.getElementById('kanban-filter-assignee');
+  var p = document.getElementById('kanban-filter-priority');
+  if(q) safeStore('setItem', 'kanban_search', q.value || '');
+  if(a) safeStore('setItem', 'kanban_assignee', a.value || '');
+  if(p) safeStore('setItem', 'kanban_priority', p.value || '');
+}}
+
+function restoreKanbanFilters() {{
+  var q = document.getElementById('kanban-search-input');
+  var a = document.getElementById('kanban-filter-assignee');
+  var p = document.getElementById('kanban-filter-priority');
+  if(q) q.value = safeStore('getItem', 'kanban_search') || '';
+  if(a) a.value = safeStore('getItem', 'kanban_assignee') || '';
+  if(p) p.value = safeStore('getItem', 'kanban_priority') || '';
 }}
 
 function filterKanbanCards() {{
@@ -6921,7 +6941,10 @@ if(document.getElementById('gateway-log-card')){{
 }}
 syncLogUI();
 // Initial load: scroll all existing log boxes to the bottom once
-document.addEventListener('DOMContentLoaded', scrollAllLogsToBottom);
+document.addEventListener('DOMContentLoaded', function() {{
+  restoreKanbanFilters();
+  scrollAllLogsToBottom();
+}});
 setTimeout(scrollAllLogsToBottom, 100);
 setTimeout(scrollAllLogsToBottom, 600);
 // snapshot-export:start — Unduh Snapshot (diagnostik)
