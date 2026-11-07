@@ -5940,8 +5940,9 @@ class TestWave77Audit(unittest.TestCase):
         self.assertNotIn("https://cdn.jsdelivr.net", page)
         # Local @font-face must be present
         self.assertIn("@font-face", page)
-        self.assertIn("/static/fonts/Geist-400.woff2", page)
-        self.assertIn("/static/fonts/GeistMono-400.woff2", page)
+        self.assertIn("/static/fonts/Cinzel-400.woff2", page)
+        self.assertIn("/static/fonts/Spectral-400.woff2", page)
+        self.assertIn("/static/fonts/FiraCode-400.woff2", page)
         self.assertIn("font-display:swap", page)
 
     def test_font_route_serves_woff2_with_immutable_cache(self):

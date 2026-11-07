@@ -687,7 +687,6 @@ PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
 <meta name="theme-color" content="#07090e">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%232563eb'/%3E%3C/svg%3E">
 <style>
-@font-face{{font-family:'Geist';src:url('/static/fonts/Geist-400.woff2') format('woff2');font-weight:400 700;font-display:swap}}
 @font-face{{font-family:'Cinzel';src:url('/static/fonts/Cinzel-400.woff2') format('woff2');font-weight:400;font-display:swap}}
 @font-face{{font-family:'Cinzel';src:url('/static/fonts/Cinzel-600.woff2') format('woff2');font-weight:600;font-display:swap}}
 @font-face{{font-family:'Cinzel';src:url('/static/fonts/Cinzel-700.woff2') format('woff2');font-weight:700;font-display:swap}}
@@ -696,37 +695,38 @@ PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
 @font-face{{font-family:'Spectral';src:url('/static/fonts/Spectral-600.woff2') format('woff2');font-weight:600;font-display:swap}}
 @font-face{{font-family:'Fira Code';src:url('/static/fonts/FiraCode-400.woff2') format('woff2');font-weight:400;font-display:swap}}
 
-@font-face{{font-family:'Geist Mono';src:url('/static/fonts/GeistMono-400.woff2') format('woff2');font-weight:400 600;font-display:swap}}
 :root{{
   color-scheme:dark;
-  --bg:#07090e;
-  --surface:rgba(22,27,38,0.72);
-  --surface-solid:#141923;
-  --surface-elevated:rgba(30,38,54,0.7);
-  --surface-hover:rgba(42,52,74,0.8);
-  --border:rgba(255,255,255,0.09);
-  --border-subtle:rgba(255,255,255,0.05);
-  --border-hover:rgba(255,255,255,0.18);
-  --text:#f8fafc;
-  --text-muted:#94a3b8;
-  --text-dim:#64748b;
-  --accent:#3b82f6;
-  --accent-light:#60a5fa;
-  --accent-dim:rgba(59,130,246,0.15);
-  --accent-squircle:linear-gradient(135deg,#2563eb,#3b82f6);
-  --success:#10b981;
-  --success-dim:rgba(16,185,129,0.14);
-  --warning:#f59e0b;
-  --warning-dim:rgba(245,158,11,0.14);
-  --danger:#ef4444;
-  --danger-dim:rgba(239,68,68,0.14);
-  --radius-xl:20px;
-  --radius-lg:16px;
-  --radius-md:12px;
-  --radius-sm:8px;
+  --bg:#1A0F0A;
+  --surface:#2C1A10;
+  --surface-solid:#2C1A10;
+  --surface-elevated:#3D2517;
+  --surface-hover:#3D2517;
+  --border:#5C3D2E;
+  --border-subtle:rgba(92,61,46,0.4);
+  --border-hover:#CA8A04;
+  --text:#F5E6D3;
+  --text-muted:#BFA98A;
+  --text-dim:#8B7355;
+  --accent:#CA8A04;
+  --accent-light:#DAA520;
+  --accent-dim:rgba(202,138,4,0.15);
+  --accent-squircle:linear-gradient(135deg,#B8860B,#CA8A04);
+  --success:#22C55E;
+  --success-dim:rgba(34,197,94,0.14);
+  --warning:#CA8A04;
+  --warning-dim:rgba(202,138,4,0.14);
+  --danger:#991B1B;
+  --danger-dim:rgba(153,27,27,0.14);
+  --purple:#581C87;
+  --purple-dim:rgba(88,28,135,0.14);
+  --radius-xl:8px;
+  --radius-lg:6px;
+  --radius-md:4px;
+  --radius-sm:2px;
   --ease:cubic-bezier(.16,1,.3,1);
-  --font-sans:'Geist',-apple-system,BlinkMacSystemFont,sans-serif;
-  --font-mono:'Geist Mono',monospace;
+  --font-sans:'Spectral',serif;
+  --font-mono:'Fira Code',monospace;
 }}
 html,body{{overflow-x:hidden;max-width:100vw;box-sizing:border-box}}
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -740,20 +740,20 @@ html,body{{overflow-x:hidden;max-width:100vw;box-sizing:border-box}}
 
 body{{font-family:var(--font-sans);background:var(--bg);color:var(--text);
 min-height:100vh;display:flex;flex-direction:column;align-items:center;
-padding:1.4rem .9rem;font-size:14px;line-height:1.5;
+padding:1.4rem .9rem;font-size:16px;line-height:1.7;
 -webkit-font-smoothing:antialiased;
-background-image:radial-gradient(circle at 50% 0%, rgba(59,130,246,0.08) 0%, transparent 55%),
-radial-gradient(circle at 85% 30%, rgba(16,185,129,0.04) 0%, transparent 40%)}}
+background-image:radial-gradient(circle at 50% 0%, rgba(202,138,4,0.08) 0%, transparent 55%),
+radial-gradient(circle at 85% 30%, rgba(88,28,135,0.04) 0%, transparent 40%)}}
 .icon{{display:inline-block;vertical-align:-3px;flex-shrink:0}}
 
 /* Header & Brand */
 .header{{display:flex;width:100%;max-width:1040px;align-items:center;justify-content:space-between;gap:.8rem;margin-bottom:1.3rem}}
 .header-brand{{display:flex;align-items:center;gap:.75rem}}
-.header-logo{{width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 4px 14px rgba(59,130,246,0.35))}}
-h1{{font-size:1.22rem;font-weight:600;letter-spacing:-.025em;color:var(--text)}}
+.header-logo{{width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 4px 14px rgba(202,138,4,0.35))}}
+h1{{font-size:1.22rem;font-weight:600;letter-spacing:-.025em;color:var(--text);font-family:'Cinzel',serif}}
 .live-badge{{display:inline-flex;align-items:center;gap:.45rem;padding:.24rem .7rem;
-border-radius:999px;font-size:.68rem;font-weight:600;font-family:var(--font-mono);
-background:rgba(148,163,184,0.10);border:1px solid rgba(148,163,184,0.28);color:var(--text-muted);
+border-radius:2px;font-size:.68rem;font-weight:600;font-family:'Cinzel',serif;
+background:rgba(202,138,4,0.10);border:1px solid rgba(202,138,4,0.28);color:var(--accent);
 letter-spacing:.04em;text-transform:uppercase;transition:color .2s,background .2s,border-color .2s}}
 .live-badge .dot{{width:6px;height:6px;border-radius:50%;background:var(--text-dim);transition:background .2s,box-shadow .2s}}
 .live-badge.connected{{color:var(--success);background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.25)}}
@@ -812,11 +812,11 @@ border:1px solid rgba(96,165,250,0.65);box-shadow:0 3px 14px rgba(37,99,235,0.40
 /* No backdrop-filter on scrolling content: phones re-blur every card on every scroll frame, and the
    backdrop here is a faint gradient, so the blur was invisible anyway. Overlays keep theirs. */
 .card{{background:var(--surface);
-border:1px solid var(--border);border-radius:var(--radius-xl);padding:1.35rem;width:100%;
-box-shadow:0 8px 32px rgba(0,0,0,0.37);transition:border-color .2s var(--ease),box-shadow .2s var(--ease)}}
-.card:hover{{border-color:var(--border-hover);box-shadow:0 12px 36px rgba(0,0,0,0.45)}}
+border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.35rem;width:100%;
+box-shadow:0 2px 8px rgba(202,138,4,0.20);transition:border-color .2s var(--ease),box-shadow .2s var(--ease)}}
+.card:hover{{border-color:var(--border-hover);box-shadow:0 4px 16px rgba(202,138,4,0.25)}}
 .card+.card{{margin-top:1.15rem}}
-.card-title{{font-size:.72rem;font-family:var(--font-mono);color:var(--text-muted);
+.card-title{{font-size:.72rem;font-family:'Cinzel',serif;color:var(--accent);
 text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:1rem;
 display:flex;align-items:center;gap:.5rem}}
 
@@ -890,18 +890,19 @@ a.open:hover{{background:linear-gradient(135deg,#2563eb,#3b82f6);box-shadow:0 6p
 
 /* Unified Compact Action Buttons */
 .btn-action-sm{{
-  width:auto;min-height:32px;padding:.32rem .75rem;font-size:.75rem;font-weight:500;
-  border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.05);
+  width:auto;min-height:32px;padding:6px 14px;font-size:13px;font-weight:500;
+  border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface-solid);
   color:var(--text);cursor:pointer;white-space:nowrap;transition:all .15s ease;
   text-decoration:none;display:inline-flex;align-items:center;gap:.35rem;margin:0;
+  font-family:var(--font-sans);
 }}
-.btn-action-sm:hover{{background:rgba(255,255,255,0.12);border-color:var(--border-hover);color:#fff}}
-.btn-action-danger{{background:rgba(239,68,68,0.12);color:#fca5a5;border:1px solid rgba(239,68,68,0.3)}}
-.btn-action-danger:hover{{background:rgba(239,68,68,0.25);border-color:var(--danger);color:#fff}}
-.btn-action-primary{{background:rgba(59,130,246,0.18);color:var(--accent-light);border:1px solid rgba(59,130,246,0.4)}}
-.btn-action-primary:hover{{background:rgba(59,130,246,0.32);border-color:var(--accent);color:#fff}}
-.btn-action-sm.active{{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}}
-.badge-danger{{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(239,68,68,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
+.btn-action-sm:hover{{background:var(--surface-hover);border-color:var(--border-hover);color:var(--text)}}
+.btn-action-danger{{background:var(--danger);color:#F5E6D3;border:1px solid #B91C1C}}
+.btn-action-danger:hover{{background:#7F1D1D;border-color:var(--danger);color:#F5E6D3}}
+.btn-action-primary{{background:var(--accent-dim);color:var(--accent-light);border:1px solid var(--accent)}}
+.btn-action-primary:hover{{background:var(--accent);color:#1A0F0A;border-color:var(--accent-light)}}
+.btn-action-sm.active{{background:var(--accent);color:#1A0F0A;border-color:var(--accent);font-weight:600}}
+.badge-danger{{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(153,27,27,0.3);padding:.15rem .45rem;border-radius:2px;font-size:.68rem;font-weight:600}}
 
 /* Gateway Platform Card Responsive Elements */
 .gw-card-row{{display:flex;flex-direction:column;gap:.6rem;padding:.75rem .9rem;
@@ -959,15 +960,15 @@ a.model-chip:active{{transform:scale(.98)}}
 
 /* Utilities & Modals */
 select option, select optgroup{{background:#161b26;color:#f1f5f9;}}
-.search-input{{width:100%;padding:.65rem .9rem;min-height:42px;border-radius:var(--radius-md);
-font-family:var(--font-mono);font-size:.8rem;background:rgba(255,255,255,0.035);
+.search-input{{width:100%;padding:8px 12px;min-height:40px;border-radius:var(--radius-md);
+font-family:var(--font-sans);font-size:14px;font-weight:500;background:var(--surface-solid);
 border:1px solid var(--border);color:var(--text);outline:none;
 transition:border-color .18s var(--ease);margin-bottom:.9rem}}
-.search-input:focus{{border-color:var(--accent-light);box-shadow:0 0 0 2px rgba(59,130,246,0.25)}}
+.search-input:focus{{border-color:var(--accent);box-shadow:0 0 0 3px rgba(202,138,4,0.25)}}
 .search-input::placeholder{{color:var(--text-dim)}}
-.logbox{{background:#030509;border:1px solid var(--border);border-radius:var(--radius-lg);
-padding:.9rem;font-family:var(--font-mono);font-size:.76rem;color:#34d399;
-white-space:pre-wrap;word-break:break-word;max-height:190px;overflow-y:auto;line-height:1.45}}
+.logbox{{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);
+padding:.9rem;font-family:var(--font-mono);font-size:14px;color:var(--success);
+white-space:pre-wrap;word-break:break-word;max-height:190px;overflow-y:auto;line-height:1.6}}
 .update-hint{{font-size:.8rem;color:var(--text-muted);text-align:center;
 background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-md);
 padding:.65rem .85rem;display:flex;align-items:center;justify-content:center;gap:.4rem}}
@@ -1345,12 +1346,13 @@ h1,h2,h3{{letter-spacing:.02em;line-height:1.25}}
 }}
 /* Tombol utama: emas penuh dengan teks gelap */
 .btn.btn-on,.btn-action-primary,.toggle{{
-  background:var(--accent);
-  color:#1A0F0A;
-  border:1px solid var(--accent-light);
+  background:var(--accent-dim);
+  color:var(--accent-light);
+  border:1px solid var(--accent);
   border-radius:4px;
+  font-weight:600;
 }}
-.btn.btn-on:hover,.btn-action-primary:hover{{background:#B8780A}}
+.btn.btn-on:hover,.btn-action-primary:hover{{background:var(--accent);color:#1A0F0A}}
 /* Tombol sekunder/ghost: transparan dengan garis emas */
 .btn-action-sm{{
   background:transparent;color:var(--accent);
