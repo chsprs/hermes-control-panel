@@ -1573,6 +1573,26 @@ a:hover{{background:#FFFF00;color:#000000}}
 }}
 .model-chip{{color:#FFFFFF}}
 .model-chip-badge{{color:#B0B0B0}}
+
+/* Brutalist: warna SELEKSI teks — kuning dengan teks hitam (kontras tinggi).
+   Tanpa ini, highlight bawaan browser menyatu dengan latar gelap. */
+::selection{{background:#FFFF00;color:#000000}}
+::-moz-selection{{background:#FFFF00;color:#000000}}
+/* Seleksi di dalam log/kode (latar hitam) tetap terbaca */
+.logbox::selection,code::selection,pre::selection{{background:#00FFFF;color:#000000}}
+.logbox ::selection,code ::selection,pre ::selection{{background:#00FFFF;color:#000000}}
+/* Chip model yang DIPILIH (aktif): biru solid + teks putih, bukan biru pudar */
+.model-chip.active{{
+  background:#0000FF !important;color:#FFFFFF !important;
+  border:2px solid #FFFFFF !important;
+}}
+.model-chip.active .model-chip-name,.model-chip.active .model-chip-badge{{
+  color:#FFFFFF !important;
+}}
+/* Kartu/opsi lain yang aktif dipilih: garis kuning, teks tetap terang */
+.qz-ag-card.toggle.open,.kanban-card.is-selected{{
+  outline:2px solid #FFFF00;outline-offset:0;
+}}
 </style></head><body>
 <div id="pbar"></div>
 <div id="navloader"><div class="ring"></div><span id="nav-label">Memproses…</span></div>
