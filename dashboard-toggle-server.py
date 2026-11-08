@@ -684,75 +684,75 @@ def render_markdown(text: str) -> str:
 PAGE = """<!doctype html><html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hermes Control Panel</title>
-<meta name="theme-color" content="#07090e">
+<meta name="theme-color" content="#FFFFFF">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%232563eb'/%3E%3C/svg%3E">
 <style>
 
 :root{{
-  color-scheme:dark;
-  --bg:#1a1a1a;
-  --surface:#111111;
-  --surface-solid:#111111;
-  --surface-elevated:#1c1c1c;
-  --surface-hover:#262626;
-  --border:#808080;
-  --border-subtle:#4a4a4a;
-  --border-hover:#FFFF00;
-  --text:#FFFFFF;
-  --text-muted:#B0B0B0;
-  --text-dim:#9a9a9a;
-  --accent:#0000FF;
-  --accent-light:#7da2ff;
-  --accent-dim:rgba(0,0,255,0.15);
-  --accent-squircle:linear-gradient(135deg,#0000FF,#0000FF);
-  --success:#008000;
-  --success-dim:rgba(0,128,0,0.14);
-  --warning:#FFFF00;
-  --warning-dim:rgba(255,255,0,0.14);
-  --danger:#FF0000;
-  --danger-dim:rgba(255,0,0,0.14);
-  --purple:#0000FF;
-  --purple-dim:rgba(0,0,255,0.14);
+  color-scheme:light;
+  --bg:#FFFFFF;
+  --surface:#FFFFFF;
+  --surface-solid:#FFFFFF;
+  --surface-elevated:#F5F5F5;
+  --surface-hover:#EAEAEA;
+  --border:#000000;
+  --border-subtle:#808080;
+  --border-hover:#0011FF;
+  --text:#000000;
+  --text-muted:#404040;
+  --text-dim:#555555;
+  --accent:#0011FF;
+  --accent-light:#0011FF;
+  --accent-dim:rgba(0,17,255,0.10);
+  --accent-squircle:linear-gradient(135deg,#0011FF,#0011FF);
+  --success:#006B00;
+  --success-dim:rgba(0,160,0,0.14);
+  --warning:#7A5000;
+  --warning-dim:rgba(255,255,0,0.45);
+  --danger:#A80000;
+  --danger-dim:rgba(216,0,0,0.12);
+  --purple:#5500AA;
+  --purple-dim:rgba(85,0,170,0.12);
   --radius-xl:0px;
   --radius-lg:0px;
   --radius-md:0px;
   --radius-sm:0px;
   --ease:cubic-bezier(.16,1,.3,1);
-  --font-sans:'Courier New',monospace;
-  --font-mono:'Courier New',monospace;
+  --font-sans:'Courier New',Courier,monospace;
+  --font-mono:'Courier New',Courier,monospace;
 }}
 html,body{{overflow-x:hidden;max-width:100vw;box-sizing:border-box}}
 *{{box-sizing:border-box;margin:0;padding:0}}
 
 /* Custom Scrollbars */
-::-webkit-scrollbar{{width:7px;height:7px}}
-::-webkit-scrollbar-track{{background:#07090e}}
-::-webkit-scrollbar-thumb{{background:rgba(255,255,255,0.14);border-radius:4px}}
-::-webkit-scrollbar-thumb:hover{{background:rgba(255,255,255,0.25)}}
-*{{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.14) #07090e}}
+::-webkit-scrollbar{{width:8px;height:8px}}
+::-webkit-scrollbar-track{{background:#F5F5F5;border-left:1px solid #000000}}
+::-webkit-scrollbar-thumb{{background:#808080;border:1px solid #000000;border-radius:0}}
+::-webkit-scrollbar-thumb:hover{{background:#000000}}
+*{{scrollbar-width:thin;scrollbar-color:#808080 #F5F5F5}}
 
 body{{font-family:var(--font-sans);background:var(--bg);color:var(--text);
 min-height:100vh;display:flex;flex-direction:column;align-items:center;
 padding:1.4rem .9rem;font-size:16px;line-height:1.6;
 -webkit-font-smoothing:antialiased;
 background-image:
-  linear-gradient(rgba(128,128,128,0.18) 1px, transparent 1px),
-  linear-gradient(90deg, rgba(128,128,128,0.18) 1px, transparent 1px);
-background-size:32px 32px}}
+  linear-gradient(to right, rgba(255,0,0,0.12) 1px, transparent 1px),
+  linear-gradient(to bottom, rgba(255,0,0,0.12) 1px, transparent 1px);
+background-size:24px 24px}}
 .icon{{display:inline-block;vertical-align:-3px;flex-shrink:0}}
 
 /* Header & Brand */
 .header{{display:flex;width:100%;max-width:1040px;align-items:center;justify-content:space-between;gap:.8rem;margin-bottom:1.3rem}}
 .header-brand{{display:flex;align-items:center;gap:.75rem}}
-.header-logo{{width:34px;height:34px;object-fit:contain;filter:drop-shadow(0 4px 14px rgba(255,255,0,0.35))}}
+.header-logo{{width:34px;height:34px;object-fit:contain;filter:drop-shadow(3px 3px 0px #000000)}}
 h1{{font-size:1.22rem;font-weight:600;letter-spacing:-.025em;color:var(--text);font-family:'Courier New',monospace}}
 .live-badge{{display:inline-flex;align-items:center;gap:.45rem;padding:.24rem .7rem;
-border-radius:2px;font-size:.68rem;font-weight:600;font-family:'Courier New',monospace;
-background:rgba(255,255,0,0.10);border:1px solid rgba(255,255,0,0.28);color:var(--accent);
+border-radius:0;font-size:.72rem;font-weight:700;font-family:'Courier New',monospace;
+background:#FFFF00;border:2px solid #000000;box-shadow:3px 3px 0px #000000;color:#000000;
 letter-spacing:.04em;text-transform:uppercase;transition:color .2s,background .2s,border-color .2s}}
 .live-badge .dot{{width:6px;height:6px;border-radius:50%;background:var(--text-dim);transition:background .2s,box-shadow .2s}}
-.live-badge.connected{{color:var(--success);background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.25)}}
-.live-badge.connected .dot{{background:var(--success);box-shadow:0 0 8px var(--success)}}
+.live-badge.connected{{color:#000000;background:#E6FFE6;border-color:#000000}}
+.live-badge.connected .dot{{background:#008000;box-shadow:none}}
 .live-badge.reconnecting{{color:#FFFF00;background:rgba(245,158,11,0.10);border-color:rgba(245,158,11,0.30)}}
 .live-badge.reconnecting .dot{{background:#FFFF00;box-shadow:0 0 8px rgba(245,158,11,0.6);animation:kb-pulse 1.2s ease-in-out infinite}}
 .live-badge.offline{{color:var(--danger);background:rgba(239,68,68,0.10);border-color:rgba(239,68,68,0.30)}}
@@ -761,13 +761,13 @@ letter-spacing:.04em;text-transform:uppercase;transition:color .2s,background .2
 /* Toast (aksi AJAX) */
 #toast-wrap{{position:fixed;left:50%;bottom:1.1rem;transform:translateX(-50%);z-index:400;
 display:flex;flex-direction:column;gap:.45rem;align-items:center;pointer-events:none;width:calc(100% - 2rem);max-width:420px}}
-.toast{{pointer-events:auto;width:100%;background:#161b26;border:1px solid var(--border);color:var(--text);
-border-radius:12px;padding:.6rem .85rem;font-size:.8rem;line-height:1.35;box-shadow:0 10px 30px rgba(0,0,0,.45);
+.toast{{pointer-events:auto;width:100%;background:#FFFFFF;border:2px solid #000000;color:#000000;
+border-radius:0;padding:.6rem .85rem;font-size:.8rem;line-height:1.35;box-shadow:6px 6px 0px #000000;
 opacity:0;transform:translateY(8px);transition:opacity .2s var(--ease),transform .2s var(--ease)}}
 .toast.in{{opacity:1;transform:translateY(0)}}
-.toast.info{{border-color:rgba(59,130,246,.45);color:#7da2ff}}
-.toast.ok{{border-color:rgba(16,185,129,.45)}}
-.toast.err{{border-color:rgba(239,68,68,.5);color:#fecaca}}
+.toast.info{{border-color:#0011FF;color:#0011FF;background:#F0F4FF}}
+.toast.ok{{border-color:#006B00;color:#006B00;background:#F0FFF0}}
+.toast.err{{border-color:#D80000;color:#A80000;background:#FFF0F0}}
 
 /* Keyboard focus */
 :focus-visible{{outline:2px solid var(--accent-light);outline-offset:2px}}
@@ -776,23 +776,19 @@ opacity:0;transform:translateY(8px);transition:opacity .2s var(--ease),transform
 }}
 
 /* Apple CC Segmented Nav */
-.tabs{{display:flex;gap:.35rem;margin:0 auto 1.35rem;width:100%;max-width:760px;
-background:rgba(20,25,35,0.75);
-padding:.3rem;border-radius:var(--radius-xl);border:1px solid var(--border);
-overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
-scrollbar-width:none;-ms-overflow-style:none;touch-action:pan-x}}
+.tabs{{display:flex;flex-wrap:wrap;gap:.4rem;margin:0 auto 1.35rem;width:100%;max-width:1040px;
+background:#FFFFFF;
+padding:.5rem;border-radius:0;border:3px solid #000000;box-shadow:6px 6px 0px #000000}}
 .tabs::-webkit-scrollbar{{display:none}}
 /* Edge fade = "masih ada tab di sebelah kanan/kiri" (scrollbar sengaja disembunyikan) */
-.tabs[data-scroll="start"]{{-webkit-mask-image:linear-gradient(to right,#000 86%,transparent 100%);mask-image:linear-gradient(to right,#000 86%,transparent 100%)}}
-.tabs[data-scroll="mid"]{{-webkit-mask-image:linear-gradient(to right,transparent 0,#000 7%,#000 93%,transparent 100%);mask-image:linear-gradient(to right,transparent 0,#000 7%,#000 93%,transparent 100%)}}
-.tabs[data-scroll="end"]{{-webkit-mask-image:linear-gradient(to right,transparent 0,#000 14%);mask-image:linear-gradient(to right,transparent 0,#000 14%)}}
+.tabs[data-scroll="start"],.tabs[data-scroll="mid"],.tabs[data-scroll="end"]{{-webkit-mask-image:none;mask-image:none}}
 .tab{{flex:1 0 auto;min-height:44px;display:flex;align-items:center;justify-content:center;
-border-radius:12px;text-align:center;gap:.35rem;padding:0 .85rem;
-font-weight:500;font-size:.82rem;cursor:pointer;border:none;white-space:nowrap;font-family:inherit;
-background:transparent;color:var(--text-muted);transition:all .18s var(--ease)}}
-.tab:hover{{color:var(--text);background:rgba(255,255,255,0.04)}}
-.tab.active{{background:rgba(59,130,246,0.20);color:#fff;
-border:1px solid rgba(96,165,250,0.65);box-shadow:0 3px 14px rgba(37,99,235,0.40), inset 0 1px 0 rgba(255,255,255,0.08)}}
+border-radius:0;text-align:center;gap:.35rem;padding:0 .85rem;
+font-weight:700;font-size:.82rem;cursor:pointer;border:2px solid transparent;white-space:nowrap;font-family:var(--font-mono);
+background:transparent;color:#000000;text-transform:uppercase;transition:all .15s var(--ease)}}
+.tab:hover{{color:#000000;background:#FFFF00;border-color:#000000}}
+.tab.active{{background:#FFFF00;color:#000000;
+border:2px solid #000000;box-shadow:3px 3px 0px #000000}}
 
 /* Panels & Layout */
 .content-wrapper{{display:block;width:100%;max-width:1040px;margin:0 auto}}
@@ -807,23 +803,23 @@ border:1px solid rgba(96,165,250,0.65);box-shadow:0 3px 14px rgba(37,99,235,0.40
 /* No backdrop-filter on scrolling content: phones re-blur every card on every scroll frame, and the
    backdrop here is a faint gradient, so the blur was invisible anyway. Overlays keep theirs. */
 .card{{background:var(--surface);
-border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.35rem;width:100%;
-box-shadow:0 2px 8px rgba(255,255,0,0.20);transition:border-color .2s var(--ease),box-shadow .2s var(--ease)}}
-.card:hover{{border-color:var(--border-hover);box-shadow:0 4px 16px rgba(255,255,0,0.25)}}
+border:3px solid #000000;border-radius:0;padding:1.35rem;width:100%;
+box-shadow:8px 8px 0px #000000;transition:border-color .2s var(--ease),box-shadow .2s var(--ease)}}
+.card:hover{{border-color:#000000;box-shadow:10px 10px 0px #000000}}
 .card+.card{{margin-top:1.15rem}}
-.card-title{{font-size:.72rem;font-family:'Courier New',monospace;color:var(--accent);
-text-transform:uppercase;letter-spacing:.09em;font-weight:600;margin-bottom:1rem;
-display:flex;align-items:center;gap:.5rem}}
+.card-title{{font-size:.82rem;font-family:'Courier New',monospace;color:#000000;
+text-transform:uppercase;letter-spacing:.06em;font-weight:700;margin-bottom:1rem;
+padding-bottom:.45rem;border-bottom:3px solid #000000;display:flex;align-items:center;gap:.5rem}}
 
 /* Bento Tile Grid */
 .cc-grid{{display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:.75rem}}
 @media (max-width: 440px){{.cc-grid{{grid-template-columns:1fr}}}}
 @media (max-width:390px){{.tab{{font-size:.78rem;min-height:44px;padding:0 .65rem;gap:.25rem}}.tabs{{gap:.25rem;padding:.25rem}}}}
 
-.cc-tile{{background:rgba(255,255,255,0.025);border:1px solid var(--border-subtle);
+.cc-tile{{background:#FFFFFF;border:2px solid #000000;box-shadow:4px 4px 0px #000000;
 border-radius:var(--radius-lg);padding:1rem;display:flex;flex-direction:column;
 justify-content:space-between;min-height:92px;transition:all .18s var(--ease)}}
-.cc-tile:hover{{background:rgba(255,255,255,0.045);border-color:var(--border)}}
+.cc-tile:hover{{background:#FFFDF0;border-color:#000000}}
 .cc-tile-header{{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem}}
 .cc-icon-box{{width:32px;height:32px;border-radius:10px;display:flex;align-items:center;
 justify-content:center;color:#fff;background:rgba(255,255,255,0.06);border:1px solid var(--border)}}
@@ -862,21 +858,21 @@ font-variant-numeric:tabular-nums}}
 
 /* Buttons */
 a.toggle,.btn,a.open{{display:inline-flex;align-items:center;justify-content:center;gap:.55rem;
-text-align:center;padding:.65rem 1.05rem;min-height:44px;border-radius:var(--radius-md);
-text-decoration:none;font-weight:500;font-size:.84rem;color:var(--text);
-width:100%;background:rgba(255,255,255,0.035);border:1px solid var(--border);
-transition:all .18s var(--ease);cursor:pointer}}
-a.toggle:hover,.btn:hover,a.open:hover{{border-color:var(--border-hover);background:rgba(255,255,255,0.07);transform:translateY(-1px)}}
+text-align:center;padding:.65rem 1.05rem;min-height:44px;border-radius:0;
+text-decoration:none;font-weight:700;font-size:.84rem;color:#000000;
+width:100%;background:#FFFFFF;border:2px solid #000000;box-shadow:3px 3px 0px #000000;
+text-transform:uppercase;transition:all .15s var(--ease);cursor:pointer}}
+a.toggle:hover,.btn:hover,a.open:hover{{border-color:#000000;background:#FFFF00;color:#000000;transform:translate(-1px,-1px);box-shadow:4px 4px 0px #000000}}
 a.toggle:active,.btn:active,a.open:active{{transform:scale(.98)}}
 
-a.toggle.btn-on{{background:rgba(16,185,129,0.12) !important;color:#00FF00 !important;
-border-color:rgba(16,185,129,0.3) !important;box-shadow:0 2px 10px rgba(16,185,129,0.1)}}
-a.toggle.btn-off{{background:rgba(239,68,68,0.12) !important;color:#FF5555 !important;
-border-color:rgba(239,68,68,0.3) !important;box-shadow:0 2px 10px rgba(239,68,68,0.1)}}
+a.toggle.btn-on{{background:#E6FFE6 !important;color:#006B00 !important;
+border-color:#000000 !important;box-shadow:3px 3px 0px #000000}}
+a.toggle.btn-off{{background:#FFE6E6 !important;color:#A80000 !important;
+border-color:#000000 !important;box-shadow:3px 3px 0px #000000}}
 
-a.open{{background:linear-gradient(135deg,#7da2ff,#2563eb);color:#fff;border-color:rgba(255,255,255,0.1);
-box-shadow:0 4px 14px rgba(37,99,235,0.3)}}
-a.open:hover{{background:linear-gradient(135deg,#2563eb,#3b82f6);box-shadow:0 6px 18px rgba(37,99,235,0.45);color:#fff}}
+a.open{{background:#FFFF00;color:#000000;border:2px solid #000000;
+box-shadow:3px 3px 0px #000000}}
+a.open:hover{{background:#0011FF;box-shadow:4px 4px 0px #000000;color:#FFFFFF}}
 
 .btn-row{{display:grid;grid-template-columns:1fr;gap:.65rem;width:100%}}
 @media (min-width: 600px){{
@@ -892,11 +888,11 @@ a.open:hover{{background:linear-gradient(135deg,#2563eb,#3b82f6);box-shadow:0 6p
   font-family:var(--font-sans);
 }}
 .btn-action-sm:hover{{background:var(--surface-hover);border-color:var(--border-hover);color:var(--text)}}
-.btn-action-danger{{background:var(--danger);color:#FFFFFF;border:1px solid #FF0000}}
-.btn-action-danger:hover{{background:#990000;border-color:var(--danger);color:#FFFFFF}}
-.btn-action-primary{{background:var(--accent-dim);color:var(--accent-light);border:1px solid var(--accent)}}
-.btn-action-primary:hover{{background:var(--accent);color:#1a1a1a;border-color:var(--accent-light)}}
-.btn-action-sm.active{{background:var(--accent);color:#1a1a1a;border-color:var(--accent);font-weight:600}}
+.btn-action-danger{{background:var(--danger-dim);color:var(--danger);border:2px solid #000000}}
+.btn-action-danger:hover{{background:#D80000;border-color:#000000;color:#FFFFFF}}
+.btn-action-primary{{background:var(--accent-dim);color:var(--accent);border:2px solid #000000}}
+.btn-action-primary:hover{{background:#FFFF00;color:#000000;border-color:#000000}}
+.btn-action-sm.active{{background:#FFFF00;color:#000000;border-color:#000000;font-weight:700}}
 .badge-danger{{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(255,0,0,0.3);padding:.15rem .45rem;border-radius:2px;font-size:.68rem;font-weight:600}}
 
 /* Gateway Platform Card Responsive Elements */
@@ -920,20 +916,20 @@ font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:
 .models-grid{{display:grid;grid-template-columns:repeat(auto-fill, minmax(210px, 1fr));gap:.55rem;width:100%}}
 
 .model-chip{{
-  padding:.55rem .75rem;min-height:42px;border-radius:var(--radius-md);font-size:.78rem;
-  font-family:var(--font-mono);background:rgba(255,255,255,0.03);color:var(--text-muted);
+  padding:.55rem .75rem;min-height:42px;border-radius:0;font-size:.78rem;
+  font-family:var(--font-mono);background:#FFFFFF;color:var(--text);
   text-decoration:none;display:flex;align-items:center;justify-content:space-between;gap:.45rem;
-  border:1px solid var(--border-subtle);transition:all .18s var(--ease);
+  border:2px solid #000000;box-shadow:3px 3px 0px #000000;transition:all .15s var(--ease);
   box-sizing:border-box;overflow:hidden;
 }}
 a.model-chip:hover{{
-  background:rgba(255,255,255,0.07);color:var(--text);border-color:var(--border-hover);
-  transform:translateY(-1px);box-shadow:0 3px 10px rgba(0,0,0,0.25);
+  background:#FFFF00;color:#000000;border-color:#000000;
+  transform:translate(-1px,-1px);box-shadow:4px 4px 0px #000000;
 }}
 a.model-chip:active{{transform:scale(.98)}}
 .model-chip.active{{
-  background:rgba(59,130,246,0.16) !important;color:#7da2ff !important;
-  font-weight:600;border-color:rgba(96,165,250,0.55) !important;box-shadow:0 0 16px rgba(59,130,246,0.22);
+  background:#0011FF !important;color:#FFFFFF !important;
+  font-weight:700;border-color:#000000 !important;box-shadow:4px 4px 0px #000000;
 }}
 .model-chip-content{{
   display:flex;align-items:center;gap:.45rem;overflow:hidden;min-width:0;flex:1;
@@ -942,11 +938,11 @@ a.model-chip:active{{transform:scale(.98)}}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;
 }}
 .model-chip-badge{{
-  flex-shrink:0;font-size:.65rem;font-weight:600;padding:.15rem .4rem;border-radius:4px;
-  background:rgba(255,255,255,0.07);color:var(--text-muted);letter-spacing:.02em;
+  flex-shrink:0;font-size:.65rem;font-weight:700;padding:.15rem .4rem;border-radius:0;
+  background:#F5F5F5;color:var(--text-muted);border:1px solid #000000;letter-spacing:.02em;
 }}
 .model-chip.active .model-chip-badge{{
-  background:rgba(59,130,246,0.25);color:#7da2ff;
+  background:#FFFF00;color:#000000;border-color:#000000;
 }}
 @media (max-width:480px){{
   .models-grid{{grid-template-columns:1fr;}}
@@ -954,16 +950,16 @@ a.model-chip:active{{transform:scale(.98)}}
 }}
 
 /* Utilities & Modals */
-select option, select optgroup{{background:#161b26;color:#f1f5f9;}}
+select option, select optgroup{{background:#FFFFFF;color:#000000;}}
 .search-input{{width:100%;padding:8px 12px;min-height:40px;border-radius:var(--radius-md);
 font-family:var(--font-sans);font-size:14px;font-weight:500;background:var(--surface-solid);
 border:1px solid var(--border);color:var(--text);outline:none;
 transition:border-color .18s var(--ease);margin-bottom:.9rem}}
 .search-input:focus{{border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,255,0,0.25)}}
 .search-input::placeholder{{color:var(--text-dim)}}
-.logbox{{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);
-padding:.9rem;font-family:var(--font-mono);font-size:14px;color:var(--success);
-white-space:pre-wrap;word-break:break-word;max-height:190px;overflow-y:auto;line-height:1.6}}
+.logbox{{background:#F5F5F5;border:2px solid #000000;border-radius:0;
+padding:.9rem;font-family:var(--font-mono);font-size:13px;color:#000000;
+white-space:pre-wrap;word-break:break-word;max-height:190px;overflow-y:auto;line-height:1.55}}
 .update-hint{{font-size:.8rem;color:var(--text-muted);text-align:center;
 background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-md);
 padding:.65rem .85rem;display:flex;align-items:center;justify-content:center;gap:.4rem}}
@@ -996,15 +992,15 @@ border-top-color:var(--accent-light);border-radius:50%;animation:spin .7s linear
 display:none;align-items:center;justify-content:center;z-index:300;padding:1.5rem}}
 #confirm-modal.show, #aux-picker-modal.show, #gw-config-modal.show, #wa-pair-modal.show, #create-profile-modal.show, #soul-modal.show, #rename-profile-modal.show, #profile-skills-modal.show, #create-kanban-task-modal.show, #create-kanban-board-modal.show, #view-kanban-task-modal.show, #kanban-config-modal.show, #view-kanban-attachment-modal.show{{display:flex}}
 .kanban-board{{display:flex;gap:0.85rem;overflow-x:auto;padding-bottom:1rem;margin-top:0.75rem;-webkit-overflow-scrolling:touch}}
-.kanban-column{{background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--radius-md);min-width:260px;max-width:320px;flex:1;display:flex;flex-direction:column;max-height:calc(100vh - 260px)}}
-.kanban-col-header{{padding:0.75rem 0.85rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.015)}}
+.kanban-column{{background:#F5F5F5;border:2px solid #000000;box-shadow:4px 4px 0px #000000;border-radius:0;min-width:260px;max-width:320px;flex:1;display:flex;flex-direction:column;max-height:calc(100vh - 260px)}}
+.kanban-col-header{{padding:0.75rem 0.85rem;border-bottom:2px solid #000000;display:flex;justify-content:space-between;align-items:center;background:#FFFFFF}}
 .kanban-col-cards{{padding:0.6rem;display:flex;flex-direction:column;gap:0.6rem;overflow-y:auto;flex:1;min-height:90px;transition:background 0.15s, border-color 0.15s}}
 .kanban-col-cards.drag-over{{background:rgba(59,130,246,0.08);outline:2px dashed var(--accent);outline-offset:-3px;border-radius:var(--radius-sm)}}
-.kanban-card{{background:rgba(22,27,38,0.75);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.75rem;cursor:pointer;transition:border-color 0.15s, transform 0.15s, box-shadow 0.15s;display:flex;flex-direction:column;gap:0.45rem}}
+.kanban-card{{background:#FFFFFF;border:2px solid #000000;box-shadow:3px 3px 0px #000000;border-radius:0;padding:0.75rem;cursor:pointer;transition:border-color 0.15s, transform 0.15s, box-shadow 0.15s;display:flex;flex-direction:column;gap:0.45rem}}
 .kanban-card:hover{{border-color:var(--border-hover);transform:translateY(-1px)}}
 .kanban-card[draggable="true"]{{cursor:grab;user-select:none;-webkit-user-select:none}}
 .kanban-card.is-dragging{{opacity:0.35;cursor:grabbing;border:1px dashed var(--accent);transform:scale(0.98)}}
-.kanban-card.is-selected{{border-color:var(--accent);box-shadow:0 0 0 2px rgba(59,130,246,0.35);background:rgba(30,41,59,0.85)}}
+.kanban-card.is-selected{{border-color:#0011FF;box-shadow:4px 4px 0px #0011FF;background:#F0F4FF}}
 .kanban-bulk-bar{{display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.6rem 0.85rem;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-sm);margin-top:0.75rem;margin-bottom:0.25rem}}
 .kanban-filter-bar{{display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem;margin-bottom:0.25rem}}
 .kanban-trash-dropzone{{display:flex;align-items:center;justify-content:center;gap:0.45rem;border:1px dashed rgba(239,68,68,0.38);background:rgba(239,68,68,0.04);color:var(--danger);border-radius:var(--radius-sm);padding:0.48rem 0.85rem;font-size:0.75rem;font-weight:500;transition:all 0.18s ease;margin-top:0.5rem;user-select:none;-webkit-user-select:none;cursor:default}}
@@ -1014,8 +1010,8 @@ display:none;align-items:center;justify-content:center;z-index:300;padding:1.5re
 @keyframes kb-pulse{{0%,100%{{opacity:1}}50%{{opacity:0.3}}}}
 .kb-dot{{width:6px;height:6px;border-radius:50%;background:currentColor;animation:kb-pulse 1.2s ease-in-out infinite;flex:none}}
 .kb-badge-live{{display:inline-flex;align-items:center;gap:.3rem}}
-.kb-badge-idle{{display:inline-flex;align-items:center;gap:.3rem;background:rgba(245,158,11,0.15)!important;color:#FFFF00!important;border:1px solid rgba(245,158,11,0.35)!important;padding:.15rem .45rem;border-radius:4px;font-size:.62rem;font-weight:600}}
-.kb-badge-stale{{display:inline-flex;align-items:center;gap:.3rem;background:rgba(239,68,68,0.15)!important;color:#fca5a5!important;border:1px solid rgba(239,68,68,0.4)!important;padding:.15rem .45rem;border-radius:4px;font-size:.62rem;font-weight:600}}
+.kb-badge-idle{{display:inline-flex;align-items:center;gap:.3rem;background:#FFFF00!important;color:#000000!important;border:1px solid #000000!important;padding:.15rem .45rem;border-radius:0;font-size:.62rem;font-weight:700}}
+.kb-badge-stale{{display:inline-flex;align-items:center;gap:.3rem;background:#FFE6E6!important;color:#A80000!important;border:1px solid #000000!important;padding:.15rem .45rem;border-radius:0;font-size:.62rem;font-weight:700}}
 /* Markdown Rich Rendering */
 .markdown-body{{font-family:var(--font-sans);color:var(--text);font-size:0.82rem;line-height:1.6;word-break:break-word}}
 .markdown-body > *:first-child{{margin-top:0 !important}}
@@ -1054,15 +1050,15 @@ display:none;align-items:center;justify-content:center;z-index:300;padding:1.5re
 .markdown-body .md-table tbody tr:nth-child(even){{background:rgba(255,255,255,0.02)}}
 .markdown-body .md-table tbody tr:hover{{background:rgba(59,130,246,0.06)}}
 
-.confirm-box{{background:rgba(22,27,38,0.95);border:1px solid var(--border-hover);
-border-radius:var(--radius-xl);padding:1.6rem 1.5rem;max-width:360px;width:100%;
-box-shadow:0 12px 48px rgba(0,0,0,0.7)}}
+.confirm-box{{background:#FFFFFF;border:3px solid #000000;
+border-radius:0;padding:1.6rem 1.5rem;max-width:360px;width:100%;
+box-shadow:10px 10px 0px #000000}}
 .confirm-box h3{{font-size:1rem;font-weight:600;margin-bottom:.5rem}}
 .confirm-box p{{font-size:.82rem;color:var(--text-muted);margin-bottom:1.3rem;line-height:1.5}}
 .confirm-actions{{display:flex;gap:.6rem}}
 .confirm-actions .btn{{flex:1;margin:0}}
-.btn-danger{{background:rgba(239,68,68,0.18);color:#fca5a5;border:1px solid rgba(239,68,68,0.4)}}
-.btn-danger:hover{{background:rgba(239,68,68,0.3);border-color:var(--danger);color:#fff}}
+.btn-danger{{background:#FFE6E6;color:#A80000;border:2px solid #000000}}
+.btn-danger:hover{{background:#D80000;border-color:#000000;color:#FFFFFF}}
 
 /* Tugas Tambahan */
 .aux-header{{display:flex;justify-content:space-between;align-items:center;gap:.75rem;margin-bottom:.6rem;flex-wrap:wrap}}
@@ -1081,33 +1077,33 @@ transition:background .15s ease,border-color .15s ease}}
 .btn-aux-change{{width:auto;min-height:32px;padding:.32rem .75rem;font-size:.75rem;font-weight:500;
 border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.05);
 color:var(--text);cursor:pointer;white-space:nowrap;transition:all .15s ease;margin:0}}
-.btn-aux-change:hover{{background:rgba(255,255,255,0.12);border-color:var(--border-hover);color:#fff}}
+.btn-aux-change:hover{{background:#FFFF00;border-color:#000000;color:#000000}}
 .aux-model-opt{{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.6rem .8rem;
-background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius-sm);
+background:#F5F5F5;border:2px solid #000000;border-radius:0;
 cursor:pointer;text-decoration:none;transition:all .15s ease}}
-.aux-model-opt:hover{{background:rgba(255,255,255,0.08);border-color:var(--border-hover);transform:translateY(-1px)}}
+.aux-model-opt:hover{{background:#FFFF00;border-color:#000000;transform:translate(-1px,-1px);box-shadow:3px 3px 0px #000000}}
 .aux-model-opt-name{{font-family:var(--font-mono);font-size:.78rem;font-weight:600;color:var(--text)}}
 .aux-model-opt-sub{{font-size:.7rem;color:var(--text-muted)}}
 
 /* Process Table Elements */
-.task-table-wrap{{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.015);margin-bottom:.5rem}}
+.task-table-wrap{{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:0;border:2px solid #000000;background:#FFFFFF;margin-bottom:.5rem}}
 .task-table{{width:100%;border-collapse:collapse;font-size:.78rem;text-align:left}}
-.task-table th{{background:rgba(255,255,255,0.04);color:var(--text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;padding:.65rem .85rem;border-bottom:1px solid var(--border);white-space:nowrap;font-family:var(--font-mono)}}
-.task-table td{{padding:.75rem .85rem;border-bottom:1px solid rgba(255,255,255,0.04);vertical-align:middle}}
-.task-table tr:hover td{{background:rgba(255,255,255,0.03)}}
+.task-table th{{background:#F5F5F5;color:#000000;font-weight:700;font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;padding:.65rem .85rem;border-bottom:2px solid #000000;white-space:nowrap;font-family:var(--font-mono)}}
+.task-table td{{padding:.75rem .85rem;border-bottom:1px solid #000000;vertical-align:middle}}
+.task-table tr:hover td{{background:#FFFDF0}}
 .task-table tr:last-child td{{border-bottom:none}}
 .task-name-cell{{display:flex;align-items:center;gap:.45rem;font-weight:500}}
-.badge{{display:inline-block;padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600;background:rgba(255,255,255,0.05);color:var(--text-dim);border:1px solid rgba(255,255,255,0.08)}}
-.badge-up{{background:var(--success-dim);color:var(--success);border:1px solid rgba(16,185,129,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
-.badge-down{{background:var(--danger-dim);color:var(--danger);border:1px solid rgba(239,68,68,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
-.badge-warn{{background:var(--warning-dim);color:var(--warning);border:1px solid rgba(245,158,11,0.3);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
-.badge-muted{{background:rgba(255,255,255,0.05);color:var(--text-dim);border:1px solid rgba(255,255,255,0.08);padding:.15rem .45rem;border-radius:4px;font-size:.68rem;font-weight:600}}
-.btn-end-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid rgba(239,68,68,0.35);background:rgba(239,68,68,0.12);color:#fca5a5;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:32px;cursor:pointer;font-weight:500;transition:all .15s ease}}
-.btn-end-task:hover{{background:rgba(239,68,68,0.28);border-color:var(--danger);color:#fff}}
-.btn-restart-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,0.06);color:var(--text);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:32px;cursor:pointer;margin-left:.3rem;transition:all .15s ease}}
-.btn-restart-task:hover{{background:rgba(255,255,255,0.14);color:#fff}}
-.btn-start-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:var(--radius-sm);border:1px solid rgba(16,185,129,0.35);background:rgba(16,185,129,0.12);color:#6ee7b7;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:32px;cursor:pointer;font-weight:500}}
-.btn-start-task:hover{{background:rgba(16,185,129,0.28);color:#fff}}
+.badge{{display:inline-block;padding:.15rem .45rem;border-radius:0;font-size:.68rem;font-weight:700;background:#F5F5F5;color:#000000;border:1px solid #000000;text-transform:uppercase}}
+.badge-up{{background:#E6FFE6;color:#006B00;border:1px solid #000000;padding:.15rem .45rem;border-radius:0;font-size:.68rem;font-weight:700}}
+.badge-down{{background:#FFE6E6;color:#A80000;border:1px solid #000000;padding:.15rem .45rem;border-radius:0;font-size:.68rem;font-weight:700}}
+.badge-warn{{background:#FFFF00;color:#000000;border:1px solid #000000;padding:.15rem .45rem;border-radius:0;font-size:.68rem;font-weight:700}}
+.badge-muted{{background:#F5F5F5;color:#404040;border:1px solid #808080;padding:.15rem .45rem;border-radius:0;font-size:.68rem;font-weight:700}}
+.btn-end-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:0;border:2px solid #000000;background:#FFE6E6;color:#A80000;box-shadow:2px 2px 0px #000000;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:32px;cursor:pointer;font-weight:700;transition:all .15s ease}}
+.btn-end-task:hover{{background:#D80000;border-color:#000000;color:#FFFFFF}}
+.btn-restart-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:0;border:2px solid #000000;background:#FFFFFF;color:#000000;box-shadow:2px 2px 0px #000000;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:32px;cursor:pointer;font-weight:700;margin-left:.3rem;transition:all .15s ease}}
+.btn-restart-task:hover{{background:#FFFF00;color:#000000}}
+.btn-start-task{{padding:.28rem .6rem;font-size:.72rem;border-radius:0;border:2px solid #000000;background:#E6FFE6;color:#006B00;box-shadow:2px 2px 0px #000000;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;min-height:32px;cursor:pointer;font-weight:700}}
+.btn-start-task:hover{{background:#008000;color:#FFFFFF}}
 
 .task-table .td-label{{display:none}}
 /* Mobile: process table becomes stacked cards (no horizontal scroll) */
@@ -1125,17 +1121,17 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 }}
 
 /* Performance Sparkline Cards */
-.perf-tile{{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:1.35rem;margin-bottom:1.15rem;box-shadow:0 6px 24px rgba(0,0,0,0.3)}}
+.perf-tile{{background:var(--surface);border:3px solid #000000;border-radius:0;padding:1.35rem;margin-bottom:1.15rem;box-shadow:8px 8px 0px #000000}}
 .perf-header{{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.5rem}}
 .perf-title{{font-size:.84rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.45rem}}
 .perf-sub{{font-size:.74rem;color:var(--text-muted);margin-top:.2rem}}
 .perf-big-val{{font-size:1.6rem;font-weight:700;font-family:var(--font-mono);color:var(--accent-light);letter-spacing:-.02em}}
-.sparkline-box{{width:100%;height:85px;background:rgba(0,0,0,0.32);border-radius:var(--radius-md);border:1px solid rgba(255,255,255,0.06);overflow:hidden;position:relative;margin-top:.75rem}}
+.sparkline-box{{width:100%;height:85px;background:#F5F5F5;border-radius:0;border:2px solid #000000;overflow:hidden;position:relative;margin-top:.75rem}}
 .sparkline-svg{{width:100%;height:100%;display:block}}
 .spark-meta{{display:flex;justify-content:space-between;font-size:.68rem;color:var(--text-dim);margin-top:.3rem;min-height:32px;align-items:center}}
 .spark-poly{{fill:none;stroke:var(--accent-light);stroke-width:2;vector-effect:non-scaling-stroke}}
 .spark-fill{{fill:rgba(96,165,250,0.12);stroke:none}}
-.spark-poly.ram{{stroke:#7da2ff}}
+.spark-poly.ram{{stroke:#5500AA}}
 .spark-fill.ram{{fill:rgba(192,132,252,0.12)}}
 
 /* 2-column layout for Performance Storage & Network on Desktop */
@@ -1146,7 +1142,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 }}
 
 /* Patch Notes */
-.patch-notes-box{{margin-top:.75rem;padding:.75rem .85rem;background:rgba(0,0,0,0.22);border:1px solid rgba(255,255,255,0.07);border-radius:var(--radius-sm);font-size:.78rem;line-height:1.45;text-align:left}}
+.patch-notes-box{{margin-top:.75rem;padding:.75rem .85rem;background:#F5F5F5;border:2px solid #000000;border-radius:0;font-size:.78rem;line-height:1.45;text-align:left}}
 .patch-notes-title{{font-weight:600;color:var(--text);margin-bottom:.4rem;display:flex;align-items:center;gap:.35rem;font-size:.76rem;letter-spacing:.02em}}
 .patch-notes-list{{margin:0;padding-left:1.15rem;color:var(--text-muted)}}
 .patch-notes-list li{{margin-bottom:.3rem;word-break:break-word}}
@@ -1188,8 +1184,8 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .qz-note{{font-size:.7rem;color:var(--text-muted);margin-top:.45rem;line-height:1.5;max-width:70ch}}
 
 /* provider section */
-.qz-prov{{border:1px solid var(--border);border-radius:18px;background:rgba(255,255,255,.022);overflow:hidden}}
-.qz-prov-head{{display:flex;align-items:center;gap:.75rem;padding:.9rem 1.05rem;cursor:pointer;user-select:none;background:rgba(255,255,255,.028);transition:background .15s var(--ease)}}
+.qz-prov{{border:2px solid #000000;border-radius:0;background:#FFFFFF;box-shadow:4px 4px 0px #000000;overflow:hidden}}
+.qz-prov-head{{display:flex;align-items:center;gap:.75rem;padding:.9rem 1.05rem;cursor:pointer;user-select:none;background:#F5F5F5;border-bottom:1px solid #000000;transition:background .15s var(--ease)}}
 .qz-prov-head:hover{{background:var(--surface-hover)}}
 .qz-prov-head:focus-visible{{outline:2px solid var(--accent);outline-offset:-2px}}
 .qz-prov-name{{font-size:.95rem;font-weight:650;letter-spacing:-.01em}}
@@ -1200,7 +1196,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .qz-prov.open .qz-chev{{transform:rotate(90deg)}}
 
 /* account card — wide, roomy, flat (no heavy borders) */
-.qz-acct{{background:rgba(255,255,255,.03);border:1px solid var(--border-subtle);border-radius:15px;padding:1.05rem 1.1rem;margin-top:.65rem}}
+.qz-acct{{background:#FFFFFF;border:2px solid #000000;box-shadow:3px 3px 0px #000000;border-radius:0;padding:1.05rem 1.1rem;margin-top:.65rem}}
 .qz-acct:first-child{{margin-top:.45rem}}
 .qz-acct-head{{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;padding-bottom:.85rem;border-bottom:1px solid var(--border-subtle);margin-bottom:.35rem}}
 .qz-acct-id{{min-width:0;flex:1}}
@@ -1212,13 +1208,13 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .qz-logo{{flex-shrink:0;display:block;border-radius:9px}}
 
 /* badges */
-.qz-badge{{font-size:.62rem;font-weight:600;padding:.14rem .5rem;border-radius:999px;border:1px solid var(--border);font-family:var(--font-mono);letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;color:var(--text-muted);background:transparent}}
-.qz-badge.ok{{color:#00FF00;border-color:rgba(52,211,153,.32);background:rgba(16,185,129,.12)}}
-.qz-badge.low{{color:#FFFF00;border-color:rgba(251,191,36,.32);background:rgba(245,158,11,.12)}}
-.qz-badge.exhausted,.qz-badge.error{{color:#FF5555;border-color:rgba(248,113,113,.32);background:rgba(239,68,68,.12)}}
+.qz-badge{{font-size:.62rem;font-weight:700;padding:.14rem .5rem;border-radius:0;border:1px solid #000000;font-family:var(--font-mono);letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;color:var(--text-muted);background:#F5F5F5}}
+.qz-badge.ok{{color:#006B00;border-color:#000000;background:rgba(0,160,0,.15)}}
+.qz-badge.low{{color:#7A5000;border-color:#000000;background:#FFFF00}}
+.qz-badge.exhausted,.qz-badge.error{{color:#A80000;border-color:#000000;background:rgba(216,0,0,.14)}}
 .qz-badge.no_access,.qz-badge.unsupported{{color:var(--text-muted)}}
-.qz-badge.auth_expired{{color:#7da2ff;border-color:rgba(192,132,252,.32);background:rgba(168,85,247,.12)}}
-.qz-badge.tier{{color:#7da2ff;border-color:rgba(147,197,253,.28);background:rgba(59,130,246,.1)}}
+.qz-badge.auth_expired{{color:#5500AA;border-color:#000000;background:rgba(85,0,170,.12)}}
+.qz-badge.tier{{color:#0011FF;border-color:#000000;background:rgba(0,17,255,.10)}}
 
 /* quota row — full width, stacked like the 9router tracker */
 .qz-row{{padding:.62rem 0 .55rem}}
@@ -1237,7 +1233,7 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 
 /* expandable detail */
 .qz-row.toggle{{cursor:pointer}}
-.qz-row.toggle:hover .qz-row-label{{color:#fff}}
+.qz-row.toggle:hover .qz-row-label{{color:#0011FF;text-decoration:underline}}
 .qz-caret{{display:inline-block;width:.8em;margin-left:.3rem;color:var(--text-muted);font-size:.58rem;transition:transform .18s var(--ease);vertical-align:1px}}
 .qz-row.toggle.open .qz-caret{{transform:rotate(90deg)}}
 .qz-det{{display:none;padding:.1rem 0 .3rem 1rem;margin:.1rem 0 .2rem;border-left:1px solid var(--border-subtle)}}
@@ -1249,8 +1245,8 @@ cursor:pointer;text-decoration:none;transition:all .15s ease}}
 .qz-det .qz-row-foot{{font-size:.62rem}}
 
 
-.qz-ag-card{{border:1px solid var(--border);border-radius:8px;padding:.6rem .7rem;
-margin-bottom:.5rem;background:rgba(255,255,255,0.02)}}
+.qz-ag-card{{border:2px solid #000000;border-radius:0;padding:.6rem .7rem;
+margin-bottom:.5rem;background:#F9F9F9;box-shadow:2px 2px 0px #000000}}
 .qz-ag-card.toggle{{cursor:pointer}}
 .qz-ag-card.toggle.open .qz-caret{{transform:rotate(90deg);display:inline-block}}
 .qz-ag-main{{display:flex;align-items:center;gap:.7rem}}
@@ -1280,319 +1276,46 @@ margin-bottom:.5rem;background:rgba(255,255,255,0.02)}}
 }}
 
 
-/* ===================== QuestUI Theme (RPG fantasy) ===================== */
-/* Dipetakan dari questui-DESIGN.md: emas #FFFF00, merah #cc0000, ungu #0000FF,
-   latar cokelat gelap berlapis, Cinzel untuk judul, Spectral untuk isi. */
-:root{{
-  --bg:#1a1a1a;
-  --surface:rgba(17,17,17,0.86);
-  --surface-solid:#111111;
-  --surface-elevated:rgba(28,28,28,0.85);
-  --surface-hover:rgba(28,28,28,0.95);
-  --border:#808080;
-  --border-subtle:rgba(128,128,128,0.55);
-  --border-hover:#FFFF00;
-  --text:#FFFFFF;
-  --text-muted:#B0B0B0;
-  --text-dim:#9a9a9a;
-  --accent:#FFFF00;
-  --accent-light:#FFFF00;
-  --accent-dim:rgba(255,255,0,0.16);
-  --accent-squircle:linear-gradient(135deg,#e6c200,#FFFF00);
-  --success:#00FF00;
-  --success-dim:rgba(34,197,94,0.16);
-  --warning:#FFFF00;
-  --warning-dim:rgba(255,255,0,0.16);
-  --danger:#cc0000;
-  --danger-dim:rgba(255,0,0,0.18);
-  --purple:#0000FF;
-  --radius-xl:8px;
-  --radius-lg:8px;
-  --radius-md:6px;
-  --radius-sm:4px;
-  --font-sans:'Spectral',Georgia,'Times New Roman',serif;
-  --font-mono:'Fira Code',ui-monospace,monospace;
-  --quest-gold-glow:0 0 20px rgba(255,255,0,0.35);
-}}
-html,body{{
-  background:var(--bg);
-  font-family:var(--font-sans);
-  color:var(--text);
-  font-size:16px;
-  line-height:1.7;
-}}
-/* Cinzel untuk semua heading, judul kartu, tombol, label UI */
-h1,h2,h3,h4,.card-title,.tab,.btn,.btn-action-sm,.toggle,.badge,.search-input::placeholder{{
-  font-family:'Cinzel',Georgia,serif;
-}}
-h1,h2,h3{{letter-spacing:.02em;line-height:1.25}}
-.card-title{{font-weight:600;letter-spacing:.03em}}
-.tab,.btn,.btn-action-sm,.toggle{{font-weight:600;letter-spacing:.04em}}
-/* Chip/badge: uppercase letter-spaced seperti ukiran */
-.badge{{
-  text-transform:uppercase;letter-spacing:1px;font-size:11px;
-  border-radius:2px;font-weight:400;
-}}
-/* Kartu: permukaan cokelat berlapis + bayangan emas halus */
-.card,.card-status,.kanban-column,.modal-content{{
-  background:var(--surface-solid);
-  border:1px solid var(--border);
-  border-radius:4px;
-  box-shadow:0 2px 8px rgba(255,255,0,0.18);
-}}
-.card-status:hover{{
-  background:var(--surface-elevated);
-  border-color:rgba(255,255,0,0.35);
-  box-shadow:0 4px 16px rgba(255,255,0,0.25);
-  transition:box-shadow .3s var(--ease),border-color .3s var(--ease);
-}}
-/* Aksen garis atas emas untuk kartu utama (quest header) */
-.card.card-status > .aux-header:first-child{{
-  border-top:2px solid var(--accent);
-  padding-top:0.6rem;
-}}
-/* Tombol utama: emas penuh dengan teks gelap */
-.btn.btn-on,.btn-action-primary,.toggle{{
-  background:var(--accent-dim);
-  color:var(--accent-light);
-  border:1px solid var(--accent);
-  border-radius:4px;
-  font-weight:600;
-}}
-.btn.btn-on:hover,.btn-action-primary:hover{{background:var(--accent);color:#1a1a1a}}
-/* Tombol sekunder/ghost: transparan dengan garis emas */
-.btn-action-sm{{
-  background:transparent;color:var(--accent);
-  border:1px solid var(--accent);border-radius:4px;
-}}
-.btn-action-sm:hover{{background:rgba(255,255,0,0.12)}}
-.btn-action-sm.btn-off,.btn-action-danger{{
-  background:var(--danger);color:#FFFFFF;border-color:#FF0000;
-}}
-.btn-action-sm:disabled{{opacity:.35;box-shadow:none;border-color:#808080}}
-/* Input: fokus cincin emas */
-input[type=text],input[type=password],select,textarea,.search-input{{
-  background:var(--surface-solid);color:var(--text);
-  border:1px solid var(--border);border-radius:4px;
-  font-family:var(--font-sans);
-}}
-input:focus,select:focus,textarea:focus,.search-input:focus{{
-  border-color:var(--accent);outline:none;
-  box-shadow:0 0 0 3px rgba(255,255,0,0.25);
-}}
-/* Log/kode tetap monospace */
-.logbox,code,pre{{font-family:var(--font-mono);font-size:13px}}
-.logbox{{background:#1a1a1a;border:1px solid var(--border-subtle)}}
-/* Scrollbar hangat */
-::-webkit-scrollbar-thumb{{background:#808080}}
-::-webkit-scrollbar-thumb:hover{{background:var(--accent)}}
-::-webkit-scrollbar-track{{background:var(--bg)}}
-/* Status sukses/warna bahaya mengikuti palet QuestUI */
-.badge-up{{color:var(--success)}}
-.badge-down{{color:#F87171}}
-.dot.up{{background:var(--success)}}
-.dot.down{{background:#cc0000}}
 
-/* --- QuestUI: koreksi hasil verifikasi visual (kontras & sisa aksen biru) --- */
-.tabs{{
-  background:rgba(17,17,17,0.85);
-  border-color:var(--border);
+/* ================= WHITE BRUTALIST WEB DESIGN (designmd.app) ================= */
+.header{{
+  background:#FFFFFF;border:3px solid #000000;box-shadow:6px 6px 0px #000000;
+  padding:.85rem 1.2rem;margin-bottom:1.3rem;
 }}
-.tab{{
-  color:var(--text-muted);
-  border-radius:4px;
-}}
-.tab:hover{{color:var(--text);background:rgba(255,255,0,0.10)}}
-.tab.active{{
-  background:rgba(255,255,0,0.22);
-  color:#FFFFFF;
-  border:1px solid rgba(255,255,0,0.65);
-  box-shadow:0 3px 14px rgba(255,255,0,0.30);
-}}
-.header-logo{{filter:drop-shadow(0 4px 14px rgba(255,255,0,0.35))}}
-/* Badge status: hijau/merah TERANG agar terbaca di atas cokelat gelap */
-.badge-up{{
-  background:rgba(34,197,94,0.16);color:#00FF00;
-  border:1px solid rgba(34,197,94,0.35);
-}}
-.badge-down{{
-  background:rgba(255,0,0,0.22);color:#FF5555;
-  border:1px solid rgba(255,0,0,0.45);
-}}
-td .badge.badge-up,td .badge.badge-down{{font-weight:600}}
-/* Tombol aksi proses */
-.btn-end-task{{
-  background:rgba(255,0,0,0.16);color:#FF5555;
-  border:1px solid rgba(255,0,0,0.45);border-radius:4px;
-}}
-.btn-end-task:hover{{background:rgba(255,0,0,0.32);color:#FFFFFF}}
-.btn-restart-task{{
-  background:rgba(255,255,0,0.10);color:var(--accent-light);
-  border:1px solid rgba(255,255,0,0.35);border-radius:4px;
-}}
-.btn-restart-task:hover{{background:rgba(255,255,0,0.22);color:#FFFFFF}}
-.btn-start-task{{
-  background:rgba(34,197,94,0.14);color:#00FF00;
-  border:1px solid rgba(34,197,94,0.4);border-radius:4px;
-}}
-/* Tautan & nilai mono: emas lembut, bukan biru */
-a{{color:var(--accent-light)}}
-
-/* ================= BRUTALIST WEB DESIGN (override terakhir) ================= */
-/* Prinsip: struktur terlihat, border tegas, tanpa rounded, tanpa glow, font sistem. */
-*,*::before,*::after{{
-  border-radius:0 !important;
-  box-shadow:none !important;
-  text-shadow:none !important;
-}}
-body{{color:#f5f5f5}}
-.card,.card-status,.kanban-column,.qz-ag-card,.modal-content,.cc-tile{{
-  background:#111111;
-  color:#FFFFFF;
-  border:2px solid #808080 !important;
-  padding:16px;
-}}
-.card-title{{
-  font-family:'Courier New',monospace;font-weight:700;
-  color:#FFFF00;text-transform:uppercase;letter-spacing:.06em;
-  border-bottom:2px solid #808080;padding-bottom:6px;
-}}
-/* --- Tombol gaya [TAG] ala referensi --- */
-.btn,.btn-action-sm,.toggle,.btn-end-task,.btn-restart-task,.btn-start-task,
-a.open,.tab,.kb-load-more{{
-  font-family:'Courier New',monospace;font-weight:700;
-  background:#000000 !important;
-  color:#FFFF00 !important;
-  border:2px solid #FFFF00 !important;
-  padding:8px 22px !important;
-  text-transform:uppercase;letter-spacing:.05em;
-}}
-.btn::before,.btn-action-sm::before,.toggle::before,
-.btn-end-task::before,.btn-restart-task::before,.btn-start-task::before{{
-  content:'[';color:#FFFF00;margin-right:6px;
-}}
-.btn::after,.btn-action-sm::after,.toggle::after,
-.btn-end-task::after,.btn-restart-task::after,.btn-start-task::after{{
-  content:']';color:#FFFF00;margin-left:6px;
-}}
-.btn:hover,.btn-action-sm:hover,.toggle:hover,
-.btn-end-task:hover,.btn-restart-task:hover,.btn-start-task:hover{{
-  background:#FFFF00 !important;color:#000000 !important;
-}}
-.btn:hover::before,.btn:hover::after,
-.btn-action-sm:hover::before,.btn-action-sm:hover::after,
-.toggle:hover::before,.toggle:hover::after{{
-  color:#000000;
-}}
-/* Varian destruktif: merah */
-.btn-end-task,.btn-action-danger{{
-  background:#FF0000 !important;color:#FFFFFF !important;border-color:#FFFFFF !important;
-}}
-.btn-end-task::before,.btn-end-task::after,
-.btn-action-danger::before,.btn-action-danger::after{{color:#FFFFFF}}
-.btn-end-task:hover,.btn-action-danger:hover{{background:#FFFFFF !important;color:#FF0000 !important}}
-.btn-end-task:hover::before,.btn-end-task:hover::after,
-.btn-action-danger:hover::before,.btn-action-danger:hover::after{{color:#FF0000}}
-/* Tombol nonaktif */
-.btn:disabled,.btn-action-sm:disabled{{
-  opacity:.4;border-color:#808080 !important;color:#808080 !important;background:#1a1a1a !important;
-}}
-/* --- Tab navigasi --- */
-.tabs{{
-  background:#000000;border:2px solid #FFFF00 !important;padding:6px;
-}}
-.tab{{
-  background:transparent !important;color:#FFFF00 !important;
-  border:2px solid transparent !important;font-weight:700;
-}}
-.tab.active{{
-  background:#0000FF !important;color:#FFFFFF !important;
-  border:2px solid #FFFFFF !important;
-}}
-.tab:hover{{background:#FFFF00 !important;color:#000000 !important}}
-.tab.active::before{{content:'['}}
-.tab.active::after{{content:']'}}
-/* --- Input: border tegas, fokus biru --- */
-input[type=text],input[type=password],select,textarea,.search-input{{
-  background:#ffffff;color:#000000;border:2px solid #000000 !important;
-  font-family:'Courier New',monospace;
-}}
-input:focus,select:focus,textarea:focus,.search-input:focus{{
-  border-color:#0000FF !important;outline:2px solid #0000FF;outline-offset:2px;
-  box-shadow:none !important;
-}}
-/* --- Log & kode --- */
-.logbox,code,pre{{
-  font-family:'Courier New',monospace;background:#000000;color:#00FF00;
-  border:2px solid #808080 !important;
-}}
-/* --- Badge status --- */
-.badge-up{{background:#00FF00 !important;color:#000000 !important;border:2px solid #000000 !important}}
-.badge-down{{background:#FF0000 !important;color:#FFFFFF !important;border:2px solid #000000 !important}}
-.badge,.live-badge{{
-  font-family:'Courier New',monospace;font-weight:700;text-transform:uppercase;
-  border:2px solid #000000 !important;
-}}
-/* --- Header situs: gaya RAW_VISION.LOG --- */
 .header-brand h1,.header h1{{
-  font-family:'Courier New',monospace;font-weight:700;color:#FFFF00;
-  text-transform:uppercase;letter-spacing:.04em;
+  font-family:Arial Black,Impact,'Courier New',sans-serif;
+  font-weight:900;color:#000000;text-transform:uppercase;letter-spacing:-.03em;
 }}
-.header-brand h1::after{{content:'.LOG';color:#7da2ff}}
-/* --- Link: garis bawah biru sistem --- */
-a{{color:#0000FF;text-decoration:underline}}
-a:hover{{background:#FFFF00;color:#000000}}
-/* --- Meter & bar kuota --- */
-.qz-ag-card{{background:#111111;color:#FFFFFF}}
-.qz-ag-title{{color:#FFFFFF;font-weight:700}}
-.qz-ag-models{{color:#0000FF}}
-.qz-ag-reset{{color:#404040}}
-/* --- Scrollbar tegas --- */
-::-webkit-scrollbar-thumb{{background:#808080;border:1px solid #000000}}
-::-webkit-scrollbar-track{{background:#1a1a1a}}
-
-/* Brutalist: badge kuota untuk latar kartu TERANG (teks gelap, kontras WCAG) */
-.qz-badge{{
-  color:#333333;background:transparent;border:1px solid #808080 !important;
-  border-radius:0 !important;font-family:'Courier New',monospace;
+.header-brand h1::after{{content:' .LOG';color:#0011FF}}
+/* Tombol & Tab gaya [TAG] seperti referensi RAW_VISION.LOG */
+.tab::before,.btn::before,.btn-action-sm::before,a.toggle::before,a.open::before,
+.btn-end-task::before,.btn-restart-task::before,.btn-start-task::before{{
+  content:'[';margin-right:3px;font-weight:700;
 }}
-.qz-badge.ok{{color:#00cc00;border-color:#00cc00 !important;background:rgba(34,197,94,0.12)}}
-.qz-badge.low{{color:#e6c200;border-color:#e6c200 !important;background:rgba(255,255,0,0.12)}}
-.qz-badge.exhausted,.qz-badge.error{{color:#FF0000;border-color:#FF0000 !important;background:rgba(255,0,0,0.10)}}
-.qz-badge.auth_expired{{color:#7da2ff;border-color:#7da2ff !important;background:rgba(109,40,217,0.10)}}
-.qz-badge.tier{{color:#7da2ff;border-color:#7da2ff !important;background:rgba(0,0,255,0.08)}}
-.qz-badge.no_access,.qz-badge.unsupported{{color:#595959}}
-/* Teks meta kuota di atas kartu terang */
-.qz-ag-models{{color:#00FFFF}}
-.qz-ag-reset,.qz-row-foot,.qz-prov-meta,.qz-acct-sub{{color:#B0B0B0}}
-.qz-row-label{{color:#FFFFFF}}
-.qz-ag-title,.qz-row-label{{color:#FFFFFF}}
-/* Judul grup model & subjudul pemilih: gelap agar terbaca di latar terang */
-.model-group-title,.aux-model-opt-sub,.model-chip-badge{{
-  color:#B0B0B0;
+.tab::after,.btn::after,.btn-action-sm::after,a.toggle::after,a.open::after,
+.btn-end-task::after,.btn-restart-task::after,.btn-start-task::after{{
+  content:']';margin-left:3px;font-weight:700;
 }}
-.model-chip{{color:#FFFFFF}}
-.model-chip-badge{{color:#B0B0B0}}
-
-/* Brutalist: warna SELEKSI teks — kuning dengan teks hitam (kontras tinggi).
-   Tanpa ini, highlight bawaan browser menyatu dengan latar gelap. */
+.tab.active{{
+  background:#FFFF00 !important;color:#000000 !important;
+  border:2px solid #000000 !important;box-shadow:3px 3px 0px #000000 !important;
+  text-decoration:underline;text-decoration-color:#0011FF;text-decoration-thickness:3px;
+  text-underline-offset:4px;
+}}
+/* Badge peringatan ala stiker brutalist */
+.card-warn > .card-title:first-child,.card-warn .update-hint.warn{{
+  background:#FFFF00;color:#000000;border:2px solid #000000;font-weight:700;
+}}
+.qz-ag-models{{color:#0011FF;font-weight:700}}
+.markdown-body strong{{color:#000000}}
+.markdown-body em{{color:#333333}}
+.markdown-body .md-inline-code{{background:#FFFF00;border:1px solid #000000;color:#000000;border-radius:0}}
+.markdown-body .md-code-wrap{{background:#F5F5F5;border:2px solid #000000;border-radius:0}}
+.markdown-body .md-code-block{{color:#000000}}
+.markdown-body .md-quote{{border-left:4px solid #0011FF;background:#F0F4FF;color:#000000;border-radius:0}}
+/* Seleksi teks: kuning highlighter + teks hitam */
 ::selection{{background:#FFFF00;color:#000000}}
 ::-moz-selection{{background:#FFFF00;color:#000000}}
-/* Seleksi di dalam log/kode (latar hitam) tetap terbaca */
-.logbox::selection,code::selection,pre::selection{{background:#00FFFF;color:#000000}}
-.logbox ::selection,code ::selection,pre ::selection{{background:#00FFFF;color:#000000}}
-/* Chip model yang DIPILIH (aktif): biru solid + teks putih, bukan biru pudar */
-.model-chip.active{{
-  background:#0000FF !important;color:#FFFFFF !important;
-  border:2px solid #FFFFFF !important;
-}}
-.model-chip.active .model-chip-name,.model-chip.active .model-chip-badge{{
-  color:#FFFFFF !important;
-}}
-/* Kartu/opsi lain yang aktif dipilih: garis kuning, teks tetap terang */
-.qz-ag-card.toggle.open,.kanban-card.is-selected{{
-  outline:2px solid #FFFF00;outline-offset:0;
-}}
 </style></head><body>
 <div id="pbar"></div>
 <div id="navloader"><div class="ring"></div><span id="nav-label">Memproses…</span></div>
@@ -1849,7 +1572,7 @@ a:hover{{background:#FFFF00;color:#000000}}
         <label style="font-size:0.75rem;color:var(--text-muted);font-weight:600">Editor YAML (<code>platforms.&lt;nama&gt;</code>)</label>
       </div>
 
-      <textarea id="gw-config-yaml" spellcheck="false" oninput="_yamlEditedByUser=true" style="width:100%;height:190px;max-height:30vh;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:var(--radius-sm);color:#e2e8f0;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;box-sizing:border-box" placeholder="enabled: true..."></textarea>
+      <textarea id="gw-config-yaml" spellcheck="false" oninput="_yamlEditedByUser=true" style="width:100%;height:190px;max-height:30vh;background:#FFFFFF;border:2px solid #000000;border-radius:0;color:#000000;font-family:var(--font-mono);font-size:0.78rem;padding:0.65rem;line-height:1.45;resize:vertical;box-sizing:border-box" placeholder="enabled: true..."></textarea>
     </div>
 
     <!-- Dynamic syntax guide visible in both Form UI and YAML modes -->
@@ -1965,7 +1688,7 @@ a:hover{{background:#FFFF00;color:#000000}}
       <button type="button" class="btn" style="width:auto;padding:0.25rem 0.6rem;font-size:0.85rem;line-height:1;margin:0" onclick="closeProfileSoulModal()">✕</button>
     </div>
     <div style="flex:1;display:flex;flex-direction:column;margin-top:0.5rem;gap:0.5rem">
-      <textarea id="soul-content" class="search-input" style="flex:1;min-height:280px;max-height:55vh;width:100%;font-family:var(--font-mono);font-size:0.8rem;line-height:1.45;resize:vertical;background:#0d1117;color:#f0f6fc;padding:0.75rem"></textarea>
+      <textarea id="soul-content" class="search-input" style="flex:1;min-height:280px;max-height:55vh;width:100%;font-family:var(--font-mono);font-size:0.8rem;line-height:1.45;resize:vertical;background:#FFFFFF;color:#000000;padding:0.75rem"></textarea>
       <div style="display:flex;justify-content:flex-end;gap:0.5rem">
         <button type="button" class="btn" style="width:auto" onclick="closeProfileSoulModal()">Batal</button>
         <button type="button" id="btn-submit-profile-soul" class="btn btn-on" style="width:auto" onclick="submitProfileSoul()">Simpan SOUL.md</button>
@@ -2404,7 +2127,7 @@ a:hover{{background:#FFFF00;color:#000000}}
         <div class="perf-title">{icon_ram} Memori · DDR4 + ZRAM</div>
         <div class="perf-sub">Penggunaan: <span id="perf-ram-sub">{cell_ram}</span> · ZRAM: <span id="cell-zram-perf">{cell_zram}</span></div>
       </div>
-      <div class="perf-big-val" id="perf-ram-val" style="color:#7da2ff">{ram_pct}%</div>
+      <div class="perf-big-val" id="perf-ram-val" style="color:#5500AA">{ram_pct}%</div>
     </div>
     <div class="sparkline-box">
       <svg class="sparkline-svg" id="ram-sparkline" viewBox="0 0 300 80" preserveAspectRatio="none">
@@ -3249,9 +2972,9 @@ function quotaStatusLabel(s, accountLevel){{
   return m[s] || s || '?';
 }}
 function qzStatusColor(s){{
-  if(s === 'low') return '#FFFF00';
+  if(s === 'low') return '#B87800';
   if(s === 'exhausted' || s === 'error') return '#FF5555';
-  if(s === 'auth_expired') return '#7da2ff';
+  if(s === 'auth_expired') return '#5500AA';
   if(s === 'no_access' || s === 'unsupported') return '#64748b';
   return '#00FF00';
 }}
@@ -3353,13 +3076,13 @@ function qzCircle(pct, status){{
     return '<span class="qz-circle na" aria-hidden="true">N/A</span>';
   }}
   var q = Math.max(0, Math.min(100, Number(pct)));
-  var col = q < 10 ? '#FF5555' : (q < 25 ? '#FFFF00' : '#00FF00');
+  var col = q < 10 ? '#CC0000' : (q < 25 ? '#B87800' : '#007A00');
   var r = 15.9155;                       // keliling = 100
   var circ = 2 * Math.PI * r;
   var filled = (q / 100) * circ;
   return '<svg class="qz-circle" viewBox="0 0 40 40" width="46" height="46" role="img" '
     + 'aria-label="sisa ' + q.toFixed(0) + '%">'
-    + '<circle cx="20" cy="20" r="' + r + '" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4"/>'
+    + '<circle cx="20" cy="20" r="' + r + '" fill="none" stroke="rgba(0,0,0,0.12)" stroke-width="4"/>'
     + '<circle cx="20" cy="20" r="' + r + '" fill="none" stroke="' + col + '" stroke-width="4" '
     + 'stroke-linecap="round" stroke-dasharray="' + filled.toFixed(2) + ' ' + circ.toFixed(2) + '" '
     + 'transform="rotate(-90 20 20)"/>'
@@ -3378,8 +3101,8 @@ function qzAgCard(o){{
     rows.push('<div class="qz-ag-models">' + escHtml(o.models.join(' · ')) + '</div>');
   }}
   var resets = [];
-  if(o.sessionReset) resets.push('reset 5 jam: ' + escHtml(o.sessionReset));
-  if(o.weeklyReset) resets.push('reset mingguan: ' + escHtml(o.weeklyReset));
+  if(o.sessionReset) resets.push('reset 5 jam: ' + escHtml(String(o.sessionReset).replace(/^reset\s+/i, '')));
+  if(o.weeklyReset) resets.push('reset mingguan: ' + escHtml(String(o.weeklyReset).replace(/^reset\s+/i, '')));
   if(o.note) resets.push(escHtml(o.note));
   if(resets.length) rows.push('<div class="qz-ag-reset">' + resets.join(' · ') + '</div>');
 
@@ -4148,12 +3871,12 @@ var kanbanSwitchQueued = null;
 
 var KANBAN_COL_PAGE = 12;
 var KANBAN_COLS = [
-  {{ id: 'triage', title: 'Triage', bg: 'rgba(168,85,247,0.15)', color: '#7da2ff' }},
+  {{ id: 'triage', title: 'Triage', bg: 'rgba(85,0,170,0.12)', color: '#5500AA' }},
   {{ id: 'todo', title: 'To Do', bg: 'rgba(255,255,255,0.06)', color: 'var(--text-muted)' }},
   {{ id: 'ready', title: 'Ready', bg: 'rgba(59,130,246,0.15)', color: 'var(--accent)' }},
   {{ id: 'running', title: 'Running', bg: 'rgba(16,185,129,0.15)', color: 'var(--success)' }},
   {{ id: 'blocked', title: 'Blocked', bg: 'rgba(239,68,68,0.15)', color: 'var(--danger)' }},
-  {{ id: 'review', title: 'Review', bg: 'rgba(245,158,11,0.15)', color: '#FFFF00' }},
+  {{ id: 'review', title: 'Review', bg: '#FFFF00', color: '#000000' }},
   {{ id: 'done', title: 'Done', bg: 'rgba(16,185,129,0.22)', color: 'var(--success)' }}
 ];
 
@@ -4647,7 +4370,7 @@ function renderKanbanCards(tasks) {{
         }} else if(t.priority === 1) {{
           var pBadge = document.createElement('span');
           pBadge.className = 'badge';
-          pBadge.style.cssText = 'background:rgba(245,158,11,0.15);color:#FFFF00;font-size:0.62rem';
+          pBadge.style.cssText = 'background:#FFFF00;color:#000000;font-size:0.62rem';
           pBadge.textContent = 'High';
           badges.appendChild(pBadge);
         }}
@@ -9752,7 +9475,7 @@ function renderProfileToolsList(){
       ? '<span class="live-badge badge-up" style="font-size:0.62rem;padding:0.1rem 0.4rem">Aktif</span>'
       : '<span class="badge badge-muted" style="font-size:0.62rem">Mati</span>';
     var bundle = r.is_bundle ? '<span class="badge" style="font-size:0.62rem" title="Toolset gabungan (bundle)">bundle</span>' : '';
-    var unknown = r.known === false ? '<span class="badge" style="background:rgba(245,158,11,0.15);color:#FFFF00;font-size:0.62rem" title="Nama ini tidak ada di registry toolsets Hermes versi ini">tak dikenal</span>' : '';
+    var unknown = r.known === false ? '<span class="badge" style="background:#FFFF00;color:#000000;font-size:0.62rem" title="Nama ini tidak ada di registry toolsets Hermes versi ini">tak dikenal</span>' : '';
     var count = (r.tool_count == null) ? '?' : r.tool_count;
     var nameAttr = ' data-ts-name="' + escHtml(r.name) + '"';
     var toolsBtn = (r.tools && r.tools.length)
@@ -10342,10 +10065,10 @@ NETWORK_CSS = """.net-tiles{display:grid;grid-template-columns:repeat(auto-fit,m
 .net-chip .ok{color:var(--success)}.net-chip .bad{color:var(--danger)}
 .net-callout{display:flex;gap:.5rem;align-items:flex-start;font-size:.75rem;line-height:1.45;padding:.55rem .7rem;border-radius:var(--radius-sm);margin-top:.55rem}
 .net-callout .icon{flex-shrink:0;margin-top:.1rem}
-.net-callout.warn{background:var(--warning-dim);color:#fcd34d;border:1px solid rgba(245,158,11,.3)}
-.net-callout.bad{background:var(--danger-dim);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
-.net-callout.ok{background:var(--success-dim);color:#6ee7b7;border:1px solid rgba(16,185,129,.3)}
-.net-callout.info{background:var(--accent-dim);color:var(--accent-light);border:1px solid rgba(59,130,246,.3)}
+.net-callout.warn{background:var(--warning-dim);color:#000000;border:2px solid #000000}
+.net-callout.bad{background:var(--danger-dim);color:#A80000;border:2px solid #000000}
+.net-callout.ok{background:var(--success-dim);color:#006B00;border:2px solid #000000}
+.net-callout.info{background:var(--accent-dim);color:#0011FF;border:2px solid #000000}
 .net-callout:empty{display:none}
 .net-callout .btn-action-sm{margin-top:.45rem}
 .net-sec-head{display:flex;align-items:center;gap:.5rem;margin:1.35rem 0 .6rem;font-size:.78rem;font-weight:700;color:var(--text)}
@@ -10353,18 +10076,18 @@ NETWORK_CSS = """.net-tiles{display:grid;grid-template-columns:repeat(auto-fit,m
 .net-sec-hint{font-size:.7rem;font-weight:500;color:var(--text-dim);margin-left:auto;text-align:right}
 .net-dirty-flag{display:none;font-size:.68rem;font-weight:600;color:var(--warning);align-items:center;gap:.3rem}
 .net-dirty-flag.on{display:inline-flex}
-.net-seg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.3rem;padding:.25rem;background:rgba(0,0,0,.18);border:1px solid var(--border);border-radius:10px}
+.net-seg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.3rem;padding:.25rem;background:#F5F5F5;border:2px solid #000000;border-radius:0}
 .net-seg.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .net-seg.cols-5{grid-template-columns:repeat(5,minmax(0,1fr))}
 .net-seg-btn{display:flex;align-items:center;justify-content:center;gap:.35rem;min-height:32px;padding:.3rem .45rem;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--text-muted);font-size:.74rem;font-weight:500;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s,color .15s}
 .net-seg-btn span{overflow:hidden;text-overflow:ellipsis}
 .net-seg-btn:hover{background:rgba(255,255,255,.06);color:var(--text)}
-.net-seg-btn.active{background:var(--accent-dim);border-color:rgba(59,130,246,.45);color:#fff;font-weight:600}
-.net-seg-btn.active .icon{color:var(--accent-light)}
+.net-seg-btn.active{background:#FFFF00;border-color:#000000;color:#000000;font-weight:700}
+.net-seg-btn.active .icon{color:#0011FF}
 .net-field{position:relative;flex:1 1 200px;min-width:0}
 .net-route-body>.net-field,.net-stack>.net-field{flex:0 0 auto}
 .net-field>.icon{position:absolute;left:.6rem;top:50%;transform:translateY(-50%);color:var(--text-dim);pointer-events:none}
-.net-input{width:100%;box-sizing:border-box;background:rgba(0,0,0,.2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:.45rem .6rem;font-size:.78rem;font-family:var(--font-mono);min-height:34px;transition:border-color .15s}
+.net-input{width:100%;box-sizing:border-box;background:#FFFFFF;border:2px solid #000000;color:var(--text);border-radius:0;padding:.45rem .6rem;font-size:.78rem;font-family:var(--font-mono);min-height:34px;transition:border-color .15s}
 .net-field .net-input{padding-left:2rem}
 .net-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
 .net-input-suffix{display:flex;align-items:center;gap:.4rem;font-size:.75rem;color:var(--text-muted)}
@@ -10374,7 +10097,7 @@ NETWORK_CSS = """.net-tiles{display:grid;grid-template-columns:repeat(auto-fit,m
 .net-result{display:inline-flex;align-items:center;gap:.35rem;font-size:.72rem;color:var(--text-muted);margin-right:auto;min-width:0;flex-wrap:wrap;line-height:1.4}
 .net-result.ok{color:var(--success)}.net-result.bad{color:var(--danger)}.net-result.warn{color:var(--warning)}
 .net-row-bottom{justify-content:space-between !important}
-.net-note{display:flex;gap:.4rem;align-items:flex-start;font-size:.72rem;color:#fcd34d;line-height:1.4}
+.net-note{display:flex;gap:.4rem;align-items:flex-start;font-size:.72rem;color:#7A5000;line-height:1.4}
 .net-note .icon{flex-shrink:0;margin-top:.1rem}
 .net-label{font-size:.78rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
 .net-label small{font-weight:400;color:var(--text-dim);font-size:.7rem}
@@ -14434,7 +14157,7 @@ def _render_profiles_block_uncached() -> str:
         act_badge = '<span class="live-badge badge-up" style="font-size:0.65rem;padding:0.15rem 0.45rem">AKTIF</span>' if is_act else ''
         type_badge = '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.65rem">Default</span>' if is_def else '<span class="badge" style="background:rgba(59,130,246,0.12);color:var(--accent);font-size:0.65rem">Profil</span>'
         env_badge = '<span class="badge" style="background:rgba(16,185,129,0.12);color:var(--success);font-size:0.65rem">.env ✓</span>' if has_env else '<span class="badge" style="background:rgba(255,255,255,0.04);color:var(--text-dim);font-size:0.65rem">.env -</span>'
-        soul_badge = '<span class="badge" style="background:rgba(168,85,247,0.15);color:#7da2ff;font-size:0.65rem">SOUL.md ✓</span>' if has_soul else '<span class="badge" style="background:rgba(255,255,255,0.04);color:var(--text-dim);font-size:0.65rem">SOUL.md -</span>'
+        soul_badge = '<span class="badge" style="background:rgba(85,0,170,0.12);color:#5500AA;font-size:0.65rem">SOUL.md ✓</span>' if has_soul else '<span class="badge" style="background:rgba(255,255,255,0.04);color:var(--text-dim);font-size:0.65rem">SOUL.md -</span>'
 
         act_btn = (
             f'<button type="button" class="btn" disabled style="width:auto;min-height:32px;padding:0.25rem 0.65rem;font-size:0.72rem;opacity:0.6;cursor:default">'
@@ -15478,7 +15201,7 @@ def _render_kanban_task_card(t: dict, col_id: str) -> str:
     if pri >= 2:
         pri_badge = '<span class="badge" style="background:rgba(239,68,68,0.18);color:var(--danger);font-size:0.62rem">Urgent</span>'
     elif pri == 1:
-        pri_badge = '<span class="badge" style="background:rgba(245,158,11,0.15);color:#FFFF00;font-size:0.62rem">High</span>'
+        pri_badge = '<span class="badge" style="background:#FFFF00;color:#000000;font-size:0.62rem">High</span>'
 
     ass_badge = f'<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--text);font-size:0.62rem;font-family:var(--font-mono)">@{html.escape(assignee)}</span>' if assignee else ''
     if col_id == "running":
@@ -15572,12 +15295,12 @@ def render_kanban_board_block(board_slug: str = "") -> str:
 
     # Columns to render
     cols_def = [
-        ("triage", "Triage", "rgba(168,85,247,0.15)", "#7da2ff"),
+        ("triage", "Triage", "rgba(85,0,170,0.12)", "#5500AA"),
         ("todo", "To Do", "rgba(255,255,255,0.06)", "var(--text-muted)"),
         ("ready", "Ready", "rgba(59,130,246,0.15)", "var(--accent)"),
         ("running", "Running", "rgba(16,185,129,0.15)", "var(--success)"),
         ("blocked", "Blocked", "rgba(239,68,68,0.15)", "var(--danger)"),
-        ("review", "Review", "rgba(245,158,11,0.15)", "#FFFF00"),
+        ("review", "Review", "#FFFF00", "#000000"),
         ("done", "Done", "rgba(16,185,129,0.22)", "var(--success)"),
     ]
 
@@ -19537,7 +19260,7 @@ def build_fragments(sse_only: bool = False) -> dict:
             f'<span class="rl-warn" style="font-weight:600">{html.escape(str(item.get("provider") or "unknown").upper())} · {html.escape(str(item.get("name") or "unknown"))}</span>'
             f'<span style="font-size:.72rem;color:var(--text-dim);font-family:var(--font-mono)">{html.escape(str(item.get("error_at") or "--:--:--"))} WIB</span>'
             f'</div>'
-            f'<div style="font-size:.75rem;color:#fca5a5;font-family:var(--font-mono);word-break:break-all;line-height:1.3">{html.escape(str(item.get("error") or "")[:180])}</div>'
+            f'<div style="font-size:.75rem;color:var(--danger);font-family:var(--font-mono);word-break:break-all;line-height:1.3">{html.escape(str(item.get("error") or "")[:180])}</div>'
             f'</div>'
             for item in rl_errors
         )
