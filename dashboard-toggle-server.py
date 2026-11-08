@@ -61,6 +61,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import datetime
 import threading
 import time
 import urllib.error
@@ -3101,7 +3102,7 @@ function qzAgCard(o){{
     rows.push('<div class="qz-ag-models">' + escHtml(o.models.join(' · ')) + '</div>');
   }}
   var resets = [];
-  if(o.sessionReset) resets.push('reset 5 jam: ' + escHtml(String(o.sessionReset).replace(/^reset\s+/i, '')));
+  if(o.sessionReset) resets.push((o.resetLabel || 'reset 5 jam') + ': ' + escHtml(String(o.sessionReset).replace(/^reset\s+/i, '')));
   if(o.weeklyReset) resets.push('reset mingguan: ' + escHtml(String(o.weeklyReset).replace(/^reset\s+/i, '')));
   if(o.note) resets.push(escHtml(o.note));
   if(resets.length) rows.push('<div class="qz-ag-reset">' + resets.join(' · ') + '</div>');
@@ -3207,14 +3208,28 @@ function quotaAccountHtml(a){{
       }}
     }});
   }} else if(a.buckets && a.buckets.length){{
-    h += '<div class="qz-flat">';
+    // Provider lain: satu kartu ringkas dengan meter lingkaran + nama model,
+    // gaya sama seperti kartu Antigravity agar tab Kuota konsisten.
+    var pcts = [];
+    var models = [];
+    var earliest = null;
     a.buckets.forEach(function(b){{
-      h += qzRow({{
-        label: b.label, pct: b.pct, status: null,
-        used: b.used, total: b.total, resetText: quotaFmtReset(b.resetAt)
-      }});
+      if(b.pct !== null && b.pct !== undefined) pcts.push(b.pct);
+      if(b.label && models.indexOf(b.label) === -1) models.push(b.label);
+      if(b.resetAt && (!earliest || Date.parse(b.resetAt) < Date.parse(earliest))) earliest = b.resetAt;
     }});
-    h += '</div>';
+    var worstPct = pcts.length ? Math.min.apply(null, pcts) : null;
+    var cardKey = a.id + '::flat';
+    h += qzAgCard({{
+      title: 'Model tersedia (' + a.buckets.length + ')',
+      pct: worstPct, status: a.status || 'ok',
+      models: models.slice(0, 4),
+      sessionReset: earliest ? quotaFmtReset(earliest) : '',
+      resetLabel: 'reset',
+      weeklyReset: '',
+      note: a.buckets.length > 4 ? '+' + (a.buckets.length - 4) + ' model lain' : '',
+      buckets: a.buckets, key: cardKey, open: QUOTA.openDet[cardKey] === true
+    }});
   }}
   if(a.note) h += '<div class="qz-note" style="margin-top:.55rem">' + escHtml(a.note) + '</div>';
   h += '</div>';
@@ -19806,30 +19821,34 @@ def build_login_page(error: str = "") -> str:
         "<!DOCTYPE html><html lang=\"id\"><head>"
         "<meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">"
-        "<meta name=\"theme-color\" content=\"#0b0f17\">"
+        "<meta name=\"theme-color\" content=\"#FFFFFF\">"
         "<title>Login — Hermes Control Panel</title>"
         "<style>"
         "*{box-sizing:border-box}"
         "body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;"
-        "background:#0b0f17;color:#f1f5f9;"
-        "font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;padding:1.25rem}"
-        ".card{width:100%;max-width:360px;background:#161b26;border:1px solid #232a3a;"
-        "border-radius:14px;padding:1.6rem 1.4rem}"
-        "h1{margin:0 0 .35rem;font-size:1.15rem;letter-spacing:.01em}"
-        ".sub{margin:0 0 1.2rem;font-size:.82rem;color:#8b95a8}"
-        "label{display:block;font-size:.78rem;color:#8b95a8;margin-bottom:.4rem;"
-        "text-transform:uppercase;letter-spacing:.06em}"
-        "input{width:100%;min-height:46px;padding:.7rem .9rem;border-radius:10px;"
-        "border:1px solid #2b3448;background:#0f1420;color:#f1f5f9;font-size:1rem;"
+        "background:#FFFFFF;color:#000000;"
+        "background-image:linear-gradient(to right,rgba(255,0,0,0.12) 1px,transparent 1px),"
+        "linear-gradient(to bottom,rgba(255,0,0,0.12) 1px,transparent 1px);background-size:24px 24px;"
+        "font-family:'Courier New',Courier,monospace;padding:1.25rem}"
+        ".card{width:100%;max-width:380px;background:#FFFFFF;border:3px solid #000000;"
+        "box-shadow:10px 10px 0px #000000;padding:1.6rem 1.4rem}"
+        "h1{margin:0 0 .35rem;font-size:1.15rem;letter-spacing:.01em;text-transform:uppercase;font-weight:700}"
+        "h1::after{content:' .LOG';color:#0011FF}"
+        ".sub{margin:0 0 1.2rem;font-size:.8rem;color:#404040}"
+        "label{display:block;font-size:.78rem;color:#000000;margin-bottom:.4rem;"
+        "text-transform:uppercase;letter-spacing:.06em;font-weight:700}"
+        "input{width:100%;min-height:46px;padding:.7rem .9rem;border-radius:0;"
+        "border:2px solid #000000;background:#FFFFFF;color:#000000;font-size:1rem;"
         "font-family:inherit;outline:none}"
-        "input:focus{border-color:#60a5fa}"
-        "button{width:100%;min-height:46px;margin-top:1rem;border:0;border-radius:10px;"
-        "background:#2563eb;color:#fff;font-size:.95rem;font-weight:600;"
-        "font-family:inherit;cursor:pointer}"
-        "button:active{background:#7da2ff}"
-        ".err{margin:0 0 1rem;padding:.6rem .75rem;border-radius:9px;font-size:.84rem;"
-        "background:#3b1e2410;border:1px solid #7f1d1d;color:#fca5a5}"
-        ".foot{margin:1.1rem 0 0;font-size:.72rem;color:#5b6577;text-align:center}"
+        "input:focus{border-color:#0011FF;outline:2px solid #0011FF;outline-offset:2px}"
+        "button{width:100%;min-height:46px;margin-top:1rem;border:2px solid #000000;border-radius:0;"
+        "background:#FFFF00;color:#000000;font-size:.95rem;font-weight:700;text-transform:uppercase;"
+        "box-shadow:3px 3px 0px #000000;font-family:inherit;cursor:pointer}"
+        "button:hover{background:#0011FF;color:#FFFFFF}"
+        "button:active{transform:translate(1px,1px);box-shadow:2px 2px 0px #000000}"
+        ".err{margin:0 0 1rem;padding:.6rem .75rem;border:2px solid #000000;font-size:.84rem;"
+        "background:#FFE6E6;color:#A80000}"
+        ".foot{margin:1.1rem 0 0;font-size:.72rem;color:#404040;text-align:center}"
         "</style></head><body>"
         "<form class=\"card\" method=\"POST\" action=\"/login\" autocomplete=\"off\">"
         "<h1>Hermes Control Panel</h1>"
@@ -19838,7 +19857,7 @@ def build_login_page(error: str = "") -> str:
         "<label for=\"pw\">Password</label>"
         "<input id=\"pw\" name=\"password\" type=\"password\" inputmode=\"text\" "
         "autocomplete=\"current-password\" autofocus required>"
-        "<button type=\"submit\">Masuk</button>"
+        "<button type=\"submit\">[ MASUK ]</button>"
         "<p class=\"foot\">Sesi berakhir saat browser ditutup.</p>"
         "</form></body></html>"
     )
@@ -19851,6 +19870,51 @@ def build_logout_redirect() -> str:
         "<script>location.replace('/login')</script>"
         "<p>Keluar… <a href=\"/login\">login</a></p></body></html>"
     )
+
+
+
+# --- Rate limit & audit log (tanpa password, sesuai permintaan operator) ------
+_RL_LOCK = threading.Lock()
+_RL_HITS: dict[str, list[float]] = {}
+_RL_MAX_KEYS = 512
+AUDIT_LOG_PATH = os.environ.get(
+    "PANEL_AUDIT_LOG",
+    "/opt/AppData/hermes-native/hermes-data/logs/panel-audit.log",
+)
+
+
+def _rate_allow(bucket: str, limit: int, window: float = 60.0) -> bool:
+    """Sliding-window limiter sederhana per (ip, bucket)."""
+    now = time.monotonic()
+    with _RL_LOCK:
+        if len(_RL_HITS) > _RL_MAX_KEYS:
+            for k in list(_RL_HITS)[: _RL_MAX_KEYS // 2]:
+                _RL_HITS.pop(k, None)
+        hits = [t for t in _RL_HITS.get(bucket, []) if now - t < window]
+        if len(hits) >= limit:
+            _RL_HITS[bucket] = hits
+            return False
+        hits.append(now)
+        _RL_HITS[bucket] = hits
+        return True
+
+
+def _audit_event(method: str, path: str, client_ip: str, extra: str = "") -> None:
+    """Catat aksi yang mengubah state ke log JSONL (best-effort, tidak blocking)."""
+    try:
+        rec = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "method": method,
+            "path": path.split("?", 1)[0][:200],
+            "ip": client_ip or "-",
+        }
+        if extra:
+            rec["note"] = extra[:200]
+        os.makedirs(os.path.dirname(AUDIT_LOG_PATH), exist_ok=True)
+        with open(AUDIT_LOG_PATH, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -20261,6 +20325,11 @@ class Handler(BaseHTTPRequestHandler):
         same way as GET; body (form-encoded) is merged into qs."""
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
+        _ip = (getattr(self, "client_address", None) or ("",))[0]
+        if not _rate_allow("post:" + _ip, 120, 60.0):
+            self._send_json({"ok": False, "error": "Rate limit: terlalu banyak permintaan, coba lagi sebentar"}, code=429)
+            return
+        _audit_event("POST", parsed.path, _ip)
         raw_length = self.headers.get("Content-Length")
         if raw_length is None or not raw_length.strip():
             length = 0
@@ -20319,7 +20388,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_html("<h1>403 — CSRF: Cross-site request rejected</h1>", 403)
                 return
 
-            client_ip = self.client_address[0] if self.client_address else ""
+            client_ip = (getattr(self, "client_address", None) or ("",))[0]
             raw_host = (self.headers.get("Host") or "").lower().strip()
             forwarded = ""
             if client_ip in ("127.0.0.1", "::1", "localhost"):
@@ -20388,6 +20457,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/static/fonts/") and parsed.path.endswith(".woff2"):
             self._serve_font(parsed.path)
             return
+
+        if parsed.path.startswith("/api/"):
+            _ip = (getattr(self, "client_address", None) or ("",))[0]
+            if not _rate_allow("api:" + _ip, 240, 60.0):
+                self._send_json({"ok": False, "error": "Rate limit: terlalu banyak permintaan API"}, code=429)
+                return
 
         if parsed.path == "/logout":
             self.send_response(302)

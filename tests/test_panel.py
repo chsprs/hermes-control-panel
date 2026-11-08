@@ -9479,5 +9479,43 @@ class TestHermesSessionsBridge(unittest.TestCase):
         self.assertEqual(panel._clamp_limit("abc", 25, 100), 25)
 
 
+
+class TestPanelRateLimitAndAudit(unittest.TestCase):
+    """Rate limit per-IP dan audit log aksi POST (tanpa password)."""
+
+    def test_rate_allow_blocks_after_limit(self):
+        bucket = "test:" + str(id(self))
+        for _ in range(5):
+            self.assertTrue(panel._rate_allow(bucket, 5, 60.0))
+        self.assertFalse(panel._rate_allow(bucket, 5, 60.0), "permintaan ke-6 harus ditolak")
+
+    def test_rate_allow_separate_buckets(self):
+        a = "a:" + str(id(self))
+        b = "b:" + str(id(self))
+        for _ in range(3):
+            panel._rate_allow(a, 3, 60.0)
+        self.assertFalse(panel._rate_allow(a, 3, 60.0))
+        self.assertTrue(panel._rate_allow(b, 3, 60.0), "bucket lain tidak boleh terpengaruh")
+
+    def test_audit_event_writes_jsonl(self):
+        import tempfile, json as _json, shutil
+        tmpdir = tempfile.mkdtemp(prefix="audit-")
+        old = panel.AUDIT_LOG_PATH
+        try:
+            panel.AUDIT_LOG_PATH = os.path.join(tmpdir, "panel-audit.log")
+            panel._audit_event("POST", "/api/x?y=1", "10.0.0.9", "probe")
+            with open(panel.AUDIT_LOG_PATH, encoding="utf-8") as fh:
+                lines = [ln for ln in fh.read().splitlines() if ln.strip()]
+            self.assertEqual(len(lines), 1)
+            rec = _json.loads(lines[0])
+            self.assertEqual(rec["method"], "POST")
+            self.assertEqual(rec["path"], "/api/x")
+            self.assertEqual(rec["ip"], "10.0.0.9")
+            self.assertEqual(rec["note"], "probe")
+        finally:
+            panel.AUDIT_LOG_PATH = old
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()
