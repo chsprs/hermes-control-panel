@@ -1307,7 +1307,16 @@ margin-bottom:.5rem;background:#F9F9F9;box-shadow:2px 2px 0px #000000}}
 .card-warn > .card-title:first-child,.card-warn .update-hint.warn{{
   background:#FFFF00;color:#000000;border:2px solid #000000;font-weight:700;
 }}
-.qz-ag-models{{color:#0011FF;font-weight:700}}
+.qz-ag-models{{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.3rem}}
+.qz-ag-chip{{
+  display:inline-flex;align-items:center;gap:.3rem;font-family:'Courier New',monospace;
+  font-size:.66rem;font-weight:700;padding:.12rem .4rem;background:#FFFFFF;
+  border:1px solid #000000;color:#000000;text-transform:uppercase;
+}}
+.qz-ag-chip b{{color:#006B00}}
+.qz-ag-chip.is-low b{{color:#7A5000}}
+.qz-ag-chip.is-zero{{background:#FFE6E6}}
+.qz-ag-chip.is-zero b{{color:#A80000}}
 .markdown-body strong{{color:#000000}}
 .markdown-body em{{color:#333333}}
 .markdown-body .md-inline-code{{background:#FFFF00;border:1px solid #000000;color:#000000;border-radius:0}}
@@ -3099,7 +3108,17 @@ function qzAgCard(o){{
   var hasDet = !!(o.buckets && o.buckets.length);
   var rows = [];
   if(o.models && o.models.length){{
-    rows.push('<div class="qz-ag-models">' + escHtml(o.models.join(' · ')) + '</div>');
+    var chips = o.models.map(function(m){{
+      var lbl = typeof m === 'string' ? m : m.label;
+      var p = typeof m === 'string' ? null : m.pct;
+      var cls = 'qz-ag-chip';
+      if(p !== null && p !== undefined){{
+        cls += p <= 0 ? ' is-zero' : (p < 20 ? ' is-low' : '');
+        return '<span class="' + cls + '">' + escHtml(lbl) + ' <b>' + Math.round(p) + '%</b></span>';
+      }}
+      return '<span class="' + cls + '">' + escHtml(lbl) + '</span>';
+    }});
+    rows.push('<div class="qz-ag-models">' + chips.join('') + '</div>');
   }}
   var resets = [];
   if(o.sessionReset) resets.push((o.resetLabel || 'reset 5 jam') + ': ' + escHtml(String(o.sessionReset).replace(/^reset\s+/i, '')));
@@ -3157,7 +3176,9 @@ function quotaAccountHtml(a){{
     var cards = [
       {{title: 'Gemini Models', ses: 'gemini_session', wk: 'gemini_weekly'}},
       {{title: 'Claude and GPT models', ses: 'claude_gpt_session', wk: 'claude_gpt_weekly'}},
-      {{title: 'Gemini 4 Argon', ses: 'gemini-4-argon', wk: null}}
+      {{title: 'Gemini 4 Argon', ses: 'gemini-4-argon', wk: null, resetLabel: 'reset mingguan'}},
+      {{title: 'Gemini 4 Carbon', ses: 'gemini-4-carbon', wk: null, resetLabel: 'reset'}},
+      {{title: 'Gemini 4 Hydrogen', ses: 'gemini-4-hydrogen', wk: null, resetLabel: 'reset 5 jam'}}
     ];
     cards.forEach(function(c){{
       var ses = byKey[c.ses], wk = c.wk ? byKey[c.wk] : null;
@@ -3168,18 +3189,28 @@ function quotaAccountHtml(a){{
       var pct = pcts.length ? Math.min.apply(null, pcts) : (base ? base.pct : null);
       var buckets = (ses && ses.buckets && ses.buckets.length ? ses.buckets : (wk ? wk.buckets : []));
       var models = [];
+      var seenModels = {{}};
       [ses, wk].forEach(function(g){{
-        if(g && g.model_names) g.model_names.forEach(function(m){{
-          if(models.indexOf(m) === -1) models.push(m);
-        }});
+        if(!g) return;
+        if(g.model_entries && g.model_entries.length){{
+          g.model_entries.forEach(function(m){{
+            if(!seenModels[m.label]){{ seenModels[m.label] = true; models.push(m); }}
+          }});
+        }} else if(g.model_names){{
+          g.model_names.forEach(function(m){{
+            if(!seenModels[m]){{ seenModels[m] = true; models.push(m); }}
+          }});
+        }}
       }});
       var key = a.id + '::' + c.ses;
+      var noAccessNote = (base && base.note) || 'Tidak tersedia di akun ini';
       h += qzAgCard({{
         title: c.title, pct: pct, status: base ? base.status : 'ok',
         models: models,
         sessionReset: ses ? quotaFmtReset(ses.resetAt) : '',
+        resetLabel: c.resetLabel || 'reset 5 jam',
         weeklyReset: wk ? quotaFmtReset(wk.resetAt) : '',
-        note: base && base.status === 'no_access' ? 'Tidak tersedia (butuh Pro/Ultra)' : '',
+        note: base && base.status === 'no_access' ? noAccessNote : '',
         buckets: buckets, key: key, open: QUOTA.openDet[key] === true
       }});
     }});
@@ -3215,7 +3246,9 @@ function quotaAccountHtml(a){{
     var earliest = null;
     a.buckets.forEach(function(b){{
       if(b.pct !== null && b.pct !== undefined) pcts.push(b.pct);
-      if(b.label && models.indexOf(b.label) === -1) models.push(b.label);
+      if(b.label && !models.some(function(m){{ return m.label === b.label; }})){{
+        models.push({{label: b.label, pct: b.pct}});
+      }}
       if(b.resetAt && (!earliest || Date.parse(b.resetAt) < Date.parse(earliest))) earliest = b.resetAt;
     }});
     var worstPct = pcts.length ? Math.min.apply(null, pcts) : null;
@@ -3223,11 +3256,11 @@ function quotaAccountHtml(a){{
     h += qzAgCard({{
       title: 'Model tersedia (' + a.buckets.length + ')',
       pct: worstPct, status: a.status || 'ok',
-      models: models.slice(0, 4),
+      models: models.slice(0, 8),
       sessionReset: earliest ? quotaFmtReset(earliest) : '',
       resetLabel: 'reset',
       weeklyReset: '',
-      note: a.buckets.length > 4 ? '+' + (a.buckets.length - 4) + ' model lain' : '',
+      note: models.length > 8 ? '+' + (models.length - 8) + ' model lain (buka detail)' : '',
       buckets: a.buckets, key: cardKey, open: QUOTA.openDet[cardKey] === true
     }});
   }}
@@ -18407,12 +18440,16 @@ _QUOTA_AGGREGATE_KEYS = frozenset({
 
 # Antigravity renders as exactly these five rows, in this order, always.
 # (group key, UI label, main bucket, detail prefixes, detail exclusions)
+_GEMINI4_SPECIAL_KEYS = frozenset({"gemini-4-argon", "gemini-4-carbon", "gemini-4-hydrogen"})
 _ANTIGRAVITY_GROUPS = (
-    ("gemini_session", "Gemini Models", "gemini_session", ("gemini-",), ("gemini-4-argon-",)),
+    ("gemini_session", "Gemini Models", "gemini_session", ("gemini-",),
+     ("gemini-4-argon-", "gemini-4-carbon-", "gemini-4-hydrogen-")),
     ("gemini_weekly", "Gemini Models (Weekly)", "gemini_weekly", (), ()),
     ("claude_gpt_session", "Claude and GPT models", "claude_gpt_session", ("claude-",), ()),
     ("claude_gpt_weekly", "Claude and GPT models (Weekly)", "claude_gpt_weekly", (), ()),
     ("gemini-4-argon", "Gemini 4 Argon", None, ("gemini-4-argon-",), ()),
+    ("gemini-4-carbon", "Gemini 4 Carbon", None, ("gemini-4-carbon-",), ()),
+    ("gemini-4-hydrogen", "Gemini 4 Hydrogen", None, ("gemini-4-hydrogen-",), ()),
 )
 _ANTIGRAVITY_AGGREGATE_SET = frozenset({"gemini_session", "gemini_weekly", "claude_gpt_session", "claude_gpt_weekly"})
 
@@ -18476,8 +18513,36 @@ def _quota_status_from_pcts(pcts) -> str:
     return "ok"
 
 
+def _collect_group_models(details: list) -> tuple[list, list]:
+    """Collapse High/Low/Medium/XHigh tier buckets into unique model chips."""
+    model_names = []
+    seen = {}
+    for d in details:
+        base = d["key"]
+        for ksuf in ("-xhigh", "-high", "-medium", "-low"):
+            if base.endswith(ksuf):
+                base = base[:-len(ksuf)]
+                break
+        label = d["label"] or d["key"]
+        for lsuf in (" (XHigh)", " (High)", " (Medium)", " (Low)"):
+            label = label.replace(lsuf, "")
+        pct = d.get("pct")
+        if base not in seen:
+            seen[base] = {"label": label, "pct": pct}
+            model_names.append(label)
+        elif pct is not None:
+            cur = seen[base]["pct"]
+            if cur is None or pct < cur:
+                seen[base]["pct"] = pct
+    model_entries = [
+        {"label": v["label"], "pct": v["pct"]}
+        for v in sorted(seen.values(), key=lambda x: (x["pct"] is None, x["pct"] if x["pct"] is not None else 0))
+    ]
+    return model_names, model_entries
+
+
 def _antigravity_groups(quotas: dict) -> list:
-    """Fold the flat antigravity bucket map into the five mandated rows."""
+    """Fold the flat antigravity bucket map into the mandated rows (including Gemini 4 Carbon & Hydrogen)."""
     groups = []
     for gkey, glabel, main_key, prefixes, excludes in _ANTIGRAVITY_GROUPS:
         details = []
@@ -18489,18 +18554,25 @@ def _antigravity_groups(quotas: dict) -> list:
                     continue
                 if any(bkey.startswith(x) for x in excludes):
                     continue
-                details.append(_quota_bucket_entry(bkey, quotas[bkey]))
+                raw_b = quotas[bkey]
+                if gkey in _GEMINI4_SPECIAL_KEYS and (
+                    bkey.endswith("-disabled") or (isinstance(raw_b, dict) and raw_b.get("disabled"))
+                ):
+                    continue
+                details.append(_quota_bucket_entry(bkey, raw_b))
 
-        if gkey == "gemini-4-argon":
+        if gkey in _GEMINI4_SPECIAL_KEYS:
             if not details:
+                note = "Tidak tersedia (butuh Pro/Ultra)" if gkey == "gemini-4-argon" else "Tidak tersedia di akun ini"
                 groups.append({
                     "key": gkey, "label": glabel, "pct": None, "status": "no_access",
                     "resetAt": None, "fallback": False, "buckets": [],
-                    "note": "Tidak tersedia (butuh Pro/Ultra)",
+                    "note": note, "model_names": [], "model_entries": [],
                 })
                 continue
             pcts = [d["pct"] for d in details if d["pct"] is not None]
             worst = min(details, key=lambda d: (d["pct"] is None, d["pct"] or 0))
+            m_names, m_entries = _collect_group_models(details)
             groups.append({
                 "key": gkey, "label": glabel,
                 "pct": round(min(pcts), 1) if pcts else None,
@@ -18508,6 +18580,7 @@ def _antigravity_groups(quotas: dict) -> list:
                 "resetAt": details[0]["resetAt"],
                 "used": worst.get("used"), "total": worst.get("total"),
                 "fallback": False, "buckets": details, "note": None,
+                "model_names": m_names, "model_entries": m_entries,
             })
             continue
 
@@ -18527,27 +18600,15 @@ def _antigravity_groups(quotas: dict) -> list:
                 worst = min(details, key=lambda d: (d["pct"] is None, d["pct"] or 0))
                 used, total = worst.get("used"), worst.get("total")
             fallback = True
-        
-        # Untuk Claude/GPT: kumpulkan nama model unik dari bucket (tanpa suffix High/Low/Medium)
-        model_names = []
-        if gkey in ("claude_gpt_session", "claude_gpt_weekly") and details:
-            seen = set()
-            for d in details:
-                # Hapus suffix -high, -low, -medium dari key untuk dapatkan base model name
-                base = d["key"].replace("-high", "").replace("-low", "").replace("-medium", "")
-                if base not in seen:
-                    seen.add(base)
-                    # Gunakan label dari bucket (sudah dalam format "Claude Opus 5.5 (High)")
-                    # Hapus suffix (High), (Low), (Medium) untuk dapatkan nama model saja
-                    label = d["label"].replace(" (High)", "").replace(" (Low)", "").replace(" (Medium)", "")
-                    model_names.append(label)
-        
+
+        m_names, m_entries = _collect_group_models(details) if details else ([], [])
         groups.append({
             "key": gkey, "label": glabel, "pct": pct,
             "status": _quota_status_from_pcts([pct] + [d["pct"] for d in details]),
             "resetAt": reset, "used": used, "total": total,
             "fallback": fallback, "buckets": details, "note": None,
-            "model_names": model_names,  # Nama model AI yang tersedia di akun ini
+            "model_names": m_names,
+            "model_entries": m_entries,
         })
     return groups
 
@@ -18594,8 +18655,10 @@ def _normalize_quota_account(conn: dict, usage) -> dict:
         acct["groups"] = groups
         worst = "ok"
         for g in groups:
-            # A missing Argon allowance says nothing about the rest of the account.
+            # A missing Argon/Carbon/Hydrogen allowance says nothing about the rest of the account.
             if g["key"] == "gemini-4-argon":
+                continue
+            if g["key"] in _GEMINI4_SPECIAL_KEYS and g["status"] == "no_access":
                 continue
             if _ACCOUNT_STATUS_RANK.get(g["status"], 0) > _ACCOUNT_STATUS_RANK.get(worst, 0):
                 worst = g["status"]
@@ -18756,6 +18819,109 @@ def _quota_provider_skipped(provider: str) -> bool:
     return prov in QUOTA_SKIP_PROVIDERS or base in QUOTA_SKIP_PROVIDERS
 
 
+
+_AG_AVAILABLE_MODELS_URL = "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"
+_AG_USER_AGENT = "antigravity/hub/2.24.0 darwin/arm64"
+
+
+def _read_ag_conn_auth(connection_id: str) -> tuple[str, str]:
+    """Read OAuth accessToken + projectId for one antigravity connection (read-only)."""
+    db_path = get_router_db_path()
+    if not connection_id or not os.path.exists(db_path):
+        return "", ""
+    try:
+        with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)) as conn:
+            row = conn.execute(
+                "SELECT data FROM providerConnections WHERE id = ? AND provider = 'antigravity'",
+                (connection_id,),
+            ).fetchone()
+    except Exception:
+        return "", ""
+    if not row or not row[0]:
+        return "", ""
+    try:
+        raw = json.loads(row[0])
+    except Exception:
+        return "", ""
+    psd = raw.get("providerSpecificData") if isinstance(raw.get("providerSpecificData"), dict) else {}
+    tok = str(raw.get("accessToken") or psd.get("accessToken") or "").strip()
+    proj = str(raw.get("projectId") or psd.get("projectId") or "").strip()
+    return tok, proj
+
+
+def _fetch_ag_available_models(token: str, project_id: str = "") -> dict | None:
+    """Query Antigravity fetchAvailableModels (best-effort, short timeout)."""
+    if not token:
+        return None
+    body = json.dumps({"project": project_id} if project_id else {}).encode("utf-8")
+    req = urllib.request.Request(
+        _AG_AVAILABLE_MODELS_URL,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "User-Agent": _AG_USER_AGENT,
+            "Content-Type": "application/json",
+            "X-Client-Name": "antigravity",
+            "X-Client-Version": "2.24.0",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=4.0) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        models = data.get("models") if isinstance(data, dict) else None
+        return models if isinstance(models, dict) else None
+    except Exception as exc:
+        _log_swallow("antigravity fetchAvailableModels", exc)
+        return None
+
+
+def _augment_antigravity_usage(conn: dict, usage):
+    """Supplement 9router /api/usage with Carbon & Hydrogen (and missing Claude) from upstream."""
+    if not isinstance(usage, dict):
+        return usage
+    quotas = usage.get("quotas")
+    if not isinstance(quotas, dict) or not quotas:
+        return usage
+    tok, proj = _read_ag_conn_auth(str(conn.get("id") or ""))
+    if not tok:
+        return usage
+    models = _fetch_ag_available_models(tok, proj)
+    if not models:
+        return usage
+
+    merged = dict(quotas)
+    has_claude = any(k.startswith("claude-") for k in merged)
+    for mkey, mval in models.items():
+        if not isinstance(mval, dict) or mval.get("isInternal"):
+            continue
+        is_special = mkey.startswith(("gemini-4-carbon", "gemini-4-hydrogen"))
+        is_missing_claude = (not has_claude) and mkey.startswith("claude-")
+        if not (is_special or is_missing_claude):
+            continue
+        if mkey in merged:
+            continue
+        disp = mval.get("displayName") or mkey
+        if mkey.endswith("-disabled"):
+            merged[mkey] = {"disabled": True, "displayName": disp}
+            continue
+        qi = mval.get("quotaInfo") if isinstance(mval.get("quotaInfo"), dict) else {}
+        frac = qi.get("remainingFraction")
+        if isinstance(frac, (int, float)) and not isinstance(frac, bool):
+            pct = round(max(0.0, min(100.0, float(frac) * 100.0)), 1)
+            rem_units = round(1000.0 * max(0.0, min(1.0, float(frac))))
+            merged[mkey] = {
+                "used": int(1000 - rem_units),
+                "total": 1000,
+                "remainingPercentage": pct,
+                "resetAt": qi.get("resetTime"),
+                "displayName": disp,
+            }
+    out = dict(usage)
+    out["quotas"] = merged
+    return out
+
+
 def _quota_fetch_all(conns: list) -> list:
     """Fan out one /api/usage call per account, 8 at a time."""
     if not conns:
@@ -18767,7 +18933,10 @@ def _quota_fetch_all(conns: list) -> list:
 
     def one(conn):
         try:
-            return _normalize_quota_account(conn, _router_usage(conn["id"], cookie))
+            usage = _router_usage(conn["id"], cookie)
+            if conn.get("provider") == "antigravity":
+                usage = _augment_antigravity_usage(conn, usage)
+            return _normalize_quota_account(conn, usage)
         except Exception as exc:
             _log_swallow("provider quota account", exc)
             return _normalize_quota_account(conn, None)

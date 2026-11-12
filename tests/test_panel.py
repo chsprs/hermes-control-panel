@@ -2734,9 +2734,11 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
         # instead of a CDN round-trip. 90 KB → 95 KB (Wave 98): riwayat performa
         # asli t_e42bba09 (seed lazy + label min/maks/sekarang, ~2,5 KB gzip).
         # Terukur 92,5 KB — guard tetap menangkap bloat 2×.
-        # 95 KB → 100 KB (Wave 118): tema QuestUI (Cinzel/Spectral/Fira Code
-        # self-hosted + lapisan CSS RPG, ±3,5 KB gzip; terukur 98,5 KB).
-        self.assertLess(len(raw), 100000)
+        # 95 KB → 100 KB (Wave 118): tema QuestUI (±3,5 KB gzip; 98,5 KB).
+        # 100 KB → 110 KB (Wave 121): chip kuota per model Antigravity/Claude
+        # (termasuk model baru Opus 4.6 & Sonnet 4.6) + kartu provider seragam;
+        # terukur 102,4 KB. Guard tetap menangkap bloat 2×.
+        self.assertLess(len(raw), 110000)
         self.assertGreater(len(decompressed), 350000)
 
     def test_deflate_compression_on_status_page(self):
@@ -2751,7 +2753,8 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
         # (selector platform + pane config). 90 KB → 95 KB (Wave 98): riwayat
         # performa t_e42bba09 (~2,5 KB gzip). Guard tetap menangkap bloat 2×.
         # 95 KB → 100 KB (Wave 118): tema QuestUI self-hosted, ±3,5 KB gzip.
-        self.assertLess(len(raw), 100000)
+        # 100 KB → 110 KB (Wave 121): chip kuota per model (model baru ikut).
+        self.assertLess(len(raw), 110000)
         self.assertGreater(len(decompressed), 350000)
 
     def test_no_compression_without_accept_encoding(self):
@@ -6269,20 +6272,43 @@ class TestProviderQuota(unittest.TestCase):
 
     # ---- antigravity five groups ------------------------------------------
 
-    def test_antigravity_renders_exactly_five_groups_in_order(self):
+    def test_antigravity_renders_seven_groups_in_order(self):
         acct = self._account(self._ag_usage())
-        self.assertEqual(len(acct["groups"]), 5)
+        self.assertEqual(len(acct["groups"]), 7)
         self.assertEqual([g["label"] for g in acct["groups"]], [
             "Gemini Models",
             "Gemini Models (Weekly)",
             "Claude and GPT models",
             "Claude and GPT models (Weekly)",
             "Gemini 4 Argon",
+            "Gemini 4 Carbon",
+            "Gemini 4 Hydrogen",
         ])
         self.assertEqual([g["key"] for g in acct["groups"]], [
             "gemini_session", "gemini_weekly", "claude_gpt_session",
-            "claude_gpt_weekly", "gemini-4-argon",
+            "claude_gpt_weekly", "gemini-4-argon", "gemini-4-carbon", "gemini-4-hydrogen",
         ])
+
+    def test_carbon_and_hydrogen_models_and_no_access(self):
+        # Akun tanpa bucket Carbon & Hydrogen menampilkan no_access (Tidak tersedia)
+        acct = self._account(self._ag_usage())
+        gmap = {g["key"]: g for g in acct["groups"]}
+        self.assertEqual(gmap["gemini-4-carbon"]["status"], "no_access")
+        self.assertIsNone(gmap["gemini-4-carbon"]["pct"])
+        self.assertEqual(gmap["gemini-4-hydrogen"]["status"], "no_access")
+
+        # Akun dengan bucket Hydrogen aktif menampilkan persen dan chip model
+        buckets = dict(self.AG_BUCKETS)
+        buckets["gemini-4-hydrogen-high"] = {"used": 100, "total": 1000, "remainingPercentage": 90.0,
+                                             "resetAt": "2026-11-13T01:06:15Z", "displayName": "Gemini 4 Hydrogen (High)"}
+        buckets["gemini-4-hydrogen-xhigh"] = {"used": 100, "total": 1000, "remainingPercentage": 90.0,
+                                              "resetAt": "2026-11-13T01:06:15Z", "displayName": "Gemini 4 Hydrogen (XHigh)"}
+        acct_hyd = self._account(self._ag_usage(buckets))
+        g_hyd = {g["key"]: g for g in acct_hyd["groups"]}["gemini-4-hydrogen"]
+        self.assertEqual(g_hyd["status"], "ok")
+        self.assertEqual(g_hyd["pct"], 90.0)
+        self.assertEqual(len(g_hyd["model_names"]), 1)
+        self.assertEqual(g_hyd["model_names"][0], "Gemini 4 Hydrogen")
 
     def test_claude_groups_expose_unique_model_names(self):
         # Setiap akun bisa punya jenis model berbeda; panel harus menampilkannya.
