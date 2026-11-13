@@ -1884,9 +1884,10 @@ process.stdout.write(JSON.stringify({count: instances.length, secondClosed: seco
             self.assertTrue(data.get("ok"))
             self.assertEqual(data.get("model"), "test-model-123")
 
-        # 3. Dynamic port in get_available_models and get_router_release
+        # 3. Dynamic port in get_available_models and get_router_release (update port stays separate from 9router-go)
         with mock.patch.object(panel, "get_9router_host", return_value="127.0.0.1"), \
              mock.patch.object(panel, "get_9router_port", return_value=20199), \
+             mock.patch.object(panel, "get_9router_update_port", return_value=20199), \
              mock.patch.object(panel, "get_router_api_key", return_value="dummy-key"), \
              mock.patch.object(panel.urllib.request, "urlopen") as mock_url:
             cm = mock.MagicMock()
@@ -9541,6 +9542,62 @@ class TestPanelRateLimitAndAudit(unittest.TestCase):
         finally:
             panel.AUDIT_LOG_PATH = old
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+
+class Test9RouterGoAndDarkMode(unittest.TestCase):
+    """9router-go (:20130) untuk Model/Tugas AI/Kuota AI, update tetap :20128, plus Dark Mode."""
+
+    def test_update_port_stays_20128_while_runtime_prefers_9router_go(self):
+        orig_isfile = os.path.isfile
+        with mock.patch("os.path.isfile", side_effect=lambda p: p.endswith("9router-go.service") or p == "/etc/systemd/system/9router.service"):
+            panel.invalidate_router_port_cache()
+            self.assertEqual(panel.get_9router_port(), 20130)
+            self.assertEqual(panel.get_9router_update_port(), 20128)
+        panel.invalidate_router_port_cache()
+
+    def test_aux_and_fallback_use_9router_go_port(self):
+        import tempfile, shutil
+        d = tempfile.mkdtemp(prefix="rgo-cfg-")
+        cfg_path = os.path.join(d, "config.yaml")
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            f.write("model:\n  default: m1\n  provider: 9router\nproviders:\n  9router:\n    api: http://localhost:20130/v1\n    api_key: k-go\n")
+        try:
+            with mock.patch.object(panel, "CONFIG_PATH", cfg_path), \
+                 mock.patch.object(panel, "get_9router_host", return_value="127.0.0.1"), \
+                 mock.patch.object(panel, "get_9router_port", return_value=20130):
+                panel.invalidate_config_cache()
+                self.assertEqual(panel.get_router_api_key(), "k-go")
+                self.assertTrue(panel.set_aux_task_model("vision", "custom:9router", "ag-gemini-3.8-flash-high"))
+                self.assertTrue(panel.set_fallback_model(-1, "9router", "gemini-4-hydrogen-xhigh"))
+            written = open(cfg_path, encoding="utf-8").read()
+            self.assertIn("http://127.0.0.1:20130/v1", written)
+            self.assertNotIn("20128", written)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+            panel.invalidate_config_cache()
+
+    def test_antigravity_handles_argon_weekly_from_9router_go(self):
+        usage = {
+            "plan": "Antigravity",
+            "quotas": {
+                "gemini_session": {"remainingPercentage": 100, "resetAt": "2026-11-13T18:00:00Z"},
+                "argon_weekly": {"remainingPercentage": 74, "used": 26, "total": 100, "resetAt": "2026-11-16T08:27:31Z"},
+            },
+        }
+        acct = panel._normalize_quota_account({"id": "c1", "provider": "antigravity", "isActive": 1}, usage)
+        gmap = {g["key"]: g for g in acct["groups"]}
+        self.assertEqual(gmap["gemini-4-argon"]["pct"], 74.0)
+        self.assertEqual(gmap["gemini-4-argon"]["status"], "ok")
+
+    def test_dark_mode_ui_assets_and_toggle_present(self):
+        page = panel.page_source()
+        self.assertIn('id="theme-toggle-btn"', page)
+        self.assertIn('onclick="togglePanelTheme()"', page)
+        self.assertIn('html[data-theme="dark"]', page)
+        self.assertIn("localStorage.getItem('panel_theme')", page)
+        login_html = panel.build_login_page("")
+        self.assertIn('html[data-theme="dark"]', login_html)
 
 
 if __name__ == "__main__":

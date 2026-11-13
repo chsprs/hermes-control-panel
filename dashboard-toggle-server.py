@@ -102,7 +102,7 @@ PANEL_VERSION = (os.environ.get("PANEL_VERSION") or "").strip() or "1.0.0"
 # Waktu mulai proses, dipakai snapshot diagnostik untuk uptime proses panel
 # (bukan uptime host: dua angka itu sering tertukar saat melapor masalah).
 PANEL_START_TS = time.time()
-ROUTER_MODELS_URL = "http://{host}:20128/v1/models"
+ROUTER_MODELS_URL = "http://{host}:20130/v1/models"
 ROUTER_VERSION_URL = "http://{host}:20128/api/version"
 MODELS_TIMEOUT = 8.0  # 9router /v1/models upstream fan-out can take 3-5s under load; 4.0s timed out during heavy test suites
 
@@ -193,7 +193,7 @@ MUTATING_PATHS = frozenset({
 })
 MAX_BODY_SIZE = 5 * 1024 * 1024  # 5 MB max POST body (SEC-DOS-01)
 LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off", "/openclaw-toggle"})
-ROUTER_URL = "http://{host}:20128/"
+ROUTER_URL = "http://{host}:20130/"
 INFO_TIMEOUT = 2.0  # seconds — every live check below is capped at this
 SYSTEMCTL_TIMEOUT = 1.5  # seconds — fast cap for systemctl checks (1-2s)
 ROUTER_DB_CANDIDATES = [
@@ -1326,7 +1326,214 @@ margin-bottom:.5rem;background:#F9F9F9;box-shadow:2px 2px 0px #000000}}
 /* Seleksi teks: kuning highlighter + teks hitam */
 ::selection{{background:#FFFF00;color:#000000}}
 ::-moz-selection{{background:#FFFF00;color:#000000}}
-</style></head><body>
+
+/* ================= DARK BRUTALIST MODE (html[data-theme="dark"]) ================= */
+html[data-theme="dark"]{{
+  color-scheme:dark;
+  --bg:#121212;
+  --surface:#1A1A1A;
+  --surface-solid:#1A1A1A;
+  --surface-elevated:#242424;
+  --surface-hover:#2C2C2C;
+  --border:#E5E5E5;
+  --border-subtle:#525252;
+  --border-hover:#FFFF00;
+  --text:#F5F5F5;
+  --text-muted:#D4D4D4;
+  --text-dim:#B0B0B0;
+  --accent:#7DA2FF;
+  --accent-light:#93C5FD;
+  --accent-dim:rgba(125,162,255,0.18);
+  --success:#4ADE80;
+  --success-dim:rgba(74,222,128,0.16);
+  --warning:#FFFF00;
+  --warning-dim:rgba(255,255,0,0.18);
+  --danger:#FF6B6B;
+  --danger-dim:rgba(255,107,107,0.16);
+  --purple:#C084FC;
+  --purple-dim:rgba(192,132,252,0.16);
+}}
+html[data-theme="dark"] body{{
+  background-color:#121212;
+  color:#F5F5F5;
+  background-image:
+    linear-gradient(to right, rgba(255,80,80,0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,80,80,0.12) 1px, transparent 1px);
+}}
+html[data-theme="dark"]::-webkit-scrollbar-track,
+html[data-theme="dark"] ::-webkit-scrollbar-track{{background:#121212;border-left:1px solid #525252}}
+html[data-theme="dark"] ::-webkit-scrollbar-thumb{{background:#666666;border:1px solid #000000}}
+html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover{{background:#FFFF00}}
+html[data-theme="dark"] .header{{
+  background:#1A1A1A;border-color:#E5E5E5;box-shadow:6px 6px 0px #000000;
+}}
+html[data-theme="dark"] .header-brand h1,
+html[data-theme="dark"] .header h1{{color:#F5F5F5}}
+html[data-theme="dark"] .header-brand h1::after{{color:#93C5FD}}
+html[data-theme="dark"] .live-badge{{
+  background:#242424;border-color:#E5E5E5;color:#F5F5F5;box-shadow:3px 3px 0px #000000;
+}}
+html[data-theme="dark"] .live-badge.connected{{background:#0F2E14;border-color:#4ADE80;color:#4ADE80}}
+html[data-theme="dark"] .live-badge.connected .dot{{background:#4ADE80}}
+html[data-theme="dark"] .live-badge.reconnecting{{background:#332B00;border-color:#FFFF00;color:#FFFF00}}
+html[data-theme="dark"] .live-badge.offline{{background:#3B1111;border-color:#FF6B6B;color:#FF6B6B}}
+html[data-theme="dark"] .tabs{{
+  background:#1A1A1A;border-color:#E5E5E5;box-shadow:6px 6px 0px #000000;
+}}
+html[data-theme="dark"] .tab{{color:#F5F5F5}}
+html[data-theme="dark"] .tab:hover{{background:#FFFF00;color:#000000;border-color:#000000}}
+html[data-theme="dark"] .tab.active{{
+  background:#FFFF00 !important;color:#000000 !important;
+  border:2px solid #000000 !important;box-shadow:3px 3px 0px #000000 !important;
+  text-decoration-color:#000000;
+}}
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .card-status,
+html[data-theme="dark"] .perf-tile,
+html[data-theme="dark"] .confirm-box,
+html[data-theme="dark"] .cc-tile{{
+  background:#1A1A1A;color:#F5F5F5;border-color:#E5E5E5;box-shadow:8px 8px 0px #000000;
+}}
+html[data-theme="dark"] .card:hover{{border-color:#FFFF00;box-shadow:10px 10px 0px #000000}}
+html[data-theme="dark"] .card-title{{color:#FFFF00;border-bottom-color:#E5E5E5}}
+html[data-theme="dark"] .cc-tile:hover{{background:#242424;border-color:#FFFF00}}
+html[data-theme="dark"] .card-warn > .card-title:first-child,
+html[data-theme="dark"] .card-warn .update-hint.warn{{
+  background:#FFFF00;color:#000000;border-color:#000000;
+}}
+html[data-theme="dark"] a{{color:#7DA2FF}}
+html[data-theme="dark"] a.toggle,
+html[data-theme="dark"] .btn,
+html[data-theme="dark"] .btn-action-sm,
+html[data-theme="dark"] .btn-restart-task{{
+  background:#242424;color:#F5F5F5;border-color:#E5E5E5;box-shadow:3px 3px 0px #000000;
+}}
+html[data-theme="dark"] a.toggle:hover,
+html[data-theme="dark"] .btn:hover,
+html[data-theme="dark"] .btn-action-sm:hover,
+html[data-theme="dark"] .btn-restart-task:hover{{
+  background:#FFFF00;color:#000000;border-color:#000000;
+}}
+html[data-theme="dark"] a.toggle.btn-on,
+html[data-theme="dark"] .btn-start-task{{
+  background:#0F2E14 !important;color:#4ADE80 !important;border-color:#4ADE80 !important;box-shadow:3px 3px 0px #000000;
+}}
+html[data-theme="dark"] .btn-start-task:hover{{background:#22C55E !important;color:#000000 !important}}
+html[data-theme="dark"] a.toggle.btn-off,
+html[data-theme="dark"] .btn-end-task,
+html[data-theme="dark"] .btn-action-danger,
+html[data-theme="dark"] .btn-danger{{
+  background:#3B1111 !important;color:#FF8888 !important;border-color:#FF6B6B !important;box-shadow:3px 3px 0px #000000;
+}}
+html[data-theme="dark"] .btn-end-task:hover,
+html[data-theme="dark"] .btn-action-danger:hover,
+html[data-theme="dark"] .btn-danger:hover{{
+  background:#D80000 !important;color:#FFFFFF !important;border-color:#FFFFFF !important;
+}}
+html[data-theme="dark"] .btn-action-primary{{
+  background:#1E3A8A;color:#FFFFFF;border-color:#93C5FD;
+}}
+html[data-theme="dark"] .btn-action-primary:hover{{
+  background:#FFFF00;color:#000000;border-color:#000000;
+}}
+html[data-theme="dark"] a.open{{
+  background:#FFFF00;color:#000000;border-color:#000000;box-shadow:3px 3px 0px #000000;
+}}
+html[data-theme="dark"] a.open:hover{{background:#0011FF;color:#FFFFFF;border-color:#FFFFFF}}
+html[data-theme="dark"] input[type=text],
+html[data-theme="dark"] input[type=password],
+html[data-theme="dark"] input[type=number],
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] .search-input,
+html[data-theme="dark"] select option,
+html[data-theme="dark"] select optgroup{{
+  background:#111111 !important;color:#F5F5F5 !important;border-color:#E5E5E5 !important;
+}}
+html[data-theme="dark"] input:focus,
+html[data-theme="dark"] select:focus,
+html[data-theme="dark"] textarea:focus,
+html[data-theme="dark"] .search-input:focus{{
+  border-color:#FFFF00 !important;outline:2px solid #FFFF00;outline-offset:2px;
+}}
+html[data-theme="dark"] .task-table-wrap{{background:#1A1A1A;border-color:#E5E5E5}}
+html[data-theme="dark"] .task-table th{{background:#242424;color:#FFFF00;border-bottom-color:#E5E5E5}}
+html[data-theme="dark"] .task-table td{{border-bottom-color:#404040;color:#F5F5F5}}
+html[data-theme="dark"] .task-table tr:hover td{{background:#262626}}
+html[data-theme="dark"] .badge{{background:#242424;color:#F5F5F5;border-color:#E5E5E5}}
+html[data-theme="dark"] .badge-up{{background:#0F2E14;color:#4ADE80;border-color:#4ADE80}}
+html[data-theme="dark"] .badge-down{{background:#3B1111;color:#FF8888;border-color:#FF6B6B}}
+html[data-theme="dark"] .badge-warn{{background:#FFFF00;color:#000000;border-color:#000000}}
+html[data-theme="dark"] .badge-muted{{background:#242424;color:#C2C2C2;border-color:#737373}}
+html[data-theme="dark"] .logbox,
+html[data-theme="dark"] .patch-notes-box,
+html[data-theme="dark"] .sparkline-box{{
+  background:#0E0E0E;color:#4ADE80;border-color:#E5E5E5;
+}}
+html[data-theme="dark"] .patch-notes-box{{color:#E5E5E5}}
+html[data-theme="dark"] .model-chip{{
+  background:#1F1F1F;color:#F5F5F5;border-color:#E5E5E5;box-shadow:3px 3px 0px #000000;
+}}
+html[data-theme="dark"] a.model-chip:hover{{background:#FFFF00;color:#000000;border-color:#000000}}
+html[data-theme="dark"] .model-chip.active{{
+  background:#0011FF !important;color:#FFFFFF !important;border-color:#FFFF00 !important;
+}}
+html[data-theme="dark"] .model-chip-badge{{
+  background:#2C2C2C;color:#E5E5E5;border-color:#808080;
+}}
+html[data-theme="dark"] .model-chip.active .model-chip-badge{{
+  background:#FFFF00;color:#000000;border-color:#000000;
+}}
+html[data-theme="dark"] .aux-model-opt{{
+  background:#1F1F1F;border-color:#E5E5E5;color:#F5F5F5;
+}}
+html[data-theme="dark"] .aux-model-opt:hover{{background:#FFFF00;color:#000000}}
+html[data-theme="dark"] .aux-model-opt:hover .aux-model-opt-name,
+html[data-theme="dark"] .aux-model-opt:hover .aux-model-opt-sub{{color:#000000}}
+html[data-theme="dark"] .kanban-column{{background:#141414;border-color:#E5E5E5;box-shadow:4px 4px 0px #000000}}
+html[data-theme="dark"] .kanban-col-header{{background:#1F1F1F;border-bottom-color:#E5E5E5}}
+html[data-theme="dark"] .kanban-card{{background:#1E1E1E;border-color:#E5E5E5;color:#F5F5F5;box-shadow:3px 3px 0px #000000}}
+html[data-theme="dark"] .kanban-card.is-selected{{background:#172554;border-color:#FFFF00;box-shadow:4px 4px 0px #FFFF00}}
+html[data-theme="dark"] .qz-prov{{background:#1A1A1A;border-color:#E5E5E5;box-shadow:4px 4px 0px #000000}}
+html[data-theme="dark"] .qz-prov-head{{background:#242424;border-bottom-color:#E5E5E5}}
+html[data-theme="dark"] .qz-acct{{background:#141414;border-color:#E5E5E5;box-shadow:3px 3px 0px #000000}}
+html[data-theme="dark"] .qz-ag-card{{background:#1F1F1F;border-color:#E5E5E5;box-shadow:2px 2px 0px #000000}}
+html[data-theme="dark"] .qz-ag-chip{{background:#121212;border-color:#E5E5E5;color:#F5F5F5}}
+html[data-theme="dark"] .qz-ag-chip b{{color:#4ADE80}}
+html[data-theme="dark"] .qz-ag-chip.is-low b{{color:#FFFF00}}
+html[data-theme="dark"] .qz-ag-chip.is-zero{{background:#581414;border-color:#FF8888;color:#FFFFFF}}
+html[data-theme="dark"] .qz-ag-chip.is-zero b{{color:#FFB4B4}}
+html[data-theme="dark"] .qz-badge{{background:#242424;color:#E5E5E5;border-color:#E5E5E5}}
+html[data-theme="dark"] .qz-badge.ok{{background:#0F2E14;color:#4ADE80;border-color:#4ADE80}}
+html[data-theme="dark"] .qz-badge.low{{background:#FFFF00;color:#000000;border-color:#000000}}
+html[data-theme="dark"] .qz-badge.exhausted,
+html[data-theme="dark"] .qz-badge.error{{background:#3B1111;color:#FF8888;border-color:#FF6B6B}}
+html[data-theme="dark"] .qz-badge.auth_expired{{background:#2E1065;color:#C084FC;border-color:#C084FC}}
+html[data-theme="dark"] .qz-badge.tier{{background:#172554;color:#93C5FD;border-color:#7DA2FF}}
+html[data-theme="dark"] .toast{{background:#1A1A1A;border-color:#E5E5E5;color:#F5F5F5;box-shadow:6px 6px 0px #000000}}
+html[data-theme="dark"] .toast.ok{{background:#0F2E14;border-color:#4ADE80;color:#4ADE80}}
+html[data-theme="dark"] .toast.err{{background:#3B1111;border-color:#FF6B6B;color:#FF8888}}
+html[data-theme="dark"] .toast.info{{background:#172554;border-color:#7DA2FF;color:#93C5FD}}
+html[data-theme="dark"] .markdown-body strong{{color:#FFFFFF}}
+html[data-theme="dark"] .markdown-body em{{color:#D4D4D4}}
+html[data-theme="dark"] .markdown-body .md-code-wrap{{background:#0E0E0E;border-color:#E5E5E5}}
+html[data-theme="dark"] .markdown-body .md-code-block{{color:#F5F5F5}}
+html[data-theme="dark"] .markdown-body .md-quote{{background:#172554;color:#F5F5F5;border-left-color:#7DA2FF}}
+html[data-theme="dark"] .net-seg{{background:#141414;border-color:#E5E5E5}}
+html[data-theme="dark"] .net-seg-btn.active{{background:#FFFF00;color:#000000;border-color:#000000}}
+html[data-theme="dark"] .net-input{{background:#111111;color:#F5F5F5;border-color:#E5E5E5}}
+html[data-theme="dark"] .net-callout.warn{{background:#332B00;color:#FFFF00;border-color:#FFFF00}}
+html[data-theme="dark"] .net-callout.bad{{background:#3B1111;color:#FF8888;border-color:#FF6B6B}}
+html[data-theme="dark"] .net-callout.ok{{background:#0F2E14;color:#4ADE80;border-color:#4ADE80}}
+html[data-theme="dark"] .net-callout.info{{background:#172554;color:#93C5FD;border-color:#7DA2FF}}
+html[data-theme="dark"] .net-note{{color:#FFFF00}}
+html[data-theme="dark"] .spark-poly{{stroke:#FFFF00}}
+html[data-theme="dark"] .spark-fill{{fill:rgba(255,255,0,0.12)}}
+html[data-theme="dark"] .spark-poly.ram{{stroke:#7DA2FF}}
+html[data-theme="dark"] .spark-fill.ram{{fill:rgba(125,162,255,0.14)}}
+</style>
+<script>(function(){{try{{if(localStorage.getItem('panel_theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}}catch(e){{}}}})();</script>
+</head><body>
 <div id="pbar"></div>
 <div id="navloader"><div class="ring"></div><span id="nav-label">Memproses…</span></div>
 <div id="confirm-modal">
@@ -1972,7 +2179,10 @@ margin-bottom:.5rem;background:#F9F9F9;box-shadow:2px 2px 0px #000000}}
     <h1>Hermes Control Panel</h1>
     <span id="spin"></span>
   </div>
-  <div class="live-badge" id="live-badge" role="status" aria-live="polite"><span class="dot"></span><span class="lbl">Menyambung…</span></div>
+  <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;justify-content:flex-end">
+    <button type="button" id="theme-toggle-btn" class="btn-action-sm" aria-pressed="false" aria-label="Ganti mode gelap atau terang" onclick="togglePanelTheme()">DARK</button>
+    <div class="live-badge" id="live-badge" role="status" aria-live="polite"><span class="dot"></span><span class="lbl">Menyambung…</span></div>
+  </div>
 </div>
 
 <div class="tabs" role="tablist" aria-label="Navigasi panel">
@@ -3086,13 +3296,17 @@ function qzCircle(pct, status){{
     return '<span class="qz-circle na" aria-hidden="true">N/A</span>';
   }}
   var q = Math.max(0, Math.min(100, Number(pct)));
-  var col = q < 10 ? '#CC0000' : (q < 25 ? '#B87800' : '#007A00');
+  var isDark = typeof document !== 'undefined' && document.documentElement && document.documentElement.getAttribute('data-theme') === 'dark';
+  var col = isDark
+    ? (q < 10 ? '#F87171' : (q < 25 ? '#FBBF24' : '#4ADE80'))
+    : (q < 10 ? '#CC0000' : (q < 25 ? '#B87800' : '#007A00'));
+  var trackCol = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)';
   var r = 15.9155;                       // keliling = 100
   var circ = 2 * Math.PI * r;
   var filled = (q / 100) * circ;
   return '<svg class="qz-circle" viewBox="0 0 40 40" width="46" height="46" role="img" '
     + 'aria-label="sisa ' + q.toFixed(0) + '%">'
-    + '<circle cx="20" cy="20" r="' + r + '" fill="none" stroke="rgba(0,0,0,0.12)" stroke-width="4"/>'
+    + '<circle cx="20" cy="20" r="' + r + '" fill="none" stroke="' + trackCol + '" stroke-width="4"/>'
     + '<circle cx="20" cy="20" r="' + r + '" fill="none" stroke="' + col + '" stroke-width="4" '
     + 'stroke-linecap="round" stroke-dasharray="' + filled.toFixed(2) + ' ' + circ.toFixed(2) + '" '
     + 'transform="rotate(-90 20 20)"/>'
@@ -9050,21 +9264,23 @@ def get_9router_host() -> str:
         if _9router_host_cache and (time.time() - _9router_host_at) < 300:  # 5 min cache
             return _9router_host_cache
 
-    # 1. Check local systemd service / socket / Docker / Compose first: if present locally, it's local!
-    if os.path.isfile("/etc/systemd/system/9router.service") or router_compose_file():
+    # 1. Check local 9router-go / 9router systemd service / socket / Docker / Compose first: if present locally, it's local!
+    user_go_unit = os.path.expanduser("~/.config/systemd/user/9router-go.service")
+    if os.path.isfile(user_go_unit) or os.path.isfile("/etc/systemd/system/9router.service") or router_compose_file():
         with _9router_host_lock:
             _9router_host_cache = "127.0.0.1"
             _9router_host_at = time.time()
         return "127.0.0.1"
 
-    try:
-        with socket.create_connection(("127.0.0.1", 20128), timeout=0.5):
-            with _9router_host_lock:
-                _9router_host_cache = "127.0.0.1"
-                _9router_host_at = time.time()
-            return "127.0.0.1"
-    except Exception:
-        pass
+    for probe_port in (20130, 20128):
+        try:
+            with socket.create_connection(("127.0.0.1", probe_port), timeout=0.5):
+                with _9router_host_lock:
+                    _9router_host_cache = "127.0.0.1"
+                    _9router_host_at = time.time()
+                return "127.0.0.1"
+        except Exception:
+            pass
 
     try:
         r = subprocess.run(
@@ -9115,19 +9331,55 @@ def get_9router_host() -> str:
     return "127.0.0.1"
 
 
-_9router_port_cache: int = 20128
+_9router_port_cache: int = 20130
 _9router_port_at: float = 0.0
 _9router_port_lock = threading.Lock()
+ROUTER_UPDATE_PORT = 20128
+
+
+def get_9router_update_port() -> int:
+    """Port untuk update 9router (tetap di 20128 agar tidak bercampur dengan 9router-go)."""
+    try:
+        if os.path.isfile("/etc/systemd/system/9router.service"):
+            with open("/etc/systemd/system/9router.service", "r", encoding="utf-8") as f:
+                for line in f:
+                    m = re.match(r"^\s*Environment=PORT=(\d+)\s*$", line)
+                    if m:
+                        return int(m.group(1))
+            return ROUTER_UPDATE_PORT
+    except Exception:
+        pass
+    return ROUTER_UPDATE_PORT
 
 
 def get_9router_port() -> int:
-    """Auto-detect 9router's host port from systemd unit or Docker, cached for 30s."""
+    """Auto-detect active 9router-go / 9router port (prefers 9router-go :20130), cached 30s."""
     global _9router_port_cache, _9router_port_at
     now = time.monotonic()
     with _9router_port_lock:
         if (now - _9router_port_at) < 30.0:
             return _9router_port_cache
     try:
+        user_go_unit = os.path.expanduser("~/.config/systemd/user/9router-go.service")
+        if os.path.isfile(user_go_unit):
+            val = 20130
+            try:
+                with open(user_go_unit, "r", encoding="utf-8") as f:
+                    for line in f:
+                        m = re.match(r"^\s*Environment=PORT=(\d+)\s*$", line)
+                        if m:
+                            val = int(m.group(1))
+                            break
+                        m2 = re.search(r"(?:--port|-p)\s+(\d+)", line)
+                        if m2:
+                            val = int(m2.group(1))
+                            break
+            except Exception:
+                pass
+            with _9router_port_lock:
+                _9router_port_cache = val
+                _9router_port_at = now
+            return val
         if os.path.isfile("/etc/systemd/system/9router.service"):
             with open("/etc/systemd/system/9router.service", "r", encoding="utf-8") as f:
                 for line in f:
@@ -9142,6 +9394,14 @@ def get_9router_port() -> int:
                 _9router_port_cache = 20128
                 _9router_port_at = now
             return 20128
+        try:
+            with socket.create_connection(("127.0.0.1", 20130), timeout=0.3):
+                with _9router_port_lock:
+                    _9router_port_cache = 20130
+                    _9router_port_at = now
+                return 20130
+        except Exception:
+            pass
         r = subprocess.run(
             ["docker", "inspect", ROUTER_CONTAINER,
              "--format", "{{range $p, $conf := .NetworkSettings.Ports}}{{$p}}->{{(index $conf 0).HostPort}}{{end}}"],
@@ -10944,6 +11204,34 @@ function confirmAction(route, href){
     }
   };
 }
+function syncPanelThemeUI(){
+  var isDark = false;
+  try { isDark = document.documentElement.getAttribute('data-theme') === 'dark'; } catch(e){}
+  var btn = document.getElementById('theme-toggle-btn');
+  if(btn){
+    btn.textContent = isDark ? 'LIGHT' : 'DARK';
+    btn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+    btn.title = isDark ? 'Beralih ke mode terang' : 'Beralih ke mode gelap';
+  }
+  var meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute('content', isDark ? '#121212' : '#FFFFFF');
+}
+function togglePanelTheme(){
+  var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  var next = isDark ? 'light' : 'dark';
+  if(next === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  else document.documentElement.removeAttribute('data-theme');
+  try { localStorage.setItem('panel_theme', next); } catch(e){}
+  syncPanelThemeUI();
+  if(typeof quotaRender === 'function' && window.QUOTA && QUOTA.loaded){
+    try { quotaRender(); } catch(e){}
+  }
+}
+window.togglePanelTheme = togglePanelTheme;
+if(typeof document !== 'undefined' && document.addEventListener){
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', syncPanelThemeUI);
+  else syncPanelThemeUI();
+}
 function safeStore(fn, key, val){
   try{ return val===undefined ? sessionStorage[fn](key) : sessionStorage[fn](key,val); }
   catch(x){ return null; }
@@ -11824,15 +12112,11 @@ def iter_custom_provider_entries(cfg: dict) -> list[dict]:
 
 
 def get_router_api_key() -> str:
-    """Read 9router credentials from the active parsed config.
-
-    The current Hermes schema stores custom-provider credentials under
-    ``fallback_providers`` or top-level ``custom_providers``; the old regex
-    expected a legacy ``name: 9router`` block and silently returned empty.
-    """
+    """Read 9router credentials from the active parsed config, falling back to 9router DB."""
     try:
         data = get_parsed_config()
         candidates = []
+        candidates.extend(cp for cp in iter_custom_provider_entries(data) if cp.get("name") == "9router")
         candidates.extend(data.get("fallback_providers") or [])
         custom = data.get("custom_providers") or {}
         if isinstance(custom, dict):
@@ -11844,7 +12128,6 @@ def get_router_api_key() -> str:
             provider = model_custom.get("9router")
             if isinstance(provider, dict):
                 candidates.append(provider)
-        candidates.extend(cp for cp in iter_custom_provider_entries(data) if cp.get("name") == "9router")
         for item in candidates:
             if not isinstance(item, dict):
                 continue
@@ -11853,6 +12136,15 @@ def get_router_api_key() -> str:
                 key = item.get("api_key") or item.get("apiKey")
                 if key:
                     return str(key)
+    except Exception:
+        pass
+    try:
+        db_path = get_router_db_path()
+        if os.path.exists(db_path):
+            with closing(sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=1.0)) as conn:
+                row = conn.execute("SELECT key FROM apiKeys WHERE key IS NOT NULL AND key != '' LIMIT 1").fetchone()
+                if row and row[0]:
+                    return str(row[0]).strip()
     except Exception:
         pass
     return ""
@@ -11948,7 +12240,7 @@ def sync_hermes_provider_cache(all_model_ids: list[str]) -> bool:
             burl = cp.get("base_url", "")
             if not burl:
                 continue
-            if "20128" in burl or "9router" in burl or "127.0.0.1" in burl:
+            if "20130" in burl or "20128" in burl or "9router" in burl or "127.0.0.1" in burl or "localhost" in burl or str(cp.get("name", "")).lower() == "9router":
                 key = cp.get("api_key") or ""
                 api_mode = cp.get("api_mode") or ""
                 headers = cp.get("extra_headers") or {}
@@ -12342,7 +12634,8 @@ def set_aux_task_model(task: str, provider: str, model: str) -> bool:
                         task_cfg.pop("base_url", None)
                         task_cfg.pop("api_key", None)
                     elif provider == "custom:9router":
-                        task_cfg["base_url"] = f"http://{host}:20128/v1"
+                        port = get_9router_port()
+                        task_cfg["base_url"] = f"http://{host}:{port}/v1"
                         task_cfg["api_key"] = key or ""
 
             _write_config_atomic(cfg)
@@ -12486,7 +12779,8 @@ def set_fallback_model(index: int, provider: str, model: str) -> bool:
 
             key = get_router_api_key()
             host = get_9router_host()
-            base_url = f"http://{host}:20128/v1"
+            port = get_9router_port()
+            base_url = f"http://{host}:{port}/v1"
 
             clean_prov = provider.replace("custom:", "") if provider and provider.startswith("custom:") else (provider or "9router")
 
@@ -16148,11 +16442,21 @@ def _refresh_router_uptime() -> None:
     """Fetch 9router systemd/container StartedAt in background."""
     val = ""
     try:
-        r_sys = _router_exec(
-            "systemctl show 9router.service -p ActiveEnterTimestampMonotonic --value",
-            timeout=INFO_TIMEOUT,
-        )
-        mono_us = int((r_sys.stdout or "").strip() or "0")
+        user_go_unit = os.path.expanduser("~/.config/systemd/user/9router-go.service")
+        if os.path.isfile(user_go_unit):
+            r_sys = _router_exec(
+                "XDG_RUNTIME_DIR=/run/user/0 systemctl --user show 9router-go.service -p ActiveEnterTimestampMonotonic --value",
+                timeout=INFO_TIMEOUT,
+            )
+            mono_us = int((r_sys.stdout or "").strip() or "0")
+        else:
+            mono_us = 0
+        if mono_us <= 0:
+            r_sys = _router_exec(
+                "systemctl show 9router.service -p ActiveEnterTimestampMonotonic --value",
+                timeout=INFO_TIMEOUT,
+            )
+            mono_us = int((r_sys.stdout or "").strip() or "0")
         if mono_us > 0:
             with open("/proc/uptime", "r", encoding="utf-8") as f:
                 up_sec = float(f.read().split()[0])
@@ -16286,9 +16590,9 @@ def get_remote_image_digest() -> str:
 
 
 def get_router_release() -> dict:
-    """Read 9router's own public release check from the detected host."""
+    """Read 9router's own public release check from port 20128 (update path stays on 20128)."""
     host = get_9router_host()
-    port = get_9router_port()
+    port = get_9router_update_port()
     try:
         with urllib.request.urlopen(f"http://{host}:{port}/api/version", timeout=INFO_TIMEOUT) as resp:
             data = json.load(resp)
@@ -18451,7 +18755,7 @@ _ANTIGRAVITY_GROUPS = (
     ("gemini-4-carbon", "Gemini 4 Carbon", None, ("gemini-4-carbon-",), ()),
     ("gemini-4-hydrogen", "Gemini 4 Hydrogen", None, ("gemini-4-hydrogen-",), ()),
 )
-_ANTIGRAVITY_AGGREGATE_SET = frozenset({"gemini_session", "gemini_weekly", "claude_gpt_session", "claude_gpt_weekly"})
+_ANTIGRAVITY_AGGREGATE_SET = frozenset({"gemini_session", "gemini_weekly", "claude_gpt_session", "claude_gpt_weekly", "argon_weekly", "gemini_argon_weekly", "gemini_argon_session"})
 
 # Worst-first ordering used when rolling group statuses up to the account.
 _ACCOUNT_STATUS_RANK = {
@@ -18562,7 +18866,9 @@ def _antigravity_groups(quotas: dict) -> list:
                 details.append(_quota_bucket_entry(bkey, raw_b))
 
         if gkey in _GEMINI4_SPECIAL_KEYS:
-            if not details:
+            argon_agg = (quotas.get("argon_weekly") or quotas.get("gemini_argon_weekly")) if gkey == "gemini-4-argon" else None
+            argon_agg = argon_agg if isinstance(argon_agg, dict) else None
+            if not details and not argon_agg:
                 note = "Tidak tersedia (butuh Pro/Ultra)" if gkey == "gemini-4-argon" else "Tidak tersedia di akun ini"
                 groups.append({
                     "key": gkey, "label": glabel, "pct": None, "status": "no_access",
@@ -18571,13 +18877,17 @@ def _antigravity_groups(quotas: dict) -> list:
                 })
                 continue
             pcts = [d["pct"] for d in details if d["pct"] is not None]
-            worst = min(details, key=lambda d: (d["pct"] is None, d["pct"] or 0))
-            m_names, m_entries = _collect_group_models(details)
+            agg_pct = _quota_pct(argon_agg) if argon_agg else None
+            if not pcts and agg_pct is not None:
+                pcts = [agg_pct]
+            worst = min(details, key=lambda d: (d["pct"] is None, d["pct"] or 0)) if details else argon_agg
+            m_names, m_entries = _collect_group_models(details) if details else (["Gemini 4 Argon"], [{"label": "Gemini 4 Argon", "pct": agg_pct}])
+            reset_at = (details[0]["resetAt"] if details and details[0].get("resetAt") else (argon_agg.get("resetAt") if argon_agg else None))
             groups.append({
                 "key": gkey, "label": glabel,
                 "pct": round(min(pcts), 1) if pcts else None,
-                "status": _quota_status_from_pcts([d["pct"] for d in details]),
-                "resetAt": details[0]["resetAt"],
+                "status": _quota_status_from_pcts(pcts),
+                "resetAt": reset_at,
                 "used": worst.get("used"), "total": worst.get("total"),
                 "fallback": False, "buckets": details, "note": None,
                 "model_names": m_names, "model_entries": m_entries,
@@ -20018,7 +20328,14 @@ def build_login_page(error: str = "") -> str:
         ".err{margin:0 0 1rem;padding:.6rem .75rem;border:2px solid #000000;font-size:.84rem;"
         "background:#FFE6E6;color:#A80000}"
         ".foot{margin:1.1rem 0 0;font-size:.72rem;color:#404040;text-align:center}"
-        "</style></head><body>"
+        "html[data-theme=\"dark\"] body{background-color:#121212;color:#F5F5F5;background-image:linear-gradient(to right,rgba(255,80,80,0.12) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,80,80,0.12) 1px,transparent 1px)}"
+        "html[data-theme=\"dark\"] .card{background:#1A1A1A;border-color:#E5E5E5}"
+        "html[data-theme=\"dark\"] .sub,html[data-theme=\"dark\"] .foot{color:#C2C2C2}"
+        "html[data-theme=\"dark\"] label{color:#F5F5F5}"
+        "html[data-theme=\"dark\"] h1::after{color:#7DA2FF}"
+        "html[data-theme=\"dark\"] input{background:#111111;color:#F5F5F5;border-color:#E5E5E5}"
+        "html[data-theme=\"dark\"] .err{background:#3B1111;color:#FF8888;border-color:#FF6B6B}"
+        "</style><script>try{if(localStorage.getItem('panel_theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script></head><body>"
         "<form class=\"card\" method=\"POST\" action=\"/login\" autocomplete=\"off\">"
         "<h1>Hermes Control Panel</h1>"
         "<p class=\"sub\">Masuk pakai password panel.</p>"
