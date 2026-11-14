@@ -102,7 +102,7 @@ PANEL_VERSION = (os.environ.get("PANEL_VERSION") or "").strip() or "1.0.0"
 # Waktu mulai proses, dipakai snapshot diagnostik untuk uptime proses panel
 # (bukan uptime host: dua angka itu sering tertukar saat melapor masalah).
 PANEL_START_TS = time.time()
-ROUTER_MODELS_URL = "http://{host}:20130/v1/models"
+ROUTER_MODELS_URL = "http://{host}:20128/v1/models"
 ROUTER_VERSION_URL = "http://{host}:20128/api/version"
 MODELS_TIMEOUT = 8.0  # 9router /v1/models upstream fan-out can take 3-5s under load; 4.0s timed out during heavy test suites
 
@@ -193,7 +193,7 @@ MUTATING_PATHS = frozenset({
 })
 MAX_BODY_SIZE = 5 * 1024 * 1024  # 5 MB max POST body (SEC-DOS-01)
 LEGACY_GET_SHORTCUTS = frozenset({"/toggle", "/on", "/off", "/openclaw-toggle"})
-ROUTER_URL = "http://{host}:20130/"
+ROUTER_URL = "http://{host}:20128/"
 INFO_TIMEOUT = 2.0  # seconds — every live check below is capped at this
 SYSTEMCTL_TIMEOUT = 1.5  # seconds — fast cap for systemctl checks (1-2s)
 ROUTER_DB_CANDIDATES = [
@@ -9264,23 +9264,21 @@ def get_9router_host() -> str:
         if _9router_host_cache and (time.time() - _9router_host_at) < 300:  # 5 min cache
             return _9router_host_cache
 
-    # 1. Check local 9router-go / 9router systemd service / socket / Docker / Compose first: if present locally, it's local!
-    user_go_unit = os.path.expanduser("~/.config/systemd/user/9router-go.service")
-    if os.path.isfile(user_go_unit) or os.path.isfile("/etc/systemd/system/9router.service") or router_compose_file():
+    # 1. Check local 9router systemd service / socket / Docker / Compose first: if present locally, it's local!
+    if os.path.isfile("/etc/systemd/system/9router.service") or router_compose_file():
         with _9router_host_lock:
             _9router_host_cache = "127.0.0.1"
             _9router_host_at = time.time()
         return "127.0.0.1"
 
-    for probe_port in (20130, 20128):
-        try:
-            with socket.create_connection(("127.0.0.1", probe_port), timeout=0.5):
-                with _9router_host_lock:
-                    _9router_host_cache = "127.0.0.1"
-                    _9router_host_at = time.time()
-                return "127.0.0.1"
-        except Exception:
-            pass
+    try:
+        with socket.create_connection(("127.0.0.1", 20128), timeout=0.5):
+            with _9router_host_lock:
+                _9router_host_cache = "127.0.0.1"
+                _9router_host_at = time.time()
+            return "127.0.0.1"
+    except Exception:
+        pass
 
     try:
         r = subprocess.run(
@@ -9331,55 +9329,19 @@ def get_9router_host() -> str:
     return "127.0.0.1"
 
 
-_9router_port_cache: int = 20130
+_9router_port_cache: int = 20128
 _9router_port_at: float = 0.0
 _9router_port_lock = threading.Lock()
-ROUTER_UPDATE_PORT = 20128
-
-
-def get_9router_update_port() -> int:
-    """Port untuk update 9router (tetap di 20128 agar tidak bercampur dengan 9router-go)."""
-    try:
-        if os.path.isfile("/etc/systemd/system/9router.service"):
-            with open("/etc/systemd/system/9router.service", "r", encoding="utf-8") as f:
-                for line in f:
-                    m = re.match(r"^\s*Environment=PORT=(\d+)\s*$", line)
-                    if m:
-                        return int(m.group(1))
-            return ROUTER_UPDATE_PORT
-    except Exception:
-        pass
-    return ROUTER_UPDATE_PORT
 
 
 def get_9router_port() -> int:
-    """Auto-detect active 9router-go / 9router port (prefers 9router-go :20130), cached 30s."""
+    """Auto-detect 9router Node host port from systemd unit or Docker, cached 30s."""
     global _9router_port_cache, _9router_port_at
     now = time.monotonic()
     with _9router_port_lock:
         if (now - _9router_port_at) < 30.0:
             return _9router_port_cache
     try:
-        user_go_unit = os.path.expanduser("~/.config/systemd/user/9router-go.service")
-        if os.path.isfile(user_go_unit):
-            val = 20130
-            try:
-                with open(user_go_unit, "r", encoding="utf-8") as f:
-                    for line in f:
-                        m = re.match(r"^\s*Environment=PORT=(\d+)\s*$", line)
-                        if m:
-                            val = int(m.group(1))
-                            break
-                        m2 = re.search(r"(?:--port|-p)\s+(\d+)", line)
-                        if m2:
-                            val = int(m2.group(1))
-                            break
-            except Exception:
-                pass
-            with _9router_port_lock:
-                _9router_port_cache = val
-                _9router_port_at = now
-            return val
         if os.path.isfile("/etc/systemd/system/9router.service"):
             with open("/etc/systemd/system/9router.service", "r", encoding="utf-8") as f:
                 for line in f:
@@ -9394,14 +9356,6 @@ def get_9router_port() -> int:
                 _9router_port_cache = 20128
                 _9router_port_at = now
             return 20128
-        try:
-            with socket.create_connection(("127.0.0.1", 20130), timeout=0.3):
-                with _9router_port_lock:
-                    _9router_port_cache = 20130
-                    _9router_port_at = now
-                return 20130
-        except Exception:
-            pass
         r = subprocess.run(
             ["docker", "inspect", ROUTER_CONTAINER,
              "--format", "{{range $p, $conf := .NetworkSettings.Ports}}{{$p}}->{{(index $conf 0).HostPort}}{{end}}"],
@@ -9421,6 +9375,11 @@ def get_9router_port() -> int:
         _9router_port_cache = 20128
         _9router_port_at = now
     return 20128
+
+
+def get_9router_update_port() -> int:
+    """Port untuk update 9router (port 20128)."""
+    return get_9router_port()
 
 
 def invalidate_router_port_cache() -> None:
@@ -16442,21 +16401,11 @@ def _refresh_router_uptime() -> None:
     """Fetch 9router systemd/container StartedAt in background."""
     val = ""
     try:
-        user_go_unit = os.path.expanduser("~/.config/systemd/user/9router-go.service")
-        if os.path.isfile(user_go_unit):
-            r_sys = _router_exec(
-                "XDG_RUNTIME_DIR=/run/user/0 systemctl --user show 9router-go.service -p ActiveEnterTimestampMonotonic --value",
-                timeout=INFO_TIMEOUT,
-            )
-            mono_us = int((r_sys.stdout or "").strip() or "0")
-        else:
-            mono_us = 0
-        if mono_us <= 0:
-            r_sys = _router_exec(
-                "systemctl show 9router.service -p ActiveEnterTimestampMonotonic --value",
-                timeout=INFO_TIMEOUT,
-            )
-            mono_us = int((r_sys.stdout or "").strip() or "0")
+        r_sys = _router_exec(
+            "systemctl show 9router.service -p ActiveEnterTimestampMonotonic --value",
+            timeout=INFO_TIMEOUT,
+        )
+        mono_us = int((r_sys.stdout or "").strip() or "0")
         if mono_us > 0:
             with open("/proc/uptime", "r", encoding="utf-8") as f:
                 up_sec = float(f.read().split()[0])
